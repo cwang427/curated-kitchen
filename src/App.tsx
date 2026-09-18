@@ -1,8 +1,10 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider'
 import SignIn from './auth/SignIn'
 import RecipeListPage from './routes/RecipeListPage'
 import RecipePage from './routes/RecipePage'
+import SettingsPage from './routes/SettingsPage'
+import JoinPage from './routes/JoinPage'
 
 function Loading() {
   return (
@@ -14,9 +16,17 @@ function Loading() {
 
 export default function App() {
   const { user, household, loading, error } = useAuth()
+  // Invite links land at the app root with ?join=<code>, so it has to be
+  // handled ahead of the normal routes — before we require a loaded household.
+  const [params] = useSearchParams()
+  const joinCode = params.get('join')
 
   if (loading) return <Loading />
   if (!user) return <SignIn />
+
+  // A signed-in user opening an invite link goes straight to the prompt,
+  // even while their own household is still loading.
+  if (joinCode) return <JoinPage />
 
   if (error) {
     return (
@@ -34,6 +44,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<RecipeListPage />} />
       <Route path="/r/:slug" element={<RecipePage />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

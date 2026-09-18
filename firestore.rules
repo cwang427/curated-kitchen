@@ -4,8 +4,13 @@ rules_version = '2';
 // ----------------------------
 // A household is the unit of trust. Members (you + partner) read and write
 // everything the household owns. Friends get read-only access to recipes the
-// household has explicitly marked 'friends' — never to grocery lists, which
-// are the household's alone.
+// household has explicitly marked 'friends' — never to grocery lists.
+//
+// Joining a household is by invite code (see the `invites` collection and the
+// join branches on `households` below). A code is an unguessable secret: the
+// invite document is readable by anyone signed in, because knowing the code is
+// the authorization. Redeeming it can only ever add the caller — and no one
+// else — to the household it names, and only while the invite exists.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -35,8 +40,45 @@ service cloud.firestore {
         && request.auth.uid in householdData(householdId).friendUids;
     }
 
-    // Profiles are read-only to other signed-in users so the UI can show who
-    // added a recipe or checked off an item. Nothing sensitive lives here.
+    // The invite code the caller has staged on their own profile (see the join
+    // flow). Binding the code to the caller's user doc is what lets the rule
+    // below verify *which* invite is being redeemed — a rule can't see a query
+    // filter or a client variable, only documents it get()s.
+    function stagedInvite() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('pendingInvite', null)
+        : null;
+    }
+
+    // True when the caller holds a valid staged invite for this household and
+    // role. The invite must exist and name exactly this household and role.
+    function redeemingInvite(householdId, role) {
+      let code = stagedInvite();
+      return code is string
+        && exists(/databases/$(database)/documents/invites/$(code))
+        && get(/databases/$(database)/documents/invites/$(code)).data.householdId == householdId
+        && get(/databases/$(database)/documents/invites/$(code)).data.role == role;
+    }
+
+    // True when `after` is `before` with exactly the caller's own uid added —
+    // nobody else, nothing removed. This is what keeps a redeemed invite from
+    // adding arbitrary members.
+    function addedOnlySelf(before, after) {
+      return after.hasAll(before)
+        && after.size() == before.size() + 1
+        && (request.auth.uid in after)
+        && !(request.auth.uid in before);
+    }
+
+    // A join touches only the one membership array and nothing else.
+    function onlyChanged(key) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([key]);
+    }
+
+    // Profiles are readable by any signed-in user so the UI can show who added
+    // a recipe or checked off an item. `pendingInvite` is the only writable-by-
+    // self field that rules depend on; it names a secret code the caller
+    // already holds, so exposing it to a reader gives nothing away.
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && request.auth.uid == userId;
@@ -46,17 +88,39 @@ service cloud.firestore {
     match /households/{householdId} {
       allow read: if isMember(householdId) || isFriend(householdId);
 
-      // You may only create a household you own and are the sole member of.
+      // A household is created owned by, and containing, exactly its creator.
       allow create: if isSignedIn()
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.memberUids == [request.auth.uid];
 
-      // Members may edit the household, but ownership cannot be reassigned
-      // and a member cannot promote themselves to owner.
-      allow update: if isMember(householdId)
-        && request.resource.data.ownerUid == resource.data.ownerUid;
+      // Three ways to update:
+      //  1. An existing member edits the household (rename, mint/revoke an
+      //     invite code, manage membership). Ownership can't be reassigned.
+      //  2. A newcomer redeems a member invite, adding only themselves.
+      //  3. A newcomer redeems a friend invite, adding only themselves.
+      allow update: if
+        (isMember(householdId)
+          && request.resource.data.ownerUid == resource.data.ownerUid)
+        || (onlyChanged('memberUids')
+          && addedOnlySelf(resource.data.memberUids, request.resource.data.memberUids)
+          && redeemingInvite(householdId, 'member'))
+        || (onlyChanged('friendUids')
+          && addedOnlySelf(resource.data.friendUids, request.resource.data.friendUids)
+          && redeemingInvite(householdId, 'friend'));
 
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Invite codes. The document id IS the code, so it must be long and random.
+    // Any signed-in user may read one (knowing the code is the authorization);
+    // only a member may mint or revoke invites for their own household.
+    match /invites/{code} {
+      allow read: if isSignedIn();
+      allow create: if isMember(request.resource.data.householdId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.role in ['member', 'friend'];
+      allow update: if false;
+      allow delete: if isSignedIn() && isMember(resource.data.householdId);
     }
 
     match /recipes/{recipeId} {

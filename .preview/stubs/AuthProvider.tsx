@@ -14,11 +14,11 @@ export function useAuth() {
   const [submitting, setSubmitting] = useState(false)
 
   return {
-    user: signedOut ? null : { displayName: 'Cassidy', email: 'c@example.com', photoURL: null },
+    user: signedOut ? null : { uid: 'u', displayName: 'Cassidy', email: 'c@example.com', photoURL: null },
     profile: null,
     household: signedOut
       ? null
-      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u'], friendUids: [], createdAt: null },
+      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u'], friendUids: [], inviteCode: null, createdAt: null },
     loading: false,
     submitting,
     error: params.has('error') ? 'That email and password don’t match an account.' : null,
@@ -27,5 +27,6 @@ export function useAuth() {
       setTimeout(() => setSubmitting(false), 900)
     },
     signOut: async () => {},
+    refresh: async () => {},
   } as never
 }

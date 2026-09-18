@@ -27,6 +27,8 @@ interface AuthState {
   error: string | null
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  /** Re-read the profile and active household — after a join or a switch. */
+  refresh: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -115,9 +117,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await firebaseSignOut(auth)
   }, [])
 
+  const refresh = useCallback(async () => {
+    if (!auth.currentUser) return
+    const result = await ensureUserAndHousehold(auth.currentUser)
+    setProfile(result.profile)
+    setHousehold(result.household)
+  }, [])
+
   const value = useMemo<AuthState>(
-    () => ({ user, profile, household, loading, submitting, error, signIn, signOut }),
-    [user, profile, household, loading, submitting, error, signIn, signOut],
+    () => ({ user, profile, household, loading, submitting, error, signIn, signOut, refresh }),
+    [user, profile, household, loading, submitting, error, signIn, signOut, refresh],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

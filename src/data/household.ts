@@ -17,6 +17,7 @@ function toHousehold(id: string, data: DocumentData): Household {
     ownerUid: data.ownerUid,
     memberUids: data.memberUids ?? [],
     friendUids: data.friendUids ?? [],
+    inviteCode: data.inviteCode ?? null,
     createdAt: data.createdAt?.toMillis?.() ?? null,
   }
 }
@@ -29,6 +30,7 @@ function toProfile(uid: string, data: DocumentData): UserProfile {
     photoURL: data.photoURL ?? null,
     householdIds: data.householdIds ?? [],
     defaultHouseholdId: data.defaultHouseholdId ?? null,
+    pendingInvite: data.pendingInvite ?? null,
   }
 }
 
@@ -54,8 +56,8 @@ function defaultHouseholdName(displayName: string): string {
 
 /**
  * Called on every sign-in. Creates the user's profile and a starter
- * household the first time, and keeps the profile's display fields in sync
- * with their Google account afterwards.
+ * household the first time, and keeps the cached profile fields in sync
+ * afterwards.
  */
 export async function ensureUserAndHousehold(
   user: User,

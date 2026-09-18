@@ -12,7 +12,8 @@
     "ui:build": "vite build -c vite.preview.config.ts --outDir ../.preview-dist --emptyOutDir",
     "validate:recipes": "tsx scripts/validate-recipes.ts",
     "sync:recipes": "tsx scripts/sync-recipes.ts",
-    "deploy": "npm run build && firebase deploy"
+    "test:rules": "npx -y firebase-tools@13 emulators:exec --only firestore,auth --project curated-kitchen-rules-test 'tsx scripts/test-rules.ts'",
+    "deploy:rules": "npx -y firebase-tools@13 deploy --only firestore:rules"
   },
   "dependencies": {
     "firebase": "^11.1.0",

@@ -5,8 +5,9 @@ installable web app, so it runs on iPhone without an Apple developer account.
 
 Built on React + TypeScript + Vite with Firebase (Auth, Firestore, Hosting).
 
-**Status: phase 1.** Recipes, scaling, and the reader are done. Cook mode and
-the grocery list are next — see [Roadmap](#roadmap).
+**Status: recipes + sharing.** Sign-in, the recipe reader with scaling, and
+household/friend sharing by invite link are done. The grocery list and cook
+mode are next — see [Roadmap](#roadmap).
 
 ---
 
@@ -87,12 +88,53 @@ deployment path skips it entirely, so no `.nojekyll` is needed.)
 
 ---
 
+## Sharing your kitchen
+
+A **household** is the unit of sharing. When you first sign in, the app makes
+you a household of one — so you and your partner each start in a *separate*
+kitchen. To share, one of you invites the other:
+
+**Settings** (the avatar, top-right) **› Invite a partner › Copy link.** Send
+that link; when they open it they get a *Join this kitchen?* prompt, and after
+joining they see the same recipes, grocery list, and cook log you do.
+
+**Invite a friend** works the same way but grants read-only access to recipes
+you've marked `"visibility": "friends"` — never the grocery list. Revoke either
+invite any time; the link stops working immediately.
+
+The security behind this lives in [`firestore.rules`](firestore.rules) and is
+covered by an emulator test — see `npm run test:rules` below.
+
+---
+
 ## Adding recipes
 
 Recipe content lives as JSON in [`recipes/`](recipes/), one file per recipe,
 named `<slug>.json`. Those files are the source of truth: a recipe's Firestore
 document id *is* its slug, so re-syncing overwrites cleanly and every change
-shows up in `git diff`.
+shows up in `git diff`. See [`recipes/README.md`](recipes/README.md) for the
+authoring format.
+
+### Push to sync (the phone-friendly way)
+
+Once set up, **committing a recipe file syncs it to Firestore automatically**
+via [the sync workflow](.github/workflows/sync-recipes.yml) — no key on your
+device. One-time setup, from a computer:
+
+1. **Firebase console › Project settings › Service accounts › Generate new
+   private key.** This downloads a JSON file.
+2. **GitHub repo › Settings › Secrets and variables › Actions:**
+   - **New repository secret** named `FIREBASE_SERVICE_ACCOUNT` — paste the
+     whole JSON file as the value.
+   - **Variables tab › New variable** named `KITCHEN_HOUSEHOLD_ID` — set it to
+     the household these recipes belong to (find it in the Firestore console
+     under `households`, or in the app under Settings once you've picked a
+     shared kitchen).
+
+The service-account key is a real credential — it bypasses the security rules.
+Keep it only in that GitHub secret; never commit it.
+
+### Syncing from a computer instead
 
 ```bash
 npm run validate:recipes                          # check before syncing
@@ -100,14 +142,8 @@ npm run sync:recipes -- --household=<householdId> --dry-run
 npm run sync:recipes -- --household=<householdId>
 ```
 
-Find `<householdId>` in the Firestore console under `households`, or set
-`KITCHEN_HOUSEHOLD_ID` in your environment to skip the flag.
-
-Syncing uses the Admin SDK and needs a service account:
-**Project settings › Service accounts › Generate new private key**. Save it to
-`./secrets/` (gitignored) and point `GOOGLE_APPLICATION_CREDENTIALS` at it.
-
-See [`recipes/README.md`](recipes/README.md) for the authoring format.
+Needs the same key locally: save it to `./secrets/` (gitignored) and point
+`GOOGLE_APPLICATION_CREDENTIALS` at it, with `FIREBASE_PROJECT_ID` set.
 
 ---
 
@@ -117,7 +153,7 @@ See [`recipes/README.md`](recipes/README.md) for the authoring format.
 recipes/*.json        Recipe content — the source of truth
 scripts/              Validation, Firestore sync, icon generation
 src/lib/              Types, units, scaling, schema validation  ← the core
-src/data/             Firestore reads and the household bootstrap
+src/data/             Firestore reads, household bootstrap, invites
 src/routes/           Pages
 src/components/       UI
 firestore.rules       Access control
@@ -193,6 +229,11 @@ python3 scripts/make-icons.py   # regenerate PWA icons
 Firebase swapped out, so layout and scaling can be checked without
 credentials or a network. Fixtures live in `.preview/stubs/`.
 
+`npm run test:rules` runs the Firestore security rules against the local
+emulator — it verifies the household/invite model (who can join, who can read
+what) with ~30 allow/deny assertions. Needs Java; the first run downloads the
+Firebase CLI and the emulator.
+
 None of this is needed to ship a change — CI runs the same checks on push.
 
 ---
@@ -205,7 +246,8 @@ None of this is needed to ship a change — CI runs the same checks on push.
       realtime check-off
 - [ ] **3** — Cook mode: full-screen steps, wake lock, concurrent timers,
       two-phone session sync
-- [ ] **4** — Household invites, friend sharing, cook log
+- [x] **4a** — Household invites and friend sharing *(join-by-link, done)*
+- [ ] **4b** — Cook log
 - [ ] **5** — Recipe import (JSON-LD for sites that publish it, paste-and-parse
       for those that don't)
 

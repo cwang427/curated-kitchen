@@ -17,6 +17,7 @@ export default defineConfig({
       // "../auth/AuthProvider".
       { find: /^.*AuthProvider$/, replacement: stub("AuthProvider.tsx") },
       { find: /^.*\/data\/recipes$/, replacement: stub("recipes.tsx") },
+      { find: /^.*\/data\/invites$/, replacement: stub("invites.ts") },
     ],
   },
   plugins: [react(), tailwindcss()],

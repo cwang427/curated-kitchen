@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
 
 export default function AppHeader({ title }: { title?: string }) {
-  const { user, household, signOut } = useAuth()
+  const { user, household } = useAuth()
 
   return (
     <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
@@ -16,16 +16,16 @@ export default function AppHeader({ title }: { title?: string }) {
           )}
         </Link>
 
-        <button
-          type="button"
-          onClick={signOut}
-          title={`Sign out of ${user?.email ?? 'this account'}`}
+        <Link
+          to="/settings"
+          title="Settings"
+          aria-label="Settings"
           className="shrink-0 rounded-full border border-line"
         >
           {user?.photoURL ? (
             <img
               src={user.photoURL}
-              alt="Sign out"
+              alt=""
               referrerPolicy="no-referrer"
               className="size-9 rounded-full"
             />
@@ -34,7 +34,7 @@ export default function AppHeader({ title }: { title?: string }) {
               {(user?.displayName ?? user?.email ?? '?').slice(0, 1).toUpperCase()}
             </span>
           )}
-        </button>
+        </Link>
       </div>
     </header>
   )

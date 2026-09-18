@@ -164,7 +164,21 @@ export interface Household {
   memberUids: string[]
   /** Read-only on recipes shared with visibility 'friends'. */
   friendUids: string[]
+  /** The most recently minted invite code, shown so members can share it. */
+  inviteCode: string | null
   createdAt: number | null
+}
+
+export type HouseholdRole = 'member' | 'friend'
+
+/** An invite document, keyed by its own (secret, unguessable) code. */
+export interface Invite {
+  code: string
+  householdId: string
+  /** Denormalized so the join prompt can name the kitchen before joining. */
+  householdName: string | null
+  role: HouseholdRole
+  createdBy: string
 }
 
 export interface UserProfile {
@@ -175,4 +189,10 @@ export interface UserProfile {
   /** Households this user belongs to, mirrored for cheap lookup. */
   householdIds: string[]
   defaultHouseholdId: string | null
+  /**
+   * The invite code the user is mid-redeeming. Staged here so the security
+   * rules can verify which invite authorizes a self-add to a household —
+   * rules can read documents but not client variables or query filters.
+   */
+  pendingInvite: string | null
 }
