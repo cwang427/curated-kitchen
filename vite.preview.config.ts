@@ -8,6 +8,9 @@ const stub = (name: string) => fileURLToPath(new URL(`./.preview/stubs/${name}`,
 // Renders the real pages and components against fixture data, with Firebase
 // swapped out, so the UI can be checked without a live project.
 export default defineConfig({
+  define: {
+    __BUILD__: JSON.stringify({ version: '0.0.0', commit: 'preview', time: new Date().toISOString() }),
+  },
   root: fileURLToPath(new URL('./.preview', import.meta.url)),
   resolve: {
     alias: [

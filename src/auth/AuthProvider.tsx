@@ -15,6 +15,7 @@ import {
 } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { ensureUserAndHousehold } from '../data/household'
+import { describeFirestoreError } from '../lib/errors'
 import type { Household, UserProfile } from '../lib/types'
 
 interface AuthState {
@@ -85,12 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setHousehold(result.household)
         setError(null)
       } catch (cause) {
-        // Almost always means firestore.rules hasn't been published yet.
-        setError(
-          cause instanceof Error && cause.message.includes('permission')
-            ? 'Signed in, but Firestore denied the request. Publish firestore.rules in the Firebase console.'
-            : 'Could not load your kitchen. Check your connection and try again.',
-        )
+        // A permission error here almost always means firestore.rules hasn't
+        // been published yet; describeFirestoreError says exactly that.
+        setError(describeFirestoreError(cause, 'load your kitchen'))
       } finally {
         setLoading(false)
       }

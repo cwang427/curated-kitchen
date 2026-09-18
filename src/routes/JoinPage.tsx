@@ -4,6 +4,7 @@ import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../auth/AuthProvider'
 import { InviteError, joinByCode } from '../data/invites'
+import { describeFirestoreError } from '../lib/errors'
 import type { HouseholdRole } from '../lib/types'
 
 type State =
@@ -70,7 +71,7 @@ export default function JoinPage() {
         message:
           cause instanceof InviteError
             ? cause.message
-            : 'Could not join. The invite may have just been revoked.',
+            : describeFirestoreError(cause, 'join this kitchen'),
       })
     }
   }

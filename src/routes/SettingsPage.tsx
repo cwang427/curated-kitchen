@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import AppHeader from '../components/AppHeader'
+import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
 import { createInvite, inviteLink, revokeInvite } from '../data/invites'
+import { describeFirestoreError } from '../lib/errors'
 import type { HouseholdRole } from '../lib/types'
 
 function useCopied() {
@@ -37,8 +39,8 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
       const next = await createInvite(household.id, household.name, user.uid, role)
       setCode(next)
       await refresh()
-    } catch {
-      setError('Could not create an invite. Check your connection.')
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'create an invite'))
     } finally {
       setBusy(false)
     }
@@ -47,10 +49,13 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
   const revoke = async () => {
     if (!code) return
     setBusy(true)
+    setError(null)
     try {
       await revokeInvite(household.id, code)
       setCode(null)
       await refresh()
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'revoke the invite'))
     } finally {
       setBusy(false)
     }
@@ -159,6 +164,8 @@ export default function SettingsPage() {
             Sign out
           </button>
         </section>
+
+        <VersionInfo />
       </main>
     </div>
   )
