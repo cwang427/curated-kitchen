@@ -5,9 +5,9 @@ installable web app, so it runs on iPhone without an Apple developer account.
 
 Built on React + TypeScript + Vite with Firebase (Auth, Firestore, Hosting).
 
-**Status: recipes + sharing.** Sign-in, the recipe reader with scaling, and
-household/friend sharing by invite link are done. The grocery list and cook
-mode are next — see [Roadmap](#roadmap).
+**Status: recipes, sharing, cook mode.** Sign-in, the recipe reader with
+scaling, household/friend sharing by invite, and cook mode are done. The
+grocery list and recipe import are next — see [Roadmap](#roadmap).
 
 ---
 
@@ -246,8 +246,9 @@ None of this is needed to ship a change — CI runs the same checks on push.
       realtime check-off
 - [ ] **3** — Cook mode: full-screen steps, wake lock, concurrent timers,
       two-phone session sync
+- [x] **3** — Cook mode: full-screen steps, wake lock, cross-step timers, big controls
 - [x] **4a** — Household invites and friend sharing *(join-by-link, done)*
-- [ ] **4b** — Cook log
+- [ ] **4b** — Cook log, and two-phone cook-session sync
 - [ ] **5** — Recipe import (JSON-LD for sites that publish it, paste-and-parse
       for those that don't)
 

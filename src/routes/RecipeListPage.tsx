@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
+import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
 import { formatMinutes } from '../lib/quantity'
 import type { Recipe } from '../lib/types'
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function RecipeCard({ recipe }: { recipe: Recipe }) {
   const time = formatMinutes(recipe.times.activeMin ?? recipe.times.totalMin)
@@ -47,7 +50,8 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
 
 export default function RecipeListPage() {
   const { household } = useAuth()
-  const { recipes, loading, error } = useRecipes(household?.id ?? null)
+  const [nonce, setNonce] = useState(0)
+  const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce)
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
 
@@ -59,10 +63,18 @@ export default function RecipeListPage() {
       current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
     )
 
+  // Re-subscribe, and hold the spinner briefly so the pull registers as a
+  // deliberate action rather than a flash.
+  const refresh = useCallback(async () => {
+    setNonce((n) => n + 1)
+    await sleep(700)
+  }, [])
+
   return (
-    <div className="min-h-dvh">
+    <div className="relative min-h-dvh overflow-hidden">
       <AppHeader />
 
+      <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
         <input
           type="search"
@@ -124,6 +136,7 @@ export default function RecipeListPage() {
           ))}
         </div>
       </main>
+      </PullToRefresh>
     </div>
   )
 }

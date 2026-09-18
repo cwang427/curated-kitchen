@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
-import { createInvite, inviteLink, revokeInvite } from '../data/invites'
+import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { describeFirestoreError } from '../lib/errors'
 import type { HouseholdRole } from '../lib/types'
 
@@ -27,15 +27,36 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (!user || !household) return null
+  const householdId = household?.id
+  const isMember = !!user && !!household && household.memberUids.includes(user.uid)
 
-  const isMember = household.memberUids.includes(user.uid)
-  if (!isMember) return null
+  // Show the link again after a reopen: an invite lives in Firestore, not just
+  // in this component's state, so look up any outstanding one on mount.
+  useEffect(() => {
+    if (!householdId || !isMember) return
+    let live = true
+    listInvites(householdId, role)
+      .then((invites) => {
+        if (live && invites.length > 0) setCode(invites[0].code)
+      })
+      .catch(() => {
+        // Non-fatal — the panel just falls back to the "Create" button.
+      })
+    return () => {
+      live = false
+    }
+  }, [householdId, role, isMember])
+
+  if (!user || !household || !isMember) return null
 
   const generate = async () => {
     setBusy(true)
     setError(null)
     try {
+      // Retire any earlier links of this role so live invites don't pile up.
+      const existing = await listInvites(household.id, role)
+      await Promise.all(existing.map((invite) => revokeInvite(household.id, invite.code)))
+
       const next = await createInvite(household.id, household.name, user.uid, role)
       setCode(next)
       await refresh()
@@ -129,7 +150,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title="Settings" />
+      <AppHeader title="Settings" back />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl space-y-6 px-4 py-5">
         <section className="space-y-3">

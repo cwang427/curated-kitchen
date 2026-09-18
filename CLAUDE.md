@@ -108,6 +108,8 @@ the deploy and leaves the previous version up.
 ## Roadmap
 
 Done: sign-in, recipe reader + scaling, household/friend sharing by invite,
-recipe sync CI, version stamp. Next: grocery list (add-from-recipe,
-aggregation, aisle order, realtime check-off), then cook mode (wake lock,
-timers, two-phone session), then the cook log, then recipe import.
+recipe sync CI, version stamp, cook mode (full-screen steps, wake lock,
+cross-step timers, large controls), pull-to-refresh. Next: grocery list
+(add-from-recipe, aggregation, aisle order, realtime check-off), then recipe
+import (paste a Serious Eats URL → parse JSON-LD → our schema, reviewed before
+sync), then the cook log, then two-phone cook-session sync.

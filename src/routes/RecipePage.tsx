@@ -120,6 +120,15 @@ export default function RecipePage() {
           <ScaleControl scale={scale} onChange={setScale} recipeYield={recipe.yield} />
         </div>
 
+        {recipe.steps.length > 0 && (
+          <Link
+            to={`/r/${recipe.slug}/cook?x=${scale}`}
+            className="mt-6 grid h-14 w-full place-items-center rounded-2xl bg-accent text-lg font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+          >
+            Start cooking →
+          </Link>
+        )}
+
         <section className="mt-6" aria-labelledby="ingredients-heading">
           <h2 id="ingredients-heading" className="mb-2 font-serif text-xl tracking-tight">
             Ingredients

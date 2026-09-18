@@ -1,11 +1,15 @@
 import {
   arrayUnion,
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { HouseholdRole, Invite } from '../lib/types'
@@ -65,6 +69,34 @@ export async function revokeInvite(householdId: string, code: string): Promise<v
   if (snapshot.exists() && snapshot.data().inviteCode === code) {
     await updateDoc(doc(db, 'households', householdId), { inviteCode: null })
   }
+}
+
+/**
+ * The invites currently outstanding for a household, of a given role. Used so
+ * Settings can show the live link again after the app is reopened, rather than
+ * only right after minting it. Members can read invites for their household
+ * (the rules allow any signed-in user to read an invite by code).
+ */
+export async function listInvites(
+  householdId: string,
+  role: HouseholdRole,
+): Promise<Invite[]> {
+  const q = query(
+    collection(db, 'invites'),
+    where('householdId', '==', householdId),
+    where('role', '==', role),
+  )
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map((d) => {
+    const data = d.data()
+    return {
+      code: d.id,
+      householdId: data.householdId,
+      householdName: data.householdName ?? null,
+      role: data.role === 'friend' ? 'friend' : 'member',
+      createdBy: data.createdBy ?? '',
+    }
+  })
 }
 
 async function readInvite(code: string): Promise<Invite> {

@@ -19,3 +19,9 @@ export async function switchHousehold(): Promise<void> {}
 export function inviteLink(code: string): string {
   return `https://cwang427.github.io/curated-kitchen/?join=${code}`
 }
+
+export async function listInvites(): Promise<
+  Array<{ code: string; householdId: string; householdName: string | null; role: HouseholdRole; createdBy: string }>
+> {
+  return []
+}

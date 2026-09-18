@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthProvider'
 import SignIn from './auth/SignIn'
 import RecipeListPage from './routes/RecipeListPage'
 import RecipePage from './routes/RecipePage'
+import CookPage from './routes/CookPage'
 import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 
@@ -44,6 +45,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<RecipeListPage />} />
       <Route path="/r/:slug" element={<RecipePage />} />
+      <Route path="/r/:slug/cook" element={<CookPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

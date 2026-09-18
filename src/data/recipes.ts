@@ -49,7 +49,7 @@ export interface RecipesState {
   error: string | null
 }
 
-export function useRecipes(householdId: string | null): RecipesState {
+export function useRecipes(householdId: string | null, nonce = 0): RecipesState {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -60,6 +60,11 @@ export function useRecipes(householdId: string | null): RecipesState {
       setLoading(false)
       return
     }
+    // `nonce` is a manual refresh signal: bumping it re-runs this effect,
+    // tearing down and re-creating the listener. That forces a fresh server
+    // round-trip, which is how pull-to-refresh recovers a listener that went
+    // stale after the PWA was backgrounded on iOS.
+    void nonce
 
     setLoading(true)
     // Filtering by householdId is what makes this pass the security rules:
@@ -86,7 +91,7 @@ export function useRecipes(householdId: string | null): RecipesState {
         setLoading(false)
       },
     )
-  }, [householdId])
+  }, [householdId, nonce])
 
   return { recipes, loading, error }
 }
