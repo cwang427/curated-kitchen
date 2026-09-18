@@ -1,21 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "householdId", "order": "ASCENDING" },
-        { "fieldPath": "title", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "householdId", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }

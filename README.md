@@ -37,19 +37,21 @@ page.
 Repo **Settings › Pages › Source: GitHub Actions**. That's the only setting to
 change; the workflow is already in the repo.
 
-### 3. Deploy the Firestore rules
+### 3. Publish the Firestore rules
 
-This is the one step that needs a computer, and it's once:
+Firebase console › **Build › Firestore Database › Rules**. Replace everything
+in the editor with the contents of [`firestore.rules`](firestore.rules) and
+click **Publish**.
 
-```bash
-npm install -g firebase-tools
-firebase login
-firebase use --add            # select the project you created
-firebase deploy --only firestore:rules,firestore:indexes
-```
+Without this, Firestore denies every request and the app will sign you in but
+show nothing. Re-publish whenever `firestore.rules` changes here.
 
-Without it Firestore denies everything and the app will sign you in but show
-nothing. Re-run it whenever `firestore.rules` changes.
+There are no composite indexes to create — recipe queries filter on one field
+and sort in the client, so nothing needs building ahead of time.
+
+(If you'd rather do it from a terminal: `npm i -g firebase-tools`,
+`firebase login`, `firebase use --add`, then
+`firebase deploy --only firestore:rules`. The console does the same job.)
 
 ### 4. Install it on your phone
 

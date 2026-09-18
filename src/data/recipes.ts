@@ -3,7 +3,6 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   where,
   type DocumentData,
@@ -65,16 +64,20 @@ export function useRecipes(householdId: string | null): RecipesState {
     setLoading(true)
     // Filtering by householdId is what makes this pass the security rules:
     // every document returned belongs to a household the user is a member of.
-    const q = query(
-      collection(db, 'recipes'),
-      where('householdId', '==', householdId),
-      orderBy('title'),
-    )
+    //
+    // Sorting happens below rather than via orderBy() on purpose: a filter
+    // plus an orderBy needs a composite index, which is one more thing to
+    // create before the app works. Everything is already in memory for search.
+    const q = query(collection(db, 'recipes'), where('householdId', '==', householdId))
 
     return onSnapshot(
       q,
       (snapshot) => {
-        setRecipes(snapshot.docs.map((d) => toRecipe(d.id, d.data())))
+        setRecipes(
+          snapshot.docs
+            .map((d) => toRecipe(d.id, d.data()))
+            .sort((a, b) => a.title.localeCompare(b.title)),
+        )
         setError(null)
         setLoading(false)
       },
