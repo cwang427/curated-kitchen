@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
+import { copyFileSync } from 'node:fs'
+
+// GitHub Pages serves a project site from /<repo>/. Override with
+// BASE_PATH=/ when deploying to a custom domain or Firebase Hosting.
+const base = process.env.BASE_PATH ?? '/curated-kitchen/'
 
 export default defineConfig({
+  base,
   build: {
     rollupOptions: {
       output: {
@@ -21,6 +27,14 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   plugins: [
+    {
+      // GitHub Pages has no SPA rewrite, so a deep link like /r/<slug> 404s.
+      // Serving the app from 404.html hands those URLs to the router instead.
+      name: 'pages-spa-fallback',
+      closeBundle() {
+        copyFileSync('dist/index.html', 'dist/404.html')
+      },
+    },
     react(),
     tailwindcss(),
     VitePWA({
@@ -34,8 +48,8 @@ export default defineConfig({
         background_color: '#faf9f7',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
+        scope: base,
+        start_url: base,
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },

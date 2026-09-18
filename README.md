@@ -10,7 +10,7 @@ the grocery list are next — see [Roadmap](#roadmap).
 
 ---
 
-## Getting it running
+## Setup (once)
 
 ### 1. Create the Firebase project
 
@@ -22,39 +22,61 @@ In the [Firebase console](https://console.firebase.google.com):
 3. **Build › Firestore Database › Create database.** Start in *production
    mode* — the rules in this repo replace the defaults. Pick the region
    closest to you; it cannot be changed later.
-4. **Project settings › General › Your apps › Web (`</>`).** Register the app
-   and copy the `firebaseConfig` values.
+4. **Project settings › General › Your apps › Web (`</>`).** Register the app,
+   then paste the config values into
+   [`src/lib/firebaseConfig.ts`](src/lib/firebaseConfig.ts) and push.
 
-### 2. Configure this repo
+Those values are **not secrets** — they ship in the client bundle wherever
+they're stored, which is why they're committed rather than hidden in an env
+file or a CI secret. `firestore.rules` is the security boundary. Until they're
+filled in, the app deploys and shows its own setup steps instead of a blank
+page.
 
-```bash
-npm install
-cp .env.example .env.local   # paste your firebaseConfig values in
-npm run dev
-```
+### 2. Turn on GitHub Pages
 
-The `VITE_FIREBASE_*` values are not secrets — they ship in the client bundle
-by design. Access is controlled by `firestore.rules`, not by hiding them.
+Repo **Settings › Pages › Source: GitHub Actions**. That's the only setting to
+change; the workflow is already in the repo.
 
-### 3. Deploy the rules and the app
+### 3. Deploy the Firestore rules
+
+This is the one step that needs a computer, and it's once:
 
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase use --add            # select the project you just created
+firebase use --add            # select the project you created
 firebase deploy --only firestore:rules,firestore:indexes
-npm run deploy                # builds, then deploys hosting
 ```
 
-Sign in to the deployed app once. That creates your user profile and a
-household, which you'll need in the next step.
+Without it Firestore denies everything and the app will sign you in but show
+nothing. Re-run it whenever `firestore.rules` changes.
 
 ### 4. Install it on your phone
 
-Open the hosting URL in **Safari** (not Chrome — only Safari can install to
-the iOS home screen), then **Share › Add to Home Screen**. It launches
+Open the Pages URL in **Safari** (not Chrome — only Safari can install to the
+iOS home screen), then **Share › Add to Home Screen**. It launches
 full-screen with no browser chrome, and it's what makes web push and durable
 storage work on iOS.
+
+---
+
+## Deploying
+
+**Push to `main`. That's it.** [The
+workflow](.github/workflows/deploy.yml) typechecks, validates every recipe,
+builds, and publishes to GitHub Pages — roughly two minutes from push to live.
+
+The build runs in CI, not on your machine, so a change committed from a phone
+deploys exactly like one committed from a laptop. Nothing local is required
+to ship.
+
+If typecheck or recipe validation fails, **the deploy is skipped and the
+previous version stays up**. Check the run under the repo's Actions tab.
+
+Deep links work through `404.html`, a copy of `index.html` that Vite writes at
+build time: GitHub Pages has no SPA rewrite rule, so it serves that file for
+`/r/<slug>` and the router takes over. (Jekyll never runs here — the Actions
+deployment path skips it entirely, so no `.nojekyll` is needed.)
 
 ---
 
@@ -147,7 +169,7 @@ count once, so queries must stay scoped to a single household — which is why
 ## Development
 
 ```bash
-npm run dev               # the real app (needs .env.local)
+npm run dev               # the real app (needs firebaseConfig.ts filled in)
 npm run ui                # UI harness with Firebase stubbed out
 npm run typecheck
 npm run validate:recipes
@@ -157,6 +179,8 @@ python3 scripts/make-icons.py   # regenerate PWA icons
 `npm run ui` renders the real pages and components against fixture data with
 Firebase swapped out, so layout and scaling can be checked without
 credentials or a network. Fixtures live in `.preview/stubs/`.
+
+None of this is needed to ship a change — CI runs the same checks on push.
 
 ---
 

@@ -1,0 +1,65 @@
+# Push to deploy. The build runs here, not on your machine — so a commit made
+# from a phone reaches the live app the same way ConsoliDated's does.
+#
+# Typecheck and recipe validation run first: a bad recipe or a type error
+# fails the run and the previous deploy stays up, rather than shipping broken.
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      # Remove this once main is the default branch and work merges into it.
+      - claude/clever-hawking-xe57hp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue them instead of cancelling, so the last
+# push always wins and nothing half-deploys.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `ci` installs exactly what package-lock.json pins, so this build
+      # reproduces the one that was verified before the push.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Validate recipes
+        run: npm run validate:recipes
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
