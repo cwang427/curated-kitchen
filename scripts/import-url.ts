@@ -39,7 +39,15 @@ function extractJsonLdBlocks(html: string): unknown[] {
 
 const response = await fetch(url, { headers: { 'user-agent': UA, accept: 'text/html' } })
 if (!response.ok) {
-  console.error(`Fetch failed: ${response.status} ${response.statusText}`)
+  if ([401, 402, 403, 429].includes(response.status)) {
+    console.error(
+      `The site blocked this fetch (${response.status}). Many recipe sites ` +
+        `(Serious Eats among them) refuse datacenter/CI IPs. Open the page in ` +
+        `a normal browser and paste the recipe text to convert it instead.`,
+    )
+  } else {
+    console.error(`Fetch failed: ${response.status} ${response.statusText}`)
+  }
   process.exit(1)
 }
 const html = await response.text()
