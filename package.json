@@ -13,6 +13,7 @@
     "validate:recipes": "tsx scripts/validate-recipes.ts",
     "sync:recipes": "tsx scripts/sync-recipes.ts",
     "test:rules": "npx -y firebase-tools@13 emulators:exec --only firestore,auth --project curated-kitchen-rules-test 'tsx scripts/test-rules.ts'",
+    "test:import": "tsx scripts/test-import.ts",
     "deploy:rules": "npx -y firebase-tools@13 deploy --only firestore:rules"
   },
   "dependencies": {

@@ -1,0 +1,52 @@
+# Import a recipe from a URL by reading its schema.org/Recipe JSON-LD.
+#
+# The runner has open internet (the dev sandbox does not), so the fetch happens
+# here. It writes a *draft* recipes/<slug>.json and commits it — deliberately
+# without syncing, because ingredient aisles are guessed and step timers aren't
+# inferred. Review and refine the draft, then push; that push runs the sync
+# workflow and lands it in Firestore.
+name: Import recipe
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Recipe URL (a page that publishes schema.org/Recipe JSON-LD)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fetch and convert
+        run: npx tsx scripts/import-url.ts "${{ inputs.url }}" --write
+
+      - name: Validate the draft
+        run: npm run validate:recipes
+
+      - name: Commit the draft
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet; then
+            echo "No new recipe file — nothing to commit."
+            exit 0
+          fi
+          git add recipes/
+          git commit -m "Import recipe draft from ${{ inputs.url }}"
+          git push

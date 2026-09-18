@@ -25,6 +25,7 @@
     "src/lib/types.ts",
     "src/lib/units.ts",
     "src/lib/quantity.ts",
-    "src/lib/recipeSchema.ts"
+    "src/lib/recipeSchema.ts",
+    "src/lib/importRecipe.ts"
   ]
 }
