@@ -148,6 +148,16 @@ function TimerTray({
               </button>
               <button
                 type="button"
+                onClick={() => onDismiss(timer.id)}
+                aria-label="Remove timer"
+                className="grid size-11 place-items-center rounded-full border border-line text-ink-soft"
+              >
+                <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
                 onClick={() => onToggle(timer.id)}
                 className="min-h-11 min-w-16 rounded-full bg-accent px-4 text-sm font-semibold text-white dark:text-stone-900"
               >
