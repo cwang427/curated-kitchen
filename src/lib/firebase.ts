@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { firebaseConfig } from './firebaseConfig'
-import { GoogleAuthProvider, getAuth } from 'firebase/auth'
+import { getAuth } from 'firebase/auth'
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -10,7 +10,6 @@ import {
 const app = initializeApp(firebaseConfig)
 
 export const auth = getAuth(app)
-export const googleProvider = new GoogleAuthProvider()
 
 /**
  * Persistent cache means the recipe you opened at home still renders in a

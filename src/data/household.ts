@@ -32,8 +32,23 @@ function toProfile(uid: string, data: DocumentData): UserProfile {
   }
 }
 
-function defaultHouseholdName(user: User): string {
-  const first = user.displayName?.trim().split(/\s+/)[0]
+/**
+ * Accounts are created in the Firebase console, which has no display-name
+ * field, so email/password users arrive with displayName null. Derive
+ * something readable from the address: "mr.soccerboy@..." → "Mr Soccerboy".
+ */
+function nameFromEmail(email: string | null): string {
+  const local = email?.split('@')[0]
+  if (!local) return 'Cook'
+  const words = local
+    .split(/[._+-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+  return words.join(' ') || 'Cook'
+}
+
+function defaultHouseholdName(displayName: string): string {
+  const first = displayName.trim().split(/\s+/)[0]
   return first ? `${first}'s Kitchen` : 'My Kitchen'
 }
 
@@ -48,16 +63,20 @@ export async function ensureUserAndHousehold(
   const userRef = doc(db, 'users', user.uid)
   const snapshot = await getDoc(userRef)
 
+  const stored = snapshot.exists() ? toProfile(user.uid, snapshot.data()) : null
+
+  // A name already saved here wins: it may have been edited in the app, and
+  // an email/password user has no displayName on the auth record to restore
+  // it from. Only fall back to the address when nothing is stored yet.
   const identity = {
-    displayName: user.displayName,
+    displayName: stored?.displayName ?? user.displayName ?? nameFromEmail(user.email),
     email: user.email,
-    photoURL: user.photoURL,
+    photoURL: stored?.photoURL ?? user.photoURL,
   }
 
-  if (snapshot.exists()) {
-    const existing = toProfile(user.uid, snapshot.data())
+  if (stored) {
+    const existing = stored
 
-    // Refresh the cached identity if Google's copy has changed.
     const stale =
       existing.displayName !== identity.displayName ||
       existing.email !== identity.email ||
@@ -81,7 +100,7 @@ export async function ensureUserAndHousehold(
   // so a new household always starts as a household of one.
   const householdRef = doc(db, 'households', `hh_${user.uid.slice(0, 12)}`)
   const householdData = {
-    name: defaultHouseholdName(user),
+    name: defaultHouseholdName(identity.displayName),
     ownerUid: user.uid,
     memberUids: [user.uid],
     friendUids: [],

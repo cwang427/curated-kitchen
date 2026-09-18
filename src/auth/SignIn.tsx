@@ -1,49 +1,94 @@
+import { useState, type FormEvent } from 'react'
 import { useAuth } from './AuthProvider'
 
 export default function SignIn() {
-  const { signIn, error } = useAuth()
+  const { signIn, submitting, error } = useAuth()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!email || !password || submitting) return
+    void signIn(email, password)
+  }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-6 text-center">
-      <div className="space-y-3">
-        <h1 className="font-serif text-4xl tracking-tight">Curated Kitchen</h1>
-        <p className="mx-auto max-w-sm text-balance text-ink-soft">
-          Your recipes, a cooking companion, and the grocery list — shared with
-          the people you cook with.
+    <div className="flex min-h-dvh flex-col items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="space-y-2 text-center">
+          <h1 className="font-serif text-4xl tracking-tight">Curated Kitchen</h1>
+          <p className="text-balance text-sm text-ink-soft">
+            Recipes, a cooking companion, and the grocery list — shared with the
+            people you cook with.
+          </p>
+        </div>
+
+        {/*
+          A real <form> so the keyboard's Go button submits, and the
+          autoComplete values iCloud Keychain looks for so it offers to save
+          the password once and fills it with Face ID after that.
+        */}
+        <form onSubmit={onSubmit} className="mt-10 space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="block text-sm font-medium text-ink-soft">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              disabled={submitting}
+              className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none focus:border-accent disabled:opacity-60"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="block text-sm font-medium text-ink-soft">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              disabled={submitting}
+              aria-describedby={error ? 'signin-error' : undefined}
+              className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none focus:border-accent disabled:opacity-60"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting || !email || !password}
+            className="min-h-12 w-full rounded-xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
+          >
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          {error && (
+            <p
+              id="signin-error"
+              role="alert"
+              className="text-center text-sm text-red-600 dark:text-red-400"
+            >
+              {error}
+            </p>
+          )}
+        </form>
+
+        <p className="mt-8 text-center text-xs text-ink-faint">
+          Accounts are created in the Firebase console — there's no sign-up here.
         </p>
       </div>
-
-      <button
-        type="button"
-        onClick={signIn}
-        className="flex min-h-12 items-center gap-3 rounded-full border border-line bg-card px-6 text-base font-medium shadow-sm transition active:scale-[0.98]"
-      >
-        <svg className="size-5" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            fill="#4285F4"
-            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z"
-          />
-          <path
-            fill="#34A853"
-            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
-          />
-          <path
-            fill="#FBBC05"
-            d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84Z"
-          />
-          <path
-            fill="#EA4335"
-            d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.46 14.97.5 12 .5A11 11 0 0 0 2.18 7.05l3.66 2.84c.87-2.6 3.3-4.14 6.16-4.14Z"
-          />
-        </svg>
-        Continue with Google
-      </button>
-
-      {error && (
-        <p role="alert" className="max-w-sm text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
     </div>
   )
 }

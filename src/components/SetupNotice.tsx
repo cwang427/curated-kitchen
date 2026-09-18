@@ -26,7 +26,8 @@ export default function SetupNotice() {
         </li>
         <li>
           <span className="font-semibold">2.</span> Build › Authentication › enable{' '}
-          <span className="font-medium">Google</span> sign-in.
+          <span className="font-medium">Email/Password</span>, then add your
+          accounts under the Users tab.
         </li>
         <li>
           <span className="font-semibold">3.</span> Build › Firestore Database › create one in{' '}

@@ -12,7 +12,10 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^.*\/lib\/firebase$/, replacement: stub("firebase.ts") },
-      { find: /^.*\/auth\/AuthProvider$/, replacement: stub("AuthProvider.tsx") },
+      // Must match the WHOLE specifier — Vite replaces only the matched
+      // portion, and imports arrive as both "./AuthProvider" and
+      // "../auth/AuthProvider".
+      { find: /^.*AuthProvider$/, replacement: stub("AuthProvider.tsx") },
       { find: /^.*\/data\/recipes$/, replacement: stub("recipes.tsx") },
     ],
   },

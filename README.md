@@ -17,8 +17,13 @@ the grocery list are next — see [Roadmap](#roadmap).
 In the [Firebase console](https://console.firebase.google.com):
 
 1. **Create a project.** Google Analytics is not needed.
-2. **Build › Authentication › Get started › Google.** Enable it, set a support
-   email, save.
+2. **Build › Authentication › Get started › Email/Password.** Enable the first
+   toggle only (skip "email link"). Then under **Users**, **Add user** once per
+   person — the addresses don't need to be real or deliverable, just unique
+   and memorable, so `you@kitchen.local` is fine. Give each a strong password.
+
+   Then **Authentication › Settings › User actions** → turn off **Enable
+   create**, so nobody can register themselves.
 3. **Build › Firestore Database › Create database.** Start in *production
    mode* — the rules in this repo replace the defaults. Pick the region
    closest to you; it cannot be changed later.
@@ -160,6 +165,12 @@ in a free-text note where it would go stale.
 A **household** is the unit of trust. Members (you and your partner) read and
 write everything it owns. Friends get read-only access to recipes explicitly
 marked `"visibility": "friends"` — never to grocery lists.
+
+Every rule keys on `request.auth.uid`, never on the email address or the
+sign-in provider. Sign-in is email/password with accounts created in the
+console: it needs no redirect to a second domain, which is the part of
+Firebase Auth that breaks in an installed iOS PWA under Safari's storage
+partitioning. Adding Google alongside it later would need no rule changes.
 
 Rules resolve membership with `get()` on the household document. Firestore
 caps a request at 10 such lookups, and repeated reads of the *same* path

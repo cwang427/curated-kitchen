@@ -9,12 +9,11 @@ import {
 } from 'react'
 import {
   onAuthStateChanged,
-  signInWithPopup,
-  signInWithRedirect,
+  signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   type User,
 } from 'firebase/auth'
-import { auth, googleProvider } from '../lib/firebase'
+import { auth } from '../lib/firebase'
 import { ensureUserAndHousehold } from '../data/household'
 import type { Household, UserProfile } from '../lib/types'
 
@@ -23,24 +22,40 @@ interface AuthState {
   profile: UserProfile | null
   household: Household | null
   loading: boolean
+  /** True while a sign-in attempt is in flight. */
+  submitting: boolean
   error: string | null
-  signIn: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
 /**
- * Popups are blocked inside an iOS home-screen PWA, so fall back to a
- * redirect there. Detecting the display mode is more reliable than sniffing
- * the user agent.
+ * Firebase's codes are accurate but unhelpful at 7am. Note that recent
+ * versions collapse "wrong password" and "no such user" into
+ * invalid-credential on purpose, so an attacker can't probe for which
+ * addresses exist — the message here has to cover both.
  */
-function prefersRedirect(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    // iOS Safari's non-standard flag for home-screen apps.
-    (window.navigator as { standalone?: boolean }).standalone === true
-  )
+function describeAuthError(code: string | undefined, fallback: string): string {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'That email and password don’t match an account.'
+    case 'auth/invalid-email':
+      return 'That doesn’t look like an email address.'
+    case 'auth/user-disabled':
+      return 'That account has been disabled.'
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a minute and try again.'
+    case 'auth/network-request-failed':
+      return 'Can’t reach Firebase — check your connection.'
+    case 'auth/operation-not-allowed':
+      return 'Email/password sign-in isn’t enabled for this Firebase project.'
+    default:
+      return fallback
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -48,12 +63,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [household, setHousehold] = useState<Household | null>(null)
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser)
-      setError(null)
 
       if (!nextUser) {
         setProfile(null)
@@ -66,10 +81,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await ensureUserAndHousehold(nextUser)
         setProfile(result.profile)
         setHousehold(result.household)
+        setError(null)
       } catch (cause) {
+        // Almost always means firestore.rules hasn't been published yet.
         setError(
-          cause instanceof Error
-            ? cause.message
+          cause instanceof Error && cause.message.includes('permission')
+            ? 'Signed in, but Firestore denied the request. Publish firestore.rules in the Firebase console.'
             : 'Could not load your kitchen. Check your connection and try again.',
         )
       } finally {
@@ -78,35 +95,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (email: string, password: string) => {
     setError(null)
+    setSubmitting(true)
     try {
-      if (prefersRedirect()) {
-        await signInWithRedirect(auth, googleProvider)
-        return
-      }
-      await signInWithPopup(auth, googleProvider)
+      await signInWithEmailAndPassword(auth, email.trim(), password)
+      // onAuthStateChanged takes it from here.
     } catch (cause) {
-      const code = (cause as { code?: string }).code
-      // The user closing the popup is not worth an error message.
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        return
-      }
-      if (code === 'auth/popup-blocked') {
-        await signInWithRedirect(auth, googleProvider)
-        return
-      }
-      setError(cause instanceof Error ? cause.message : 'Sign-in failed.')
+      setError(
+        describeAuthError((cause as { code?: string }).code, 'Sign-in failed. Try again.'),
+      )
+    } finally {
+      setSubmitting(false)
     }
   }, [])
 
   const signOut = useCallback(async () => {
+    setError(null)
     await firebaseSignOut(auth)
   }, [])
 
   const value = useMemo<AuthState>(
-    () => ({ user, profile, household, loading, error, signIn, signOut }),
-    [user, profile, household, loading, error, signIn, signOut],
+    () => ({ user, profile, household, loading, submitting, error, signIn, signOut }),
+    [user, profile, household, loading, submitting, error, signIn, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
