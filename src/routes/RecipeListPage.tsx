@@ -1,0 +1,129 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import AppHeader from '../components/AppHeader'
+import { useAuth } from '../auth/AuthProvider'
+import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
+import { formatMinutes } from '../lib/quantity'
+import type { Recipe } from '../lib/types'
+
+function RecipeCard({ recipe }: { recipe: Recipe }) {
+  const time = formatMinutes(recipe.times.activeMin ?? recipe.times.totalMin)
+  const servings =
+    recipe.yield.amountMax
+      ? `${recipe.yield.amount}–${recipe.yield.amountMax} ${recipe.yield.unit}`
+      : `${recipe.yield.amount} ${recipe.yield.unit}`
+
+  return (
+    <Link
+      to={`/r/${recipe.slug}`}
+      className="block rounded-2xl border border-line bg-card p-4 shadow-sm transition active:scale-[0.99]"
+    >
+      <h2 className="font-serif text-lg leading-snug tracking-tight">{recipe.title}</h2>
+      {recipe.subtitle && (
+        <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{recipe.subtitle}</p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
+        {time && <span>{time}</span>}
+        <span>{servings}</span>
+        {recipe.source.name && <span>{recipe.source.name}</span>}
+      </div>
+
+      {recipe.tags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {recipe.tags.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </Link>
+  )
+}
+
+export default function RecipeListPage() {
+  const { household } = useAuth()
+  const { recipes, loading, error } = useRecipes(household?.id ?? null)
+  const [term, setTerm] = useState('')
+  const [activeTags, setActiveTags] = useState<string[]>([])
+
+  const tags = collectTags(recipes)
+  const results = useRecipeSearch(recipes, term, activeTags)
+
+  const toggleTag = (tag: string) =>
+    setActiveTags((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
+    )
+
+  return (
+    <div className="min-h-dvh">
+      <AppHeader />
+
+      <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
+        <input
+          type="search"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder="Search recipes, ingredients, sources…"
+          aria-label="Search recipes"
+          className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+        />
+
+        {tags.length > 0 && (
+          <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
+            {tags.map((tag) => {
+              const active = activeTags.includes(tag)
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleTag(tag)}
+                  aria-pressed={active}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-sm transition ${
+                    active
+                      ? 'border-accent bg-accent text-white dark:text-stone-900'
+                      : 'border-line bg-card text-ink-soft'
+                  }`}
+                >
+                  {tag}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-6 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+
+        {loading && <p className="mt-8 text-center text-ink-faint">Loading recipes…</p>}
+
+        {!loading && recipes.length === 0 && !error && (
+          <div className="mt-16 space-y-2 text-center">
+            <p className="font-serif text-xl">No recipes yet</p>
+            <p className="mx-auto max-w-sm text-balance text-sm text-ink-soft">
+              Add a recipe to <code className="text-accent">recipes/</code> and run{' '}
+              <code className="text-accent">npm run sync:recipes</code> to see it here.
+            </p>
+          </div>
+        )}
+
+        {!loading && recipes.length > 0 && results.length === 0 && (
+          <p className="mt-16 text-center text-ink-soft">Nothing matches that.</p>
+        )}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {results.map((recipe) => (
+            <RecipeCard key={recipe.id} recipe={recipe} />
+          ))}
+        </div>
+      </main>
+    </div>
+  )
+}

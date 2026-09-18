@@ -1,0 +1,101 @@
+rules_version = '2';
+
+// Curated Kitchen access model
+// ----------------------------
+// A household is the unit of trust. Members (you + partner) read and write
+// everything the household owns. Friends get read-only access to recipes the
+// household has explicitly marked 'friends' — never to grocery lists, which
+// are the household's alone.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function householdData(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId)).data;
+    }
+
+    function householdExists(householdId) {
+      return exists(/databases/$(database)/documents/households/$(householdId));
+    }
+
+    function isMember(householdId) {
+      return isSignedIn()
+        && householdId is string
+        && householdExists(householdId)
+        && request.auth.uid in householdData(householdId).memberUids;
+    }
+
+    function isFriend(householdId) {
+      return isSignedIn()
+        && householdId is string
+        && householdExists(householdId)
+        && request.auth.uid in householdData(householdId).friendUids;
+    }
+
+    // Profiles are read-only to other signed-in users so the UI can show who
+    // added a recipe or checked off an item. Nothing sensitive lives here.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    match /households/{householdId} {
+      allow read: if isMember(householdId) || isFriend(householdId);
+
+      // You may only create a household you own and are the sole member of.
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.memberUids == [request.auth.uid];
+
+      // Members may edit the household, but ownership cannot be reassigned
+      // and a member cannot promote themselves to owner.
+      allow update: if isMember(householdId)
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if isMember(resource.data.householdId)
+        || (resource.data.visibility == 'friends' && isFriend(resource.data.householdId));
+
+      allow create: if isMember(request.resource.data.householdId)
+        && request.resource.data.createdBy == request.auth.uid;
+
+      // A recipe cannot be moved into a household you don't belong to.
+      allow update: if isMember(resource.data.householdId)
+        && isMember(request.resource.data.householdId);
+
+      allow delete: if isMember(resource.data.householdId);
+    }
+
+    // Grocery lists and the cook log are household-only — friends never see
+    // what you're buying or what you cooked last Tuesday.
+    match /lists/{listId} {
+      allow read, write: if isMember(resource.data.householdId);
+      allow create: if isMember(request.resource.data.householdId);
+
+      match /items/{itemId} {
+        allow read, write: if isMember(
+          get(/databases/$(database)/documents/lists/$(listId)).data.householdId
+        );
+      }
+    }
+
+    match /cooks/{cookId} {
+      allow read, update, delete: if isMember(resource.data.householdId);
+      allow create: if isMember(request.resource.data.householdId)
+        && request.resource.data.cookedBy == request.auth.uid;
+    }
+
+    // Anything not matched above is denied. New collections must add rules
+    // here before they will work.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

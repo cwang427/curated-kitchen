@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  // Only the framework-agnostic lib modules the scripts import. src/lib/firebase.ts
+  // is browser-only (import.meta.env) and must not be pulled into this project.
+  "include": [
+    "vite.config.ts",
+    "scripts/**/*.ts",
+    "src/lib/types.ts",
+    "src/lib/units.ts",
+    "src/lib/quantity.ts",
+    "src/lib/recipeSchema.ts"
+  ]
+}

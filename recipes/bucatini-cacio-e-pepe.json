@@ -1,0 +1,167 @@
+{
+  "slug": "bucatini-cacio-e-pepe",
+  "title": "Bucatini Cacio e Pepe",
+  "subtitle": "Pecorino, black pepper, and starchy pasta water",
+  "description": "Four ingredients, and all of the difficulty is in the last ninety seconds. The sauce comes together off the heat; the starchy water is what keeps the cheese from seizing into strings.",
+  "source": {
+    "name": "Serious Eats",
+    "author": "J. Kenji López-Alt",
+    "url": "https://www.seriouseats.com/the-best-cacio-e-pepe-recipe",
+    "note": "Adapted — cooked in a smaller volume of water for a starchier result."
+  },
+  "yield": {
+    "amount": 2,
+    "unit": "servings"
+  },
+  "times": {
+    "prepMin": 5,
+    "cookMin": 15,
+    "totalMin": 20,
+    "activeMin": 20
+  },
+  "tags": [
+    "pasta",
+    "italian",
+    "weeknight",
+    "vegetarian",
+    "30-minutes"
+  ],
+  "equipment": [
+    "Large skillet or sauté pan",
+    "Microplane or fine grater",
+    "Tongs"
+  ],
+  "ingredients": [
+    {
+      "id": "bucatini",
+      "quantity": 340,
+      "unit": "g",
+      "item": "bucatini",
+      "category": "pantry",
+      "raw": "12 ounces (340g) dried bucatini",
+      "alt": {
+        "quantity": 12,
+        "unit": "oz"
+      }
+    },
+    {
+      "id": "pecorino",
+      "quantity": 85,
+      "unit": "g",
+      "item": "Pecorino Romano",
+      "prep": "very finely grated",
+      "category": "dairy",
+      "raw": "3 ounces (85g) Pecorino Romano, very finely grated, plus more for serving",
+      "alt": {
+        "quantity": 3,
+        "unit": "oz"
+      },
+      "note": "plus more for serving"
+    },
+    {
+      "id": "peppercorns",
+      "quantity": 1,
+      "quantityMax": 2,
+      "unit": "tbsp",
+      "item": "black peppercorn",
+      "prep": "coarsely cracked",
+      "category": "spices",
+      "raw": "1 to 2 tablespoons black peppercorns, coarsely cracked"
+    },
+    {
+      "id": "butter",
+      "quantity": 28,
+      "unit": "g",
+      "item": "unsalted butter",
+      "category": "dairy",
+      "raw": "2 tablespoons (28g) unsalted butter",
+      "alt": {
+        "quantity": 2,
+        "unit": "tbsp"
+      }
+    },
+    {
+      "id": "salt",
+      "item": "kosher salt",
+      "prep": "for the pasta water",
+      "scalable": false,
+      "category": "pantry",
+      "raw": "Kosher salt, for the pasta water"
+    }
+  ],
+  "steps": [
+    {
+      "text": "Bring {{2 quart}} of water to a boil in a large skillet or sauté pan. Salt it lightly — about half of what you'd normally use, since the sauce leans hard on Pecorino. Using less water than a stockpot gives you a starchier cooking liquid, which is the whole trick.",
+      "uses": [
+        "salt"
+      ]
+    },
+    {
+      "text": "Meanwhile, toast the cracked peppercorns in a dry skillet over medium heat until fragrant, about 1 minute. Tip them into a small bowl and set aside.",
+      "uses": [
+        "peppercorns"
+      ],
+      "timers": [
+        {
+          "label": "Toast pepper",
+          "seconds": 60
+        }
+      ]
+    },
+    {
+      "text": "Add the bucatini to the boiling water and cook, stirring often, until just shy of al dente — about 2 minutes less than the package says. It will finish cooking in the sauce.",
+      "uses": [
+        "bucatini"
+      ],
+      "timers": [
+        {
+          "label": "Boil pasta",
+          "seconds": 480
+        }
+      ]
+    },
+    {
+      "text": "Reserve {{1.5 cup}} of the pasta water, then drain. Return the empty pan to low heat, add the butter and toasted pepper, and swirl until the butter melts and foams.",
+      "uses": [
+        "butter",
+        "peppercorns"
+      ]
+    },
+    {
+      "text": "Add the pasta and {{0.5 cup}} of the reserved water. Toss vigorously for about 30 seconds, until the liquid thickens and clings.",
+      "uses": [
+        "bucatini"
+      ],
+      "timers": [
+        {
+          "label": "Toss and emulsify",
+          "seconds": 30
+        }
+      ]
+    },
+    {
+      "text": "Take the pan off the heat and wait 30 seconds — this matters. Add the Pecorino in three additions, tossing hard between each and loosening with splashes of pasta water. Cheese added to a pan that's too hot will break into strings instead of melting into sauce.",
+      "uses": [
+        "pecorino"
+      ],
+      "timers": [
+        {
+          "label": "Cool before cheese",
+          "seconds": 30
+        }
+      ]
+    },
+    {
+      "text": "Serve immediately, with more Pecorino and pepper at the table. It does not wait.",
+      "uses": [
+        "pecorino",
+        "peppercorns"
+      ]
+    }
+  ],
+  "notes": [
+    "Grate the Pecorino on a Microplane. Coarsely grated cheese is the single most common cause of a broken sauce.",
+    "If it does break, pull the pan off the heat, add a splash of cold pasta water, and toss hard. It usually comes back.",
+    "Crack the peppercorns in a mortar or under a heavy pan — a grinder makes dust, and you want actual pieces."
+  ]
+}

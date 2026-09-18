@@ -1,0 +1,3 @@
+@import '../src/index.css';
+/* Root is .preview/, so point Tailwind's class scanner at the real app. */
+@source '../src/**/*.{ts,tsx}';
