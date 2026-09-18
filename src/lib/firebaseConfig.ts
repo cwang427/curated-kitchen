@@ -11,12 +11,12 @@
  * › Web app. Paste the values, commit, push. The deploy takes it from there.
  */
 export const firebaseConfig = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: "AIzaSyBIuTfXZZBvSn51sYxWeBiHAsjUK0HByIM",
+  authDomain: "curated-kitchen.firebaseapp.com",
+  projectId: "curated-kitchen",
+  storageBucket: "curated-kitchen.firebasestorage.app",
+  messagingSenderId: "576250720419",
+  appId: "1:576250720419:web:fad97219d1f0a012decf16"
 }
 
 /** False until the config above is filled in — the app shows setup steps. */
