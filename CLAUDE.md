@@ -82,6 +82,13 @@ shown in Settings; the build also writes `dist/version.json`, which the app
 fetches (no-store) to tell the owner if a newer deploy is live. `version.json`
 must stay out of the Workbox precache glob so it's always fetched fresh.
 
+The git commit + build time advance automatically every deploy (that's what
+the "up to date / update available" check compares). The human-readable
+`version` in `package.json` does **not** — bump it by hand when shipping a
+feature so the number reflects reality: `npm version <x.y.z> --no-git-tag-version`
+(updates both package.json and the lockfile; no git tag). Convention: minor
+bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
+
 ## Verifying changes (do this before pushing)
 
 - `npm run typecheck` — always.
