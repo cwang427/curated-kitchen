@@ -2,12 +2,14 @@ import type { CookSession } from '../../src/lib/types'
 
 /**
  * Add ?sync to the preview URL to render the "cooking together" state — the
- * join banner on the recipe list, and the synced bar in cook mode. Without it,
- * cook mode is solo (the default) and shows the "Cook together" button.
+ * join banner on the recipe list, and the synced bar in cook mode. Add ?mine to
+ * simulate a session *you* started (banner reads "tap to resume"). Without
+ * either, cook mode is solo (the default) and shows the "Cook together" button.
  */
 export function useCookSession() {
   const params = new URLSearchParams(window.location.search)
-  if (!params.has('sync')) return { session: null, loading: false }
+  const mine = params.has('mine')
+  if (!params.has('sync') && !mine) return { session: null, loading: false }
 
   const session: CookSession = {
     householdId: 'hh_preview',
@@ -16,8 +18,9 @@ export function useCookSession() {
     scale: 2,
     stepIndex: 0,
     timers: [],
-    startedBy: 'partner_uid',
-    startedByName: 'Riley',
+    // Preview user's uid is 'u' (see the AuthProvider stub).
+    startedBy: mine ? 'u' : 'partner_uid',
+    startedByName: mine ? 'Cassidy' : 'Riley',
     updatedAt: null,
     active: true,
   }
