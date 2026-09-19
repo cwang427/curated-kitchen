@@ -1,4 +1,6 @@
 import {
+  arrayRemove,
+  arrayUnion,
   doc,
   getDoc,
   serverTimestamp,
@@ -87,15 +89,21 @@ export async function ensureUserAndHousehold(
 
     const householdId = existing.defaultHouseholdId ?? existing.householdIds[0] ?? null
     if (householdId) {
-      const householdSnapshot = await getDoc(doc(db, 'households', householdId))
-      if (householdSnapshot.exists()) {
-        return {
-          profile: { ...existing, ...identity },
-          household: toHousehold(householdSnapshot.id, householdSnapshot.data()),
+      try {
+        const householdSnapshot = await getDoc(doc(db, 'households', householdId))
+        if (householdSnapshot.exists()) {
+          return {
+            profile: { ...existing, ...identity },
+            household: toHousehold(householdSnapshot.id, householdSnapshot.data()),
+          }
         }
+      } catch {
+        // Lost access — e.g. removed from the household by its owner. Fall
+        // through and land this user in a fresh solo kitchen rather than an
+        // error screen; their profile's household list is rewritten below.
       }
     }
-    // Profile exists but its household is gone — fall through and make one.
+    // Profile exists but its household is gone or unreadable — make a fresh one.
   }
 
   // The rules require ownerUid == uid and memberUids == [uid] at creation,
@@ -165,4 +173,60 @@ export async function setHouseholdName(householdId: string, name: string): Promi
   const trimmed = name.trim()
   if (!trimmed) return
   await updateDoc(doc(db, 'households', householdId), { name: trimmed })
+}
+
+/*
+ * Member & role management. The rules (firestore.rules) are the real boundary:
+ *  - removing/demoting a member and promoting a friend are OWNER-only,
+ *  - removing a friend is allowed for any member,
+ *  - the owner can never be removed or demoted,
+ *  - anyone but the owner can remove only themselves (leave).
+ * The client mirrors those so the UI only offers what will actually succeed.
+ */
+
+/** Owner-only: remove a member from the household. */
+export async function removeMember(householdId: string, uid: string): Promise<void> {
+  await updateDoc(doc(db, 'households', householdId), { memberUids: arrayRemove(uid) })
+}
+
+/** Any member: drop a read-only friend (guest). */
+export async function removeFriend(householdId: string, uid: string): Promise<void> {
+  await updateDoc(doc(db, 'households', householdId), { friendUids: arrayRemove(uid) })
+}
+
+/** Owner-only: promote a friend to full member. */
+export async function promoteToMember(householdId: string, uid: string): Promise<void> {
+  await updateDoc(doc(db, 'households', householdId), {
+    memberUids: arrayUnion(uid),
+    friendUids: arrayRemove(uid),
+  })
+}
+
+/** Owner-only: demote a member to a read-only friend. */
+export async function demoteToFriend(householdId: string, uid: string): Promise<void> {
+  await updateDoc(doc(db, 'households', householdId), {
+    memberUids: arrayRemove(uid),
+    friendUids: arrayUnion(uid),
+  })
+}
+
+/**
+ * Leave the kitchen — remove only yourself. `role` picks the array to leave from
+ * so the write touches exactly one (the rules require that). The owner can't
+ * leave; the UI never offers it to them.
+ */
+export async function leaveHousehold(
+  householdId: string,
+  uid: string,
+  role: 'member' | 'friend',
+): Promise<void> {
+  const key = role === 'friend' ? 'friendUids' : 'memberUids'
+  await updateDoc(doc(db, 'households', householdId), { [key]: arrayRemove(uid) })
+  // Detach it from your own profile so the next load doesn't try to reopen a
+  // kitchen you can no longer read; ensureUserAndHousehold then lands you in
+  // another of your kitchens, or a fresh solo one.
+  await updateDoc(doc(db, 'users', uid), {
+    householdIds: arrayRemove(householdId),
+    defaultHouseholdId: null,
+  })
 }

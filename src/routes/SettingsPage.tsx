@@ -2,7 +2,16 @@ import { useEffect, useState } from 'react'
 import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
-import { fetchProfiles, setDisplayName, setHouseholdName } from '../data/household'
+import {
+  demoteToFriend,
+  fetchProfiles,
+  leaveHousehold,
+  promoteToMember,
+  removeFriend,
+  removeMember,
+  setDisplayName,
+  setHouseholdName,
+} from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { describeFirestoreError } from '../lib/errors'
 import type { HouseholdRole, UserProfile } from '../lib/types'
@@ -11,10 +20,19 @@ function displayNameFor(profile: UserProfile): string {
   return profile.displayName ?? profile.email ?? `${profile.uid.slice(0, 6)}…`
 }
 
+interface RowAction {
+  label: string
+  run: () => Promise<void>
+  confirm?: string
+  danger?: boolean
+}
+
 /** Who's in the kitchen, by name, with you and the owner marked. */
 function PeopleList() {
-  const { user, profile, household } = useAuth()
+  const { user, profile, household, refresh } = useAuth()
   const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map())
+  const [busyUid, setBusyUid] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const memberUids = household?.memberUids ?? []
   const friendUids = household?.friendUids ?? []
@@ -40,27 +58,100 @@ function PeopleList() {
 
   if (!user || !household) return null
 
+  const youAreOwner = user.uid === household.ownerUid
+  const youAreMember = memberUids.includes(user.uid)
+
+  const perform = async (uid: string, action: RowAction) => {
+    if (action.confirm && !confirm(action.confirm)) return
+    setError(null)
+    setBusyUid(uid)
+    try {
+      await action.run()
+      // Membership isn't a live subscription, so pull the fresh household.
+      await refresh()
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'update the kitchen'))
+    } finally {
+      setBusyUid(null)
+    }
+  }
+
+  // Which actions the current viewer may take on a given person.
+  const actionsFor = (uid: string, tag: 'member' | 'friend', name: string): RowAction[] => {
+    const isYou = uid === user.uid
+    const isOwnerRow = uid === household.ownerUid
+
+    if (isYou) {
+      // The owner can't leave (it would orphan the kitchen); everyone else can.
+      return isOwnerRow
+        ? []
+        : [{ label: 'Leave', danger: true, confirm: 'Leave this kitchen? You’ll lose access until you’re invited back.', run: () => leaveHousehold(household.id, uid, tag) }]
+    }
+
+    if (youAreOwner) {
+      return tag === 'member'
+        ? [
+            { label: 'Make guest', run: () => demoteToFriend(household.id, uid) },
+            { label: 'Remove', danger: true, confirm: `Remove ${name} from the kitchen?`, run: () => removeMember(household.id, uid) },
+          ]
+        : [
+            { label: 'Make member', run: () => promoteToMember(household.id, uid) },
+            { label: 'Remove', danger: true, confirm: `Remove ${name} from the kitchen?`, run: () => removeFriend(household.id, uid) },
+          ]
+    }
+
+    // A non-owner member may still manage read-only guests.
+    if (youAreMember && tag === 'friend') {
+      return [{ label: 'Remove', danger: true, confirm: `Remove ${name} from the kitchen?`, run: () => removeFriend(household.id, uid) }]
+    }
+
+    return []
+  }
+
   const row = (uid: string, tag: 'member' | 'friend') => {
-    const profile =
+    const rowProfile =
       profiles.get(uid) ??
       ({ uid, displayName: null, email: null, photoURL: null, householdIds: [], defaultHouseholdId: null, pendingInvite: null } as UserProfile)
+    const name = displayNameFor(rowProfile)
     const badges = [
       uid === user.uid ? 'you' : null,
       uid === household.ownerUid ? 'owner' : null,
       tag === 'friend' ? 'friend' : null,
     ].filter(Boolean) as string[]
+    const actions = actionsFor(uid, tag, name)
 
     return (
-      <li key={uid} className="flex min-h-11 items-center gap-3 py-1">
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
-          {displayNameFor(profile).slice(0, 1).toUpperCase()}
-        </span>
-        <span className="min-w-0 flex-1 truncate">{displayNameFor(profile)}</span>
-        {badges.map((b) => (
-          <span key={b} className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-ink-faint">
-            {b}
+      <li key={uid} className="py-2">
+        <div className="flex items-center gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+            {name.slice(0, 1).toUpperCase()}
           </span>
-        ))}
+          <span className="min-w-0 flex-1 truncate">{name}</span>
+          {badges.map((b) => (
+            <span key={b} className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-ink-faint">
+              {b}
+            </span>
+          ))}
+        </div>
+        {actions.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-2 pl-12">
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                disabled={busyUid === uid}
+                onClick={() => perform(uid, action)}
+                className={`min-h-9 rounded-full border px-3 text-xs font-medium transition active:scale-[0.98] disabled:opacity-50 ${
+                  action.danger
+                    ? 'border-red-300 text-red-600 dark:border-red-900 dark:text-red-400'
+                    : 'border-line text-ink-soft'
+                }`}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
       </li>
     )
   }
@@ -70,10 +161,20 @@ function PeopleList() {
       <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-faint">
         In this kitchen
       </h3>
-      <ul>
+      <ul className="divide-y divide-line">
         {memberUids.map((uid) => row(uid, 'member'))}
         {friendUids.map((uid) => row(uid, 'friend'))}
       </ul>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+      {youAreMember && !youAreOwner && (
+        <p className="mt-2 text-xs text-ink-faint">
+          Only the kitchen’s owner can remove or change members. You can manage guests.
+        </p>
+      )}
     </section>
   )
 }

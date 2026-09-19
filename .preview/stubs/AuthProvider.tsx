@@ -11,6 +11,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const params = new URLSearchParams(window.location.search)
   const signedOut = params.has('signedout')
+  // ?asmember previews a non-owner member's view (the partner owns the kitchen).
+  const ownerUid = params.has('asmember') ? 'partner_uid' : 'u'
   const [submitting, setSubmitting] = useState(false)
 
   return {
@@ -18,7 +20,7 @@ export function useAuth() {
     profile: signedOut ? null : { uid: 'u', displayName: 'Cassidy', email: 'c@example.com', photoURL: null, householdIds: ['hh_preview'], defaultHouseholdId: 'hh_preview', pendingInvite: null },
     household: signedOut
       ? null
-      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
+      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid, memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
     loading: false,
     submitting,
     error: params.has('error') ? 'That email and password don’t match an account.' : null,

@@ -40,6 +40,15 @@ service cloud.firestore {
         && request.auth.uid in householdData(householdId).friendUids;
     }
 
+    // The owner is the creator. Only they may remove or change the role of a
+    // member; they can never be removed or demoted (see the update rule).
+    function isOwner(householdId) {
+      return isSignedIn()
+        && householdId is string
+        && householdExists(householdId)
+        && request.auth.uid == householdData(householdId).ownerUid;
+    }
+
     // The invite code the caller has staged on their own profile (see the join
     // flow). Binding the code to the caller's user doc is what lets the rule
     // below verify *which* invite is being redeemed — a rule can't see a query
@@ -75,6 +84,26 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([key]);
     }
 
+    // True when `after` is `before` with exactly the caller's own uid removed —
+    // nobody else, nothing added. This is what lets someone leave the kitchen
+    // without being able to remove anyone else.
+    function removedOnlySelf(before, after) {
+      return before.hasAll(after)
+        && after.size() == before.size() - 1
+        && (request.auth.uid in before)
+        && !(request.auth.uid in after);
+    }
+
+    function ownerUnchanged() {
+      return request.resource.data.ownerUid == resource.data.ownerUid;
+    }
+
+    // Neither membership array is touched by this write.
+    function membershipUnchanged() {
+      return request.resource.data.memberUids == resource.data.memberUids
+        && request.resource.data.friendUids == resource.data.friendUids;
+    }
+
     // Profiles are readable by any signed-in user so the UI can show who added
     // a recipe or checked off an item. `pendingInvite` is the only writable-by-
     // self field that rules depend on; it names a secret code the caller
@@ -93,20 +122,45 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.memberUids == [request.auth.uid];
 
-      // Three ways to update:
-      //  1. An existing member edits the household (rename, mint/revoke an
-      //     invite code, manage membership). Ownership can't be reassigned.
-      //  2. A newcomer redeems a member invite, adding only themselves.
-      //  3. A newcomer redeems a friend invite, adding only themselves.
+      // Ways to update a household:
+      //  1. A member edits non-membership fields (rename, current invite code).
+      //     The two membership arrays are governed by the branches below, so a
+      //     member can't quietly remove or add people here.
+      //  2. The owner manages membership and roles — remove a member, promote a
+      //     friend, demote a member — changing only the two arrays and always
+      //     remaining a member. This is what keeps the owner un-removable and
+      //     un-demotable, and keeps role changes owner-only.
+      //  3. Any member drops a read-only friend (guest): removals only, and
+      //     never touching memberUids.
+      //  4. A newcomer redeems a member invite, adding only themselves.
+      //  5. A newcomer redeems a friend invite, adding only themselves.
+      //  6. Anyone but the owner removes only themselves — leaving the kitchen.
       allow update: if
-        (isMember(householdId)
-          && request.resource.data.ownerUid == resource.data.ownerUid)
+        (isMember(householdId) && ownerUnchanged() && membershipUnchanged())
+
+        || (isOwner(householdId)
+          && ownerUnchanged()
+          && (resource.data.ownerUid in request.resource.data.memberUids)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'friendUids']))
+
+        || (isMember(householdId)
+          && onlyChanged('friendUids')
+          && resource.data.friendUids.hasAll(request.resource.data.friendUids))
+
         || (onlyChanged('memberUids')
           && addedOnlySelf(resource.data.memberUids, request.resource.data.memberUids)
           && redeemingInvite(householdId, 'member'))
+
         || (onlyChanged('friendUids')
           && addedOnlySelf(resource.data.friendUids, request.resource.data.friendUids)
-          && redeemingInvite(householdId, 'friend'));
+          && redeemingInvite(householdId, 'friend'))
+
+        || (onlyChanged('memberUids')
+          && removedOnlySelf(resource.data.memberUids, request.resource.data.memberUids)
+          && request.auth.uid != resource.data.ownerUid)
+
+        || (onlyChanged('friendUids')
+          && removedOnlySelf(resource.data.friendUids, request.resource.data.friendUids));
 
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }

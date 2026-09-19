@@ -15,6 +15,7 @@ import {
   type Auth,
 } from 'firebase/auth'
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   connectFirestoreEmulator,
@@ -233,6 +234,70 @@ async function main(): Promise<void> {
     const D = await asUser('d@kitchen.local')
     await setDoc(doc(D.db, 'users', D.uid), { email: 'd@kitchen.local', pendingInvite: memberCode })
     await updateDoc(doc(D.db, 'households', hhA), { memberUids: arrayUnion(D.uid) })
+  })
+
+  console.log('Member & role management')
+  // Fresh invites (the earlier member code was revoked above), then a second
+  // member G and a friend H join, so we can exercise removals and role changes.
+  const mgmtMemberCode = 'MGMT_MEMBER_CODE_1234567890'
+  const mgmtFriendCode = 'MGMT_FRIEND_CODE_1234567890'
+  await setDoc(doc(A.db, 'invites', mgmtMemberCode), { householdId: hhA, role: 'member', createdBy: A.uid })
+  await setDoc(doc(A.db, 'invites', mgmtFriendCode), { householdId: hhA, role: 'friend', createdBy: A.uid })
+
+  const G = await asUser('g@kitchen.local')
+  await setDoc(doc(G.db, 'users', G.uid), { email: 'g@kitchen.local', pendingInvite: mgmtMemberCode })
+  await expectAllow('a second member joins', () =>
+    updateDoc(doc(G.db, 'households', hhA), { memberUids: arrayUnion(G.uid) }),
+  )
+  const H = await asUser('h@kitchen.local')
+  await setDoc(doc(H.db, 'users', H.uid), { email: 'h@kitchen.local', pendingInvite: mgmtFriendCode })
+  await expectAllow('a friend joins', () =>
+    updateDoc(doc(H.db, 'households', hhA), { friendUids: arrayUnion(H.uid) }),
+  )
+
+  // Members now: A (owner), B, G. Friends: C, H.
+  await expectDeny('a non-owner member cannot remove another member', () =>
+    updateDoc(doc(B.db, 'households', hhA), { memberUids: arrayRemove(G.uid) }),
+  )
+  await expectDeny('a non-owner member cannot change roles (demote)', () =>
+    updateDoc(doc(B.db, 'households', hhA), { memberUids: arrayRemove(G.uid), friendUids: arrayUnion(G.uid) }),
+  )
+  await expectDeny('a non-owner member cannot promote a friend', () =>
+    updateDoc(doc(B.db, 'households', hhA), { memberUids: arrayUnion(C.uid), friendUids: arrayRemove(C.uid) }),
+  )
+  await expectDeny('nobody can remove the owner', () =>
+    updateDoc(doc(B.db, 'households', hhA), { memberUids: arrayRemove(A.uid) }),
+  )
+  await expectDeny('the owner cannot remove themselves', () =>
+    updateDoc(doc(A.db, 'households', hhA), { memberUids: arrayRemove(A.uid) }),
+  )
+  await expectDeny('a member cannot add a friend directly (only via invite)', () =>
+    updateDoc(doc(B.db, 'households', hhA), { friendUids: arrayUnion('random_uid') }),
+  )
+  await expectAllow('a member can remove a friend (guest)', () =>
+    updateDoc(doc(B.db, 'households', hhA), { friendUids: arrayRemove(H.uid) }),
+  )
+  await expectAllow('the owner removes a member', () =>
+    updateDoc(doc(A.db, 'households', hhA), { memberUids: arrayRemove(G.uid) }),
+  )
+  await expectAllow('the owner promotes a friend to member', () =>
+    updateDoc(doc(A.db, 'households', hhA), { memberUids: arrayUnion(C.uid), friendUids: arrayRemove(C.uid) }),
+  )
+  await expectAllow('the owner demotes a member to friend', () =>
+    updateDoc(doc(A.db, 'households', hhA), { memberUids: arrayRemove(C.uid), friendUids: arrayUnion(C.uid) }),
+  )
+  await expectDeny('the owner cannot demote themselves (must stay a member)', () =>
+    updateDoc(doc(A.db, 'households', hhA), { memberUids: arrayRemove(A.uid), friendUids: arrayUnion(A.uid) }),
+  )
+  await expectAllow('a member leaves on their own', () =>
+    updateDoc(doc(B.db, 'households', hhA), { memberUids: arrayRemove(B.uid) }),
+  )
+  await expectAllow('a friend leaves on their own', () =>
+    updateDoc(doc(C.db, 'households', hhA), { friendUids: arrayRemove(C.uid) }),
+  )
+  await expectDeny('an outsider cannot remove a member', async () => {
+    const Z = await asUser('z-mgmt@kitchen.local')
+    await updateDoc(doc(Z.db, 'households', hhA), { memberUids: arrayRemove(A.uid) })
   })
 
   await signOut(A.auth)

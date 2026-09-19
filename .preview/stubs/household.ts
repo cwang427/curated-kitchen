@@ -25,3 +25,9 @@ export async function setDisplayName(): Promise<void> {
 export async function setHouseholdName(): Promise<void> {
   await new Promise((r) => setTimeout(r, 200))
 }
+
+export async function removeMember(): Promise<void> {}
+export async function removeFriend(): Promise<void> {}
+export async function promoteToMember(): Promise<void> {}
+export async function demoteToFriend(): Promise<void> {}
+export async function leaveHousehold(): Promise<void> {}

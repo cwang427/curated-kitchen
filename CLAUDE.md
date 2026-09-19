@@ -70,6 +70,13 @@ everything; friends get read-only on recipes marked `visibility: 'friends'`,
 never the grocery list. Rules key on `request.auth.uid`, never the email or
 provider. Joining is by invite link (`src/data/invites.ts`, Settings screen).
 
+Role management is **owner-gated**: only the household **owner** (its creator)
+can remove or demote a member or promote a friend; **either member** can remove
+a read-only friend; **anyone but the owner** can leave on their own. The owner
+can never be removed or demoted (they must stay in `memberUids`), and ownership
+isn't transferable yet. These live in `src/data/household.ts` and the
+`households` update rule; change them together and re-run `npm run test:rules`.
+
 Redemption is security-sensitive: a rule can read documents but not client
 variables or query filters, so the joiner **stages the invite code on their own
 user doc** first; the household rule then `get()`s that doc, looks up the
@@ -138,6 +145,10 @@ the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
 order, realtime check-off, quick-add), the meal plan (plan recipes onto a
 rolling week → one-tap "add the week to groceries"), and two-phone "cook
 together" sync (both phones follow the same step and timers via a shared
-`sessions/{householdId}` doc). Next: member/role management (remove a person,
-change member↔friend). The cook log is intentionally skipped — journaling lives
-in ConsoliDated; this app stays focused on planning and executing.
+`sessions/{householdId}` doc), and member/role management (owner removes/
+demotes members and promotes friends; either member manages guests; anyone but
+the owner can leave). Next: nothing pressing — a natural future addition is
+ownership transfer / co-owner (today the creator is the sole owner and
+ownership can't be reassigned). The cook log is intentionally skipped —
+journaling lives in ConsoliDated; this app stays focused on planning and
+executing.
