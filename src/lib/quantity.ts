@@ -420,3 +420,17 @@ export function formatStepQuantity(
   if (!display.unit) return amount
   return `${amount} ${unitLabel(display.unit, magnitude > 1 + EPSILON)}`
 }
+
+/**
+ * Split a step's prose into its sentences, for the one-action-per-line layout in
+ * cook mode. Splits only on a sentence terminator followed by whitespace and a
+ * capital, digit, or opening bracket, so a mid-sentence period doesn't break a
+ * line — and a {{ }} token, which never contains a terminator, is always safe.
+ * A single-sentence step comes back as one entry.
+ */
+export function splitStepText(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9("'])/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}

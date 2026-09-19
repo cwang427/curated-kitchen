@@ -73,15 +73,29 @@
   "steps": [
     {
       "text": "Heat {{3 tbsp}} of the olive oil with about a teaspoon of black pepper in a medium skillet over medium-low heat until fragrant and the pepper is just barely starting to sizzle, about 1 minute. Set aside — letting the pan cool a little is fine.",
+      "brief": [
+        "Toast {{3 tbsp}} olive oil with ~1 tsp black pepper in a medium skillet over medium-low heat until fragrant and just sizzling, ~1 min.",
+        "Set aside — a little cooling is fine."
+      ],
       "uses": ["oil", "pepper"],
       "timers": [{ "label": "Toast pepper", "seconds": 60 }]
     },
     {
       "text": "Put the spaghetti in a large skillet and just cover it with water. Add a small pinch of salt and bring to a boil over high heat, prodding now and then with a fork so it doesn't clump. Cook until al dente — about a minute less than the package says. Transfer {{2-3 tbsp}} of the starchy pasta water into the oil-and-pepper skillet, stir in the butter, then use tongs to lift the spaghetti straight into it.",
+      "brief": [
+        "Cook the spaghetti in a large skillet with just enough salted water to cover, boiling hard and prodding so it doesn't clump.",
+        "Pull it at al dente — about a minute less than the package says.",
+        "Move {{2-3 tbsp}} of the starchy pasta water to the pepper skillet, stir in the butter, then lift the spaghetti in with tongs."
+      ],
       "uses": ["spaghetti", "salt", "butter"]
     },
     {
       "text": "Add the cheese and the remaining {{1 tbsp}} olive oil, and stir with a fork until the cheese melts completely. Splash in a few more tablespoons of pasta water to loosen it, reheating gently as needed, until the sauce is creamy and coats every strand. Season to taste with salt and more black pepper. Serve right away, with extra cheese and pepper at the table.",
+      "brief": [
+        "Add the cheese and the remaining {{1 tbsp}} olive oil; stir with a fork until fully melted.",
+        "Loosen with a splash more pasta water, reheating gently, until creamy and coating every strand.",
+        "Season with salt and more pepper; serve right away with extra cheese and pepper."
+      ],
       "uses": ["pecorino", "oil", "salt", "pepper"]
     }
   ],

@@ -90,6 +90,14 @@ export interface Step {
   id: string
   text: string
   group: string | null
+  /**
+   * An optional concise, one-action-per-line version of `text` for cook mode —
+   * authored deliberately, never generated at runtime. `text` stays the full
+   * original prose (shown in the recipe reader); when `brief` is empty, cook
+   * mode auto-splits `text` into sentences instead. Lines may carry {{ }} tokens
+   * so amounts still scale. Nothing meaningful should live only in `brief`.
+   */
+  brief: string[]
   /** Ingredients used here — drives the "what you need now" panel in cook mode. */
   ingredientIds: string[]
   timers: Timer[]

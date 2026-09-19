@@ -57,6 +57,11 @@ Rules of thumb, already enforced — keep them:
 - Parenthetical measurements are structured (`alt`) so they scale; amounts in
   step prose scale via `{{ }}` tokens. Times/temperatures stay plain text.
 - Every recipe has `schemaVersion`; bump it and migrate deliberately.
+- A step may carry an optional `brief`: a concise, one-action-per-line version
+  shown in **cook mode** (the recipe reader always shows the full `text`). When
+  `brief` is absent, cook mode auto-splits `text` into sentence bullets. `brief`
+  lines may carry `{{ }}` tokens so amounts still scale. Never let a meaningful
+  instruction live only in `brief` — `text` stays the complete original prose.
 
 ## Sharing model
 
@@ -100,10 +105,12 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~30
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator).
-- `npm run test:import` / `npm run test:grocery` / `npm run test:plan` —
-  pure-logic unit tests for the JSON-LD converter, the grocery merge/aisle
-  logic, and the meal-plan day window + plan→groceries aggregation. Run after
-  touching `src/lib/importRecipe.ts`, `src/lib/grocery.ts`, or `src/lib/plan.ts`.
+- `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
+  `npm run test:steps` — pure-logic unit tests for the JSON-LD converter, the
+  grocery merge/aisle logic, the meal-plan day window + plan→groceries
+  aggregation, and the cook-mode sentence splitter. Run after touching
+  `src/lib/importRecipe.ts`, `src/lib/grocery.ts`, `src/lib/plan.ts`, or
+  `src/lib/quantity.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -124,7 +131,8 @@ the deploy and leaves the previous version up.
 
 Done: sign-in, recipe reader + scaling, household/friend sharing by invite,
 recipe sync CI, version stamp, cook mode (full-screen steps, wake lock,
-cross-step timers, large controls, per-step mise-en-place checklist),
+cross-step timers, large controls, per-step mise-en-place checklist,
+scannable step bullets — authored `brief` or auto-split prose),
 pull-to-refresh, screen-name editor, recipe import (URL via CI, or paste text),
 the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
 order, realtime check-off, quick-add), the meal plan (plan recipes onto a

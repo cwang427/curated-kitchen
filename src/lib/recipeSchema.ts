@@ -51,6 +51,8 @@ const stepInput = z.object({
   id: z.string().trim().min(1).optional(),
   text: z.string().trim().min(1),
   group: nullableString,
+  /** A concise, one-action-per-line version of `text`, shown in cook mode. */
+  brief: z.array(z.string().trim().min(1)).optional(),
   /** Ingredient ids or canonical names used in this step. */
   uses: z.array(z.string().trim().min(1)).optional(),
   timers: z.array(timerInput).optional(),
@@ -214,19 +216,23 @@ export function parseRecipe(raw: unknown): ParseResult {
 
   const referenced = new Set<string>()
   const steps: Step[] = input.steps.map((entry, index) => {
-    for (const match of entry.text.matchAll(/\{\{([^{}]*)\}\}/g)) {
-      const parsed = parseAmountToken(match[1])
-      if (!parsed) {
-        throw new Error(
-          `${input.slug}: step ${index + 1} has an unreadable amount ` +
-            `"{{${match[1]}}}" — expected something like {{1.5 cup}} or {{2}}`,
-        )
-      }
-      if (!parsed.unitRecognized) {
-        warnings.push(
-          `step ${index + 1}: "{{${match[1]}}}" uses an unrecognized unit — ` +
-            `it will scale but may read oddly`,
-        )
+    // Validate {{ }} amount tokens in both the full text and the concise
+    // `brief` lines — both are rendered with scaling, so both must parse.
+    for (const source of [entry.text, ...(entry.brief ?? [])]) {
+      for (const match of source.matchAll(/\{\{([^{}]*)\}\}/g)) {
+        const parsed = parseAmountToken(match[1])
+        if (!parsed) {
+          throw new Error(
+            `${input.slug}: step ${index + 1} has an unreadable amount ` +
+              `"{{${match[1]}}}" — expected something like {{1.5 cup}} or {{2}}`,
+          )
+        }
+        if (!parsed.unitRecognized) {
+          warnings.push(
+            `step ${index + 1}: "{{${match[1]}}}" uses an unrecognized unit — ` +
+              `it will scale but may read oddly`,
+          )
+        }
       }
     }
 
@@ -250,6 +256,7 @@ export function parseRecipe(raw: unknown): ParseResult {
       id: entry.id ?? `step_${index + 1}`,
       text: entry.text,
       group: entry.group ?? null,
+      brief: entry.brief ?? [],
       ingredientIds,
       timers: entry.timers ?? [],
       temperature: entry.temperature ?? null,

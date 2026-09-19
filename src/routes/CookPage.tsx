@@ -9,7 +9,7 @@ import {
   startCookSession,
   useCookSession,
 } from '../data/cooksession'
-import { formatIngredient, formatStepQuantity, parseStepText } from '../lib/quantity'
+import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
 import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
 /* ---------------------------------------------------------------- *
@@ -28,6 +28,23 @@ import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
 /** A timer with its live countdown filled in for display. */
 type DisplayTimer = SyncTimer & { done: boolean }
+
+/** One line of step prose, with its {{ }} amounts scaled. */
+function StepLine({ line, scale }: { line: string; scale: number }) {
+  return (
+    <>
+      {parseStepText(line).map((seg, i) =>
+        seg.type === 'text' ? (
+          <span key={i}>{seg.value}</span>
+        ) : (
+          <strong key={i} className="font-semibold text-accent tabular-nums">
+            {formatStepQuantity(seg, scale)}
+          </strong>
+        ),
+      )}
+    </>
+  )
+}
 
 function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
@@ -287,6 +304,9 @@ export default function CookPage() {
   const stepIngredients = step.ingredientIds
     .map((id) => byId.get(id))
     .filter((i): i is Ingredient => i !== undefined)
+  // Prefer a hand-authored concise version; otherwise split the full prose into
+  // its sentences so a paragraph reads as one action per line.
+  const cookLines = step.brief && step.brief.length > 0 ? step.brief : splitStepText(step.text)
 
   // Fill in each timer's live countdown for display.
   const displayTimers: DisplayTimer[] = timers.map((timer) => {
@@ -461,17 +481,25 @@ export default function CookPage() {
           </p>
         )}
 
-        <p className="text-2xl leading-relaxed">
-          {parseStepText(step.text).map((seg, i) =>
-            seg.type === 'text' ? (
-              <span key={i}>{seg.value}</span>
-            ) : (
-              <strong key={i} className="font-semibold text-accent tabular-nums">
-                {formatStepQuantity(seg, scale)}
-              </strong>
-            ),
-          )}
-        </p>
+        {cookLines.length <= 1 ? (
+          <p className="text-2xl leading-relaxed">
+            <StepLine line={cookLines[0] ?? step.text} scale={scale} />
+          </p>
+        ) : (
+          <ul className="space-y-4">
+            {cookLines.map((line, i) => (
+              <li key={i} className="flex gap-3">
+                <span
+                  className="mt-3.5 size-2 shrink-0 rounded-full bg-accent"
+                  aria-hidden="true"
+                />
+                <span className="text-2xl leading-snug">
+                  <StepLine line={line} scale={scale} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {stepIngredients.length > 0 && (
           <div className="mt-6">

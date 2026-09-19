@@ -192,6 +192,12 @@
     },
     {
       "text": "Pat the short ribs dry. Season both sides lightly with salt and more generously with black pepper. Heat the oil in a Dutch oven over medium-high heat until shimmering, then add the ribs in a single layer — work in batches so you sear rather than steam them. Brown well on all sides, transfer to a plate, and pour off all but about 2 tablespoons of the fat.",
+      "brief": [
+        "Pat the ribs dry; season lightly with salt, generously with pepper.",
+        "Heat the oil in a Dutch oven over medium-high until shimmering.",
+        "Sear the ribs in a single layer, in batches, browning well on all sides; move to a plate.",
+        "Pour off all but about 2 tbsp of the fat."
+      ],
       "uses": ["short_ribs", "salt_pepper", "oil"]
     },
     {
@@ -201,6 +207,10 @@
     },
     {
       "text": "Add the wide strips of orange zest and {{0.25 cup}} of the orange juice, along with the Shaoxing wine, soy sauce, rice vinegar, honey, chili paste, hoisin, and stock. Stir to combine, then return the ribs and any accumulated juices to the pot. (Or transfer everything to a slow cooker.)",
+      "brief": [
+        "Add the orange zest strips and {{0.25 cup}} orange juice, plus the Shaoxing wine, soy sauce, rice vinegar, honey, chili paste, hoisin, and stock; stir.",
+        "Return the ribs and any juices to the pot (or move everything to a slow cooker)."
+      ],
       "uses": ["orange_zest", "orange_juice", "shaoxing", "soy_sauce", "rice_vinegar", "honey", "chili_paste", "hoisin", "chicken_stock", "short_ribs"]
     },
     {
@@ -217,6 +227,11 @@
     },
     {
       "text": "Lift out the ribs and keep them warm. Strain the braising liquid, then separate or spoon off the fat and return the defatted sauce to the pot; discard the solids. Stir in the remaining {{0.25 cup}} orange juice. You want about {{3 cup}} of sauce — if you have more, simmer to reduce. Whisk in just enough of the cornstarch slurry to lightly thicken it, a tablespoon at a time; you may not need it all.",
+      "brief": [
+        "Lift out the ribs and keep warm. Strain the liquid, spoon off the fat, and return the sauce to the pot; discard the solids.",
+        "Stir in the remaining {{0.25 cup}} orange juice; you want about {{3 cup}} of sauce — simmer to reduce if you have more.",
+        "Whisk in just enough cornstarch slurry to lightly thicken, a tablespoon at a time."
+      ],
       "uses": ["short_ribs", "orange_juice", "cornstarch"]
     },
     {
