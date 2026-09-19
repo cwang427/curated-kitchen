@@ -21,6 +21,7 @@ export default defineConfig({
       { find: /^.*AuthProvider$/, replacement: stub("AuthProvider.tsx") },
       { find: /^.*\/data\/recipes$/, replacement: stub("recipes.tsx") },
       { find: /^.*\/data\/invites$/, replacement: stub("invites.ts") },
+      { find: /^.*\/data\/household$/, replacement: stub("household.ts") },
     ],
   },
   plugins: [react(), tailwindcss()],

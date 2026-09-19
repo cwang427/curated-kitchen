@@ -29,7 +29,7 @@ export default function RecipePage() {
   if (loading) {
     return (
       <div className="min-h-dvh">
-        <AppHeader />
+        <AppHeader back />
         <p className="mt-16 text-center text-ink-faint">Loading…</p>
       </div>
     )
@@ -38,7 +38,7 @@ export default function RecipePage() {
   if (error || !recipe) {
     return (
       <div className="min-h-dvh">
-        <AppHeader />
+        <AppHeader back />
         <div className="mx-auto max-w-3xl space-y-3 px-4 py-16 text-center">
           <p className="font-serif text-xl">
             {error ? 'Could not open that recipe' : 'Recipe not found'}
@@ -65,7 +65,7 @@ export default function RecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title={recipe.title} />
+      <AppHeader title={recipe.title} back />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         <header className="space-y-3">

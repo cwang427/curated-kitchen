@@ -18,7 +18,7 @@ export function useAuth() {
     profile: null,
     household: signedOut
       ? null
-      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u'], friendUids: [], inviteCode: null, createdAt: null },
+      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
     loading: false,
     submitting,
     error: params.has('error') ? 'That email and password don’t match an account.' : null,

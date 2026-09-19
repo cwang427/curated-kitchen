@@ -122,3 +122,26 @@ export async function ensureUserAndHousehold(
     household: toHousehold(householdRef.id, { ...householdData, createdAt: null }),
   }
 }
+
+/**
+ * Load the profiles for a set of uids (household members and friends), so the
+ * Settings screen can show who's in the kitchen by name. Reading another
+ * user's profile is allowed for any signed-in user (see firestore.rules); a
+ * uid with no profile doc yet falls back to a placeholder.
+ */
+export async function fetchProfiles(uids: string[]): Promise<UserProfile[]> {
+  const snapshots = await Promise.all(uids.map((uid) => getDoc(doc(db, 'users', uid))))
+  return snapshots.map((snapshot, index) =>
+    snapshot.exists()
+      ? toProfile(snapshot.id, snapshot.data())
+      : {
+          uid: uids[index],
+          displayName: null,
+          email: null,
+          photoURL: null,
+          householdIds: [],
+          defaultHouseholdId: null,
+          pendingInvite: null,
+        },
+  )
+}

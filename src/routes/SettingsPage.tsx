@@ -2,9 +2,79 @@ import { useEffect, useState } from 'react'
 import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
+import { fetchProfiles } from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { describeFirestoreError } from '../lib/errors'
-import type { HouseholdRole } from '../lib/types'
+import type { HouseholdRole, UserProfile } from '../lib/types'
+
+function displayNameFor(profile: UserProfile): string {
+  return profile.displayName ?? profile.email ?? `${profile.uid.slice(0, 6)}…`
+}
+
+/** Who's in the kitchen, by name, with you and the owner marked. */
+function PeopleList() {
+  const { user, household } = useAuth()
+  const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map())
+
+  const memberUids = household?.memberUids ?? []
+  const friendUids = household?.friendUids ?? []
+  // Stable dependency key so the effect only refetches when the roster changes.
+  const rosterKey = [...memberUids, ...friendUids].sort().join(',')
+
+  useEffect(() => {
+    if (!rosterKey) return
+    let live = true
+    fetchProfiles(rosterKey.split(','))
+      .then((loaded) => {
+        if (live) setProfiles(new Map(loaded.map((p) => [p.uid, p])))
+      })
+      .catch(() => {
+        // Non-fatal — fall back to the uid-based placeholder below.
+      })
+    return () => {
+      live = false
+    }
+  }, [rosterKey])
+
+  if (!user || !household) return null
+
+  const row = (uid: string, tag: 'member' | 'friend') => {
+    const profile =
+      profiles.get(uid) ??
+      ({ uid, displayName: null, email: null, photoURL: null, householdIds: [], defaultHouseholdId: null, pendingInvite: null } as UserProfile)
+    const badges = [
+      uid === user.uid ? 'you' : null,
+      uid === household.ownerUid ? 'owner' : null,
+      tag === 'friend' ? 'friend' : null,
+    ].filter(Boolean) as string[]
+
+    return (
+      <li key={uid} className="flex min-h-11 items-center gap-3 py-1">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+          {displayNameFor(profile).slice(0, 1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{displayNameFor(profile)}</span>
+        {badges.map((b) => (
+          <span key={b} className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-ink-faint">
+            {b}
+          </span>
+        ))}
+      </li>
+    )
+  }
+
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+        In this kitchen
+      </h3>
+      <ul>
+        {memberUids.map((uid) => row(uid, 'member'))}
+        {friendUids.map((uid) => row(uid, 'friend'))}
+      </ul>
+    </section>
+  )
+}
 
 function useCopied() {
   const [copied, setCopied] = useState(false)
@@ -82,16 +152,15 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
     }
   }
 
-  const label = role === 'member' ? 'partner' : 'friend'
   const link = code ? inviteLink(code) : null
 
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
-      <h3 className="font-medium">Invite a {label}</h3>
+      <h3 className="font-medium">Invite a {role}</h3>
       <p className="mt-1 text-sm text-ink-soft">
         {role === 'member'
-          ? 'They’ll share everything in this kitchen with you.'
-          : 'They’ll see only the recipes you mark as shared with friends.'}
+          ? 'A member shares everything in this kitchen — recipes, the grocery list, and the cook log. You can add as many as you like.'
+          : 'A friend only sees the recipes you mark as shared with friends — never the grocery list.'}
       </p>
 
       {!code ? (
@@ -101,7 +170,7 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
           disabled={busy}
           className="mt-3 min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
         >
-          {busy ? 'Creating…' : `Create ${label} invite`}
+          {busy ? 'Creating…' : `Create ${role} invite`}
         </button>
       ) : (
         <div className="mt-3 space-y-2">
@@ -126,7 +195,8 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
             </button>
           </div>
           <p className="text-xs text-ink-faint">
-            Send this link to your {label}. Anyone with it can join until you revoke it.
+            Send this link to the person you’re inviting. Anyone with it can join
+            as a {role} until you revoke it.
           </p>
         </div>
       )}
@@ -153,7 +223,7 @@ export default function SettingsPage() {
       <AppHeader title="Settings" back />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl space-y-6 px-4 py-5">
-        <section className="space-y-3">
+        <section className="space-y-1">
           <h2 className="font-serif text-xl tracking-tight">{household.name}</h2>
           <p className="text-sm text-ink-soft">
             {memberCount} {memberCount === 1 ? 'member' : 'members'}
@@ -161,6 +231,8 @@ export default function SettingsPage() {
             {youAreMember ? '' : ' · you’re a friend here'}
           </p>
         </section>
+
+        <PeopleList />
 
         {youAreMember && (
           <section className="space-y-3">
