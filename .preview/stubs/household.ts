@@ -21,3 +21,7 @@ export async function fetchProfiles(uids: string[]): Promise<UserProfile[]> {
 export async function setDisplayName(): Promise<void> {
   await new Promise((r) => setTimeout(r, 200))
 }
+
+export async function setHouseholdName(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 200))
+}

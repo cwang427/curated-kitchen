@@ -1,13 +1,22 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
-import { formatMinutes } from '../lib/quantity'
+import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import type { Recipe } from '../lib/types'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Max-total-time filter buckets. */
+const TIME_BUCKETS: Array<{ label: string; max: number | null }> = [
+  { label: 'Any time', max: null },
+  { label: '≤20 min', max: 20 },
+  { label: '≤30 min', max: 30 },
+  { label: '≤45 min', max: 45 },
+  { label: '≤1 hr', max: 60 },
+]
 
 function RecipeCard({ recipe }: { recipe: Recipe }) {
   const time = formatMinutes(recipe.times.activeMin ?? recipe.times.totalMin)
@@ -54,9 +63,22 @@ export default function RecipeListPage() {
   const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce)
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
+  const [maxTime, setMaxTime] = useState<number | null>(null)
 
   const tags = collectTags(recipes)
-  const results = useRecipeSearch(recipes, term, activeTags)
+  const searched = useRecipeSearch(recipes, term, activeTags)
+  // A time filter excludes recipes whose total time is unknown — we can't
+  // claim they're under the limit.
+  const results = useMemo(
+    () =>
+      maxTime === null
+        ? searched
+        : searched.filter((r) => {
+            const total = effectiveTotalMinutes(r.times)
+            return total !== null && total <= maxTime
+          }),
+    [searched, maxTime],
+  )
 
   const toggleTag = (tag: string) =>
     setActiveTags((current) =>
@@ -84,6 +106,27 @@ export default function RecipeListPage() {
           aria-label="Search recipes"
           className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
         />
+
+        <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
+          {TIME_BUCKETS.map((bucket) => {
+            const active = maxTime === bucket.max
+            return (
+              <button
+                key={bucket.label}
+                type="button"
+                onClick={() => setMaxTime(bucket.max)}
+                aria-pressed={active}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-sm transition ${
+                  active
+                    ? 'border-accent bg-accent text-white dark:text-stone-900'
+                    : 'border-line bg-card text-ink-soft'
+                }`}
+              >
+                {bucket.label}
+              </button>
+            )
+          })}
+        </div>
 
         {tags.length > 0 && (
           <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">

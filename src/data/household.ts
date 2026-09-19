@@ -156,3 +156,13 @@ export async function setDisplayName(uid: string, name: string): Promise<void> {
   const trimmed = name.trim()
   await updateDoc(doc(db, 'users', uid), { displayName: trimmed || null })
 }
+
+/**
+ * Rename the household. Any member may do this; the rules allow a member to
+ * update the household as long as ownership is unchanged (we only touch name).
+ */
+export async function setHouseholdName(householdId: string, name: string): Promise<void> {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await updateDoc(doc(db, 'households', householdId), { name: trimmed })
+}

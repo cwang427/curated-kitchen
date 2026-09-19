@@ -1,4 +1,4 @@
-import type { Ingredient } from './types'
+import type { Ingredient, Times } from './types'
 import { convert, getUnit, normalizeUnit, pluralizeWord, unitLabel } from './units'
 
 /**
@@ -267,6 +267,18 @@ export function formatMinutes(minutes: number | null): string {
   if (hours === 0) return `${rest} min`
   if (rest === 0) return `${hours} hr`
   return `${hours} hr ${rest} min`
+}
+
+/**
+ * A recipe's total time for filtering/sorting: the stated total, else prep +
+ * cook when either is given, else the active time. Null when nothing is known.
+ */
+export function effectiveTotalMinutes(times: Times): number | null {
+  if (times.totalMin != null) return times.totalMin
+  if (times.prepMin != null || times.cookMin != null) {
+    return (times.prepMin ?? 0) + (times.cookMin ?? 0)
+  }
+  return times.activeMin ?? null
 }
 
 /** Scale factors offered in the UI, as [factor, label]. */

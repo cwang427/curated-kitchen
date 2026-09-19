@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
-import { fetchProfiles, setDisplayName } from '../data/household'
+import { fetchProfiles, setDisplayName, setHouseholdName } from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { describeFirestoreError } from '../lib/errors'
 import type { HouseholdRole, UserProfile } from '../lib/types'
@@ -212,6 +212,72 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
   )
 }
 
+/** Rename the shared kitchen. Members only. */
+function KitchenNameEditor() {
+  const { user, household, refresh } = useAuth()
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const current = household?.name ?? ''
+  useEffect(() => {
+    setName(current)
+  }, [current])
+
+  if (!user || !household || !household.memberUids.includes(user.uid)) return null
+
+  const trimmed = name.trim()
+  const dirty = trimmed !== current && trimmed.length > 0
+
+  const save = async () => {
+    if (!dirty) return
+    setBusy(true)
+    setError(null)
+    try {
+      await setHouseholdName(household.id, trimmed)
+      await refresh()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'rename the kitchen'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-line bg-card p-4">
+      <h3 className="font-medium">Kitchen name</h3>
+      <p className="mt-1 text-sm text-ink-soft">Everyone in the kitchen sees this.</p>
+      <div className="mt-3 flex gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={60}
+          autoCapitalize="words"
+          aria-label="Kitchen name"
+          className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-paper px-3 text-base outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={!dirty || busy}
+          className="min-h-11 shrink-0 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
+        >
+          {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </section>
+  )
+}
+
 /** Set your own screen name — the name members see on recipes and the roster. */
 function NameEditor() {
   const { user, profile, refresh } = useAuth()
@@ -304,6 +370,8 @@ export default function SettingsPage() {
         </section>
 
         <PeopleList />
+
+        {youAreMember && <KitchenNameEditor />}
 
         {youAreMember && (
           <section className="space-y-3">

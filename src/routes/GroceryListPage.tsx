@@ -85,14 +85,16 @@ export default function GroceryListPage() {
       <AppHeader title="Groceries" back />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
-        {/* Quick add */}
-        <form onSubmit={onAdd} className="space-y-2">
+        {/* Quick add — separated from the list below so it doesn't read as a
+            filter. The aisle is guessed from what you type and only appears as
+            an override once there's something to add. */}
+        <form onSubmit={onAdd} className="border-b border-line pb-4">
           <div className="flex gap-2">
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. 2 lemons, 1 cup rice, milk…"
+              placeholder="Add an item — e.g. 2 lemons, milk…"
               aria-label="Add an item"
               autoCapitalize="none"
               className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
@@ -105,40 +107,41 @@ export default function GroceryListPage() {
               Add
             </button>
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink-faint">
-            Aisle
-            <select
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value as GroceryCategory)
-                setAisleTouched(true)
-              }}
-              aria-label="Aisle"
-              className="min-h-9 flex-1 rounded-lg border border-line bg-card px-2 text-sm text-ink-soft outline-none focus:border-accent"
-            >
-              {GROCERY_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {categoryLabel(c)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {parsed && parsed.quantity !== null && (
-            <p className="text-xs text-ink-faint">
-              Adding{' '}
-              <span className="font-medium text-ink-soft">
-                {[
-                  formatGroceryAmount({
-                    id: '', name: '', canonical: '', quantity: parsed.quantity,
-                    quantityMax: parsed.quantityMax, unit: parsed.unit, category, checked: false,
-                    note: null, addedBy: null, createdAt: null, updatedAt: null,
-                  }),
-                  parsed.name,
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
+
+          {parsed && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-ink-faint">
+              <span>
+                Adding{' '}
+                <span className="font-medium text-ink-soft">
+                  {[
+                    formatGroceryAmount({
+                      id: '', name: '', canonical: '', quantity: parsed.quantity,
+                      quantityMax: parsed.quantityMax, unit: parsed.unit, category, checked: false,
+                      note: null, addedBy: null, createdAt: null, updatedAt: null,
+                    }),
+                    parsed.name,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                </span>{' '}
+                to
               </span>
-            </p>
+              <select
+                value={category}
+                onChange={(e) => {
+                  setCategory(e.target.value as GroceryCategory)
+                  setAisleTouched(true)
+                }}
+                aria-label="Aisle"
+                className="rounded-lg border border-line bg-card px-2 py-1 text-sm text-ink-soft outline-none focus:border-accent"
+              >
+                {GROCERY_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {categoryLabel(c)}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
         </form>
 
