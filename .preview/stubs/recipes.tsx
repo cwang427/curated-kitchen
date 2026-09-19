@@ -29,14 +29,17 @@ const roast: Recipe = {
   source: { ...cacioRecipe.source, name: "Cook's Illustrated", author: null },
   times: { prepMin: 10, cookMin: 40, totalMin: 50, activeMin: 15 },
   yield: { amount: 4, amountMax: null, unit: 'servings' },
+  // Shared with guests, so the ?asfriend preview has something to show.
+  visibility: 'friends',
 }
 
 const ALL = [cacioRecipe, shortRibsRecipe, roast]
 
 export { useRecipeSearch, collectTags } from '../../src/data/recipes.ts'
 
-export function useRecipes() {
-  return { recipes: ALL, loading: false, error: null }
+export function useRecipes(_householdId?: string | null, _nonce?: number, friendsOnly = false) {
+  const recipes = friendsOnly ? ALL.filter((r) => r.visibility === 'friends') : ALL
+  return { recipes, loading: false, error: null }
 }
 
 // Pick the recipe from the URL (/r/:slug/…), so cook mode shows the right one.

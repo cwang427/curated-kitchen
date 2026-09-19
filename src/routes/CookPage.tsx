@@ -434,7 +434,10 @@ export default function CookPage() {
   const isFirst = index === 0
   const isLast = index === steps.length - 1
   const activeTimerRunning = displayTimers.some((t) => t.endsAt !== null && !t.done)
-  const canSync = !!householdId && (household?.memberUids.length ?? 0) > 1
+  // Cook-together writes the members-only session doc, so only offer it to
+  // members of a shared kitchen (a guest cooking a shared recipe cooks solo).
+  const isMember = !!(user && household && household.memberUids.includes(user.uid))
+  const canSync = isMember && !!householdId && (household?.memberUids.length ?? 0) > 1
   // Other dishes cooking on this device right now — a jump to the timeline.
   const otherCount = board.dishes.filter((d) => d.slug !== recipe.slug).length
 

@@ -55,7 +55,7 @@ export interface RecipesState {
   error: string | null
 }
 
-export function useRecipes(householdId: string | null, nonce = 0): RecipesState {
+export function useRecipes(householdId: string | null, nonce = 0, friendsOnly = false): RecipesState {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -74,12 +74,23 @@ export function useRecipes(householdId: string | null, nonce = 0): RecipesState 
 
     setLoading(true)
     // Filtering by householdId is what makes this pass the security rules:
-    // every document returned belongs to a household the user is a member of.
+    // every document returned belongs to a household the user belongs to.
+    //
+    // A guest (friend, not member) can only read recipes marked
+    // visibility 'friends', so their query MUST add that filter — otherwise
+    // Firestore refuses the whole listing (it can't prove every recipe is
+    // guest-readable). Two equality filters need no composite index.
     //
     // Sorting happens below rather than via orderBy() on purpose: a filter
     // plus an orderBy needs a composite index, which is one more thing to
     // create before the app works. Everything is already in memory for search.
-    const q = query(collection(db, 'recipes'), where('householdId', '==', householdId))
+    const q = friendsOnly
+      ? query(
+          collection(db, 'recipes'),
+          where('householdId', '==', householdId),
+          where('visibility', '==', 'friends'),
+        )
+      : query(collection(db, 'recipes'), where('householdId', '==', householdId))
 
     return onSnapshot(
       q,
@@ -97,7 +108,7 @@ export function useRecipes(householdId: string | null, nonce = 0): RecipesState 
         setLoading(false)
       },
     )
-  }, [householdId, nonce])
+  }, [householdId, nonce, friendsOnly])
 
   return { recipes, loading, error }
 }

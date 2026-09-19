@@ -109,8 +109,11 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
 export default function RecipeListPage() {
   const { household, user } = useAuth()
   const [nonce, setNonce] = useState(0)
-  const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce)
-  const { session } = useCookSession(household?.id ?? null)
+  // A guest (friend, not member) may only read recipes shared 'friends', and
+  // the grocery/plan/cook-session data is members-only — so scope their reads.
+  const isMember = !!(user && household && household.memberUids.includes(user.uid))
+  const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce, !isMember)
+  const { session } = useCookSession(isMember ? household?.id ?? null : null)
   // Solo cooks in progress on this device (the cook board).
   const board = useCookBoard()
   const [term, setTerm] = useState('')
@@ -245,10 +248,13 @@ export default function RecipeListPage() {
 
         {!loading && recipes.length === 0 && !error && (
           <div className="mt-16 space-y-2 text-center">
-            <p className="font-serif text-xl">No recipes yet</p>
+            <p className="font-serif text-xl">
+              {isMember ? 'No recipes yet' : 'Nothing shared with guests yet'}
+            </p>
             <p className="mx-auto max-w-sm text-balance text-sm text-ink-soft">
-              Add a recipe to <code className="text-accent">recipes/</code> and run{' '}
-              <code className="text-accent">npm run sync:recipes</code> to see it here.
+              {isMember
+                ? 'Tap the ＋ in the top bar to add your first recipe.'
+                : 'Ask a member of this kitchen to mark a recipe “Friends too” to share it with you.'}
             </p>
           </div>
         )}

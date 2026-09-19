@@ -23,8 +23,10 @@ import {
   getDoc,
   getDocs,
   getFirestore,
+  query,
   setDoc,
   updateDoc,
+  where,
   type Firestore,
 } from 'firebase/firestore'
 
@@ -158,6 +160,26 @@ async function main(): Promise<void> {
   )
   await expectAllow('friend can read a friends-visible recipe', () => getDoc(doc(C.db, 'recipes', 'r2')))
   await expectDeny('friend cannot read a household-only recipe', () => getDoc(doc(C.db, 'recipes', 'r1')))
+
+  // Listing (the guest-switch bug): a member may list every recipe in their
+  // household, but a friend may only list ones filtered to visibility 'friends'
+  // — an unfiltered listing must be refused (it could return docs they can't
+  // read). This is exactly what the app's useRecipes query relies on.
+  await expectAllow('member lists all household recipes', () =>
+    getDocs(query(collection(B.db, 'recipes'), where('householdId', '==', hhA))),
+  )
+  await expectDeny('friend cannot list all household recipes (unfiltered)', () =>
+    getDocs(query(collection(C.db, 'recipes'), where('householdId', '==', hhA))),
+  )
+  await expectAllow('friend lists recipes filtered to friends-visible', () =>
+    getDocs(
+      query(
+        collection(C.db, 'recipes'),
+        where('householdId', '==', hhA),
+        where('visibility', '==', 'friends'),
+      ),
+    ),
+  )
 
   console.log('Grocery list')
   // The regression: a member can read the items subcollection BEFORE the parent

@@ -96,8 +96,20 @@ Rules of thumb, already enforced — keep them:
 
 A **household** is the unit of trust. Members (the couple) read/write
 everything; friends get read-only on recipes marked `visibility: 'friends'`,
-never the grocery list. Rules key on `request.auth.uid`, never the email or
-provider. Joining is by invite link (`src/data/invites.ts`, Settings screen).
+never the grocery list, meal plan, or cook session. Rules key on
+`request.auth.uid`, never the email or provider. Joining is by invite link
+(`src/data/invites.ts`, Settings screen).
+
+A guest's reads must be **scoped in the client**, not just the rules: a friend
+may only list recipes filtered to `visibility == 'friends'` (Firestore refuses
+an unfiltered household listing for them, since it could return docs they can't
+read), so `useRecipes(id, nonce, friendsOnly)` adds that filter for non-members.
+For the same reason the grocery/plan/session subscriptions and their UI entry
+points (header cart/plan, add-to-list/plan, cook-together) are hidden for
+guests — a member-only read would just permission-deny. `test:rules` locks in
+the member-lists-all / friend-lists-only-friends behavior. NOTE: a guest sees an
+empty kitchen until a member marks recipes "Friends too (read-only)" in the
+editor's "Shared with" field.
 
 Role management is **owner-gated**: only the household **owner** (its creator)
 can remove or demote a member or promote a friend; **either member** can remove

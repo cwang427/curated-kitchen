@@ -176,22 +176,26 @@ export default function RecipePage() {
                 Start cooking →
               </Link>
             ))}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowAddToList(true)}
-              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-            >
-              Add to list
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAddToPlan(true)}
-              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-            >
-              Add to plan
-            </button>
-          </div>
+          {/* The grocery list and meal plan are members-only — a guest can't
+              write them, so don't offer the buttons. */}
+          {isMember && (
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddToList(true)}
+                className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+              >
+                Add to list
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddToPlan(true)}
+                className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+              >
+                Add to plan
+              </button>
+            </div>
+          )}
         </div>
 
         {showAddToList && (

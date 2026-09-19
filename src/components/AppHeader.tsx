@@ -17,7 +17,11 @@ export default function AppHeader({ title, back, add, plan, cart }: Props) {
   const { user, profile, household } = useAuth()
   // Email/password accounts carry no auth displayName, so prefer the profile's.
   const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
-  const canAdd = add && !!user && !!household && household.memberUids.includes(user.uid)
+  // Members only: adding recipes, the meal plan, and the grocery list are all
+  // member actions — a guest (friend) can't read or write them, so hide the
+  // shortcuts rather than offer a tap that errors.
+  const isMember = !!user && !!household && household.memberUids.includes(user.uid)
+  const canAdd = add && isMember
 
   return (
     <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
@@ -63,7 +67,7 @@ export default function AppHeader({ title, back, add, plan, cart }: Props) {
             </svg>
           </Link>
         )}
-        {plan && (
+        {plan && isMember && (
           <Link
             to="/plan"
             title="Meal plan"
@@ -76,7 +80,7 @@ export default function AppHeader({ title, back, add, plan, cart }: Props) {
             </svg>
           </Link>
         )}
-        {cart && (
+        {cart && isMember && (
           <Link
             to="/list"
             title="Grocery list"

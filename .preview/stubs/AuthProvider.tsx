@@ -13,6 +13,9 @@ export function useAuth() {
   const signedOut = params.has('signedout')
   // ?asmember previews a non-owner member's view (the partner owns the kitchen).
   const ownerUid = params.has('asmember') ? 'partner_uid' : 'u'
+  // ?asfriend previews a guest's view: 'u' is a read-only friend of this
+  // kitchen, not a member (the couple owns it).
+  const asFriend = params.has('asfriend')
   const [submitting, setSubmitting] = useState(false)
 
   return {
@@ -20,7 +23,9 @@ export function useAuth() {
     profile: signedOut ? null : { uid: 'u', displayName: 'Cassidy', email: 'c@example.com', photoURL: null, householdIds: ['hh_preview', 'hh_personal'], defaultHouseholdId: 'hh_preview', pendingInvite: null },
     household: signedOut
       ? null
-      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid, memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
+      : asFriend
+        ? { id: 'hh_preview', name: 'The Shared Kitchen', ownerUid: 'partner_uid', memberUids: ['partner_uid'], friendUids: ['u'], inviteCode: null, createdAt: null }
+        : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid, memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
     loading: false,
     submitting,
     error: params.has('error') ? 'That email and password don’t match an account.' : null,
