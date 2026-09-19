@@ -108,7 +108,7 @@ export function blankDraft(): RecipeDraft {
     sourceName: '', sourceAuthor: '', sourceUrl: '',
     yieldAmount: '4', yieldAmountMax: '', yieldUnit: 'servings',
     prepMin: '', cookMin: '', totalMin: '', activeMin: '',
-    tags: '', equipment: '', notes: '', visibility: 'household',
+    tags: '', equipment: '', notes: '', visibility: 'friends',
     ingredients: [blankIngredient()],
     steps: [blankStep()],
     groups: [],
@@ -133,7 +133,9 @@ export function seedToDraft(seed: RecipeSeed): RecipeDraft {
     tags: seed.tags.join(', '),
     equipment: seed.equipment.join('\n'),
     notes: seed.notes.join('\n'),
-    visibility: seed.visibility,
+    // The editor offers two states now — shared with everyone ('friends') or
+    // members-only ('household'). Collapse the legacy 'private' onto members-only.
+    visibility: seed.visibility === 'friends' ? 'friends' : 'household',
     groups: seed.groups,
     ingredients: seed.ingredients.map((i) => ({
       id: i.id,

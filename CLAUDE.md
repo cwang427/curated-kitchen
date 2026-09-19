@@ -95,21 +95,33 @@ Rules of thumb, already enforced — keep them:
 ## Sharing model
 
 A **household** is the unit of trust. Members (the couple) read/write
-everything; friends get read-only on recipes marked `visibility: 'friends'`,
-never the grocery list, meal plan, or cook session. Rules key on
+everything. **Recipes are shared with guests (friends) by default** —
+`visibility` defaults to `'friends'`, and the editor's "Who can see it" offers
+two states: *Everyone in this kitchen* (`'friends'`) or *Members only*
+(`'household'`, the hide option; legacy `'private'` is treated as members-only).
+Guests never see the grocery list, meal plan, or cook session. Rules key on
 `request.auth.uid`, never the email or provider. Joining is by invite link
 (`src/data/invites.ts`, Settings screen).
 
-A guest's reads must be **scoped in the client**, not just the rules: a friend
-may only list recipes filtered to `visibility == 'friends'` (Firestore refuses
-an unfiltered household listing for them, since it could return docs they can't
-read), so `useRecipes(id, nonce, friendsOnly)` adds that filter for non-members.
-For the same reason the grocery/plan/session subscriptions and their UI entry
-points (header cart/plan, add-to-list/plan, cook-together) are hidden for
-guests — a member-only read would just permission-deny. `test:rules` locks in
-the member-lists-all / friend-lists-only-friends behavior. NOTE: a guest sees an
-empty kitchen until a member marks recipes "Friends too (read-only)" in the
-editor's "Shared with" field.
+What a guest can do with a shared recipe: **view, cook (solo), copy it into
+their own kitchen, and add its ingredients to their own grocery list** — but
+**not edit it in place** (Edit/Delete stay members-only), and not touch the
+kitchen's own list/plan/session. This needed **no rules change**: copy creates a
+recipe in a kitchen the guest is a *member* of, and add-to-list writes that
+*member* kitchen's list — both already allowed. `copyRecipeToHousehold` and
+`AddToListSheet` therefore target one of the guest's own kitchens (a picker when
+they have several), never the kitchen they're visiting.
+
+A guest's reads must still be **scoped in the client**: a friend may only list
+recipes filtered to `visibility == 'friends'` (Firestore refuses an unfiltered
+household listing for them — it could return docs they can't read), so
+`useRecipes(id, nonce, friendsOnly)` adds that filter for non-members. The
+grocery/plan/session subscriptions and the members-only UI (header cart/plan,
+add-to-plan, cook-together, Edit/Delete) are hidden for guests — a member-only
+read would just permission-deny. `test:rules` locks in the member-lists-all /
+friend-lists-only-friends behavior. Recipes created before share-by-default are
+brought in with one tap: **Settings › Guests › "Make N hidden recipes visible
+to guests"** (`shareRecipesWithGuests`, a member batch write).
 
 Role management is **owner-gated**: only the household **owner** (its creator)
 can remove or demote a member or promote a friend; **either member** can remove
@@ -207,6 +219,11 @@ from membership), and cross-kitchen recipe management (copy a recipe to another
 kitchen you're a member of, delete a recipe with confirm; copies remember their
 lineage via `copiedFrom` so the copy sheet flags "already copied" and confirms
 before making a duplicate — copies stay independent forks, no live propagation),
+and **share-with-guests-by-default** (recipes default to guest-visible; a member
+can hide one via the editor; guests can view, cook, copy into their own kitchen,
+and add ingredients to their own grocery list, but never edit in place or see the
+kitchen's list/plan — no rules change, since copy/add-to-list act on the guest's
+own kitchen; Settings › Guests one-taps pre-existing recipes into the default),
 and AI recipe ingestion (paste text or a photo
 → Claude via the `worker/` Cloudflare Worker → structured → validated by the same
 `parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline

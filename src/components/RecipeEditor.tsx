@@ -154,11 +154,10 @@ export default function RecipeEditor({
         </div>
 
         <Labeled label="Tags (comma-separated)"><input className={input} value={draft.tags} onChange={(e) => set({ tags: e.target.value })} placeholder="weeknight, pasta" /></Labeled>
-        <Labeled label="Shared with">
+        <Labeled label="Who can see it">
           <select className={input} value={draft.visibility} onChange={(e) => set({ visibility: e.target.value as Visibility })}>
-            <option value="household">Household (members only)</option>
-            <option value="friends">Friends too (read-only)</option>
-            <option value="private">Just me</option>
+            <option value="friends">Everyone in this kitchen (members + guests)</option>
+            <option value="household">Members only (hide from guests)</option>
           </select>
         </Labeled>
       </Section>

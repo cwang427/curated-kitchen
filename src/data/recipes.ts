@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
+  writeBatch,
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -40,7 +41,7 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     notes: data.notes ?? [],
     images: data.images ?? [],
     householdId: data.householdId ?? null,
-    visibility: data.visibility ?? 'household',
+    visibility: data.visibility ?? 'friends',
     createdBy: data.createdBy ?? null,
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
@@ -261,6 +262,26 @@ export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe
 /** Delete a recipe. The rules allow this only for members of its household. */
 export async function deleteRecipe(slug: string): Promise<void> {
   await deleteDoc(doc(db, 'recipes', slug))
+}
+
+/**
+ * Mark several recipes visible to guests (visibility 'friends'). Used by the
+ * one-tap "make all recipes visible to guests" action, and to bring pre-existing
+ * recipes into the new share-by-default model. A member merge-update keeps
+ * householdId, so the rules allow it. Batched (a kitchen is well under 500).
+ */
+export async function shareRecipesWithGuests(slugs: string[]): Promise<number> {
+  if (slugs.length === 0) return 0
+  const batch = writeBatch(db)
+  for (const slug of slugs) {
+    batch.set(
+      doc(db, 'recipes', slug),
+      { visibility: 'friends', updatedAt: serverTimestamp() },
+      { merge: true },
+    )
+  }
+  await batch.commit()
+  return slugs.length
 }
 
 /**

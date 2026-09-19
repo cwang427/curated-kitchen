@@ -129,6 +129,15 @@ export interface Times {
   activeMin: number | null
 }
 
+/**
+ * Who can see a recipe. Members always read every recipe in their household;
+ * this only gates guests (friends):
+ *  - 'friends'   — shared with everyone in the kitchen, members + guests. The
+ *                  default: recipes are visible to guests unless hidden.
+ *  - 'household' — members only; hidden from guests (the editor's "hide" option).
+ *  - 'private'   — legacy; treated as members-only (guests can't see it).
+ * The guest recipe listing filters on `visibility == 'friends'`.
+ */
 export type Visibility = 'private' | 'household' | 'friends'
 
 export interface Recipe {

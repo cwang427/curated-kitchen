@@ -16,7 +16,9 @@ function hydrate(seedInput: unknown): Recipe {
 }
 
 const cacioRecipe = hydrate(cacio)
-const shortRibsRecipe = hydrate(shortRibs)
+// Members-only, so the guest view hides it and Settings › Guests has something
+// to offer sharing.
+const shortRibsRecipe: Recipe = { ...hydrate(shortRibs), visibility: 'household' }
 
 // A light stand-in so the list view has a third card to lay out.
 const roast: Recipe = {
@@ -64,6 +66,9 @@ export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe
   return [{ ...cacioRecipe, id: `${householdId}-copy`, slug: `${slug}-copy`, title: 'Cacio e Pepe', copiedFrom: slug }]
 }
 export async function deleteRecipe(): Promise<void> {}
+export async function shareRecipesWithGuests(slugs: string[]): Promise<number> {
+  return slugs.length
+}
 export async function createRecipeInHousehold(): Promise<string> {
   return 'new-recipe'
 }

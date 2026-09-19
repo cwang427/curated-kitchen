@@ -33,8 +33,13 @@ export async function demoteToFriend(): Promise<void> {}
 export async function leaveHousehold(): Promise<void> {}
 
 export async function fetchHouseholds(): Promise<Household[]> {
+  // Mirror the ?asfriend view: 'u' is a guest of the shared kitchen, a member
+  // only of their own "Weeknight Solo".
+  const asFriend = new URLSearchParams(window.location.search).has('asfriend')
   return [
-    { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
+    asFriend
+      ? { id: 'hh_preview', name: 'The Shared Kitchen', ownerUid: 'partner_uid', memberUids: ['partner_uid'], friendUids: ['u'], inviteCode: null, createdAt: null }
+      : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
     { id: 'hh_personal', name: 'Weeknight Solo', ownerUid: 'u', memberUids: ['u'], friendUids: [], inviteCode: null, createdAt: null },
   ]
 }

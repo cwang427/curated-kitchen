@@ -16,6 +16,7 @@ import {
   switchHousehold,
 } from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
+import { shareRecipesWithGuests, useRecipes } from '../data/recipes'
 import { describeFirestoreError } from '../lib/errors'
 import type { Household, HouseholdRole, UserProfile } from '../lib/types'
 
@@ -436,8 +437,8 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
       <h3 className="font-medium">Invite a {role}</h3>
       <p className="mt-1 text-sm text-ink-soft">
         {role === 'member'
-          ? 'A member shares everything in this kitchen — recipes, the grocery list, and the cook log. You can add as many as you like.'
-          : 'A friend only sees the recipes you mark as shared with friends — never the grocery list.'}
+          ? 'A member shares everything in this kitchen — recipes, the grocery list, and the meal plan. You can add as many as you like.'
+          : 'A guest can view, copy, and cook your recipes (all of them, unless you hide one), but can’t edit them or see your grocery list.'}
       </p>
 
       {!code ? (
@@ -484,6 +485,68 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * Guest sharing. Recipes are visible to guests by default now; this explains
+ * that and offers a one-tap to bring any still-hidden recipes (older ones, or
+ * ones set to "members only") into view. Members only.
+ */
+function GuestSharing() {
+  const { user, household } = useAuth()
+  const { recipes } = useRecipes(household?.id ?? null)
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!user || !household || !household.memberUids.includes(user.uid)) return null
+
+  const hidden = recipes.filter((r) => r.visibility !== 'friends')
+
+  const shareAll = async () => {
+    if (busy || hidden.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      await shareRecipesWithGuests(hidden.map((r) => r.slug))
+      setDone(true)
+      setTimeout(() => setDone(false), 2500)
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'share the recipes'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-line bg-card p-4">
+      <h3 className="font-medium">Guests</h3>
+      <p className="mt-1 text-sm text-ink-soft">
+        Recipes are visible to guests by default. To hide one, open it, tap{' '}
+        <strong>Edit recipe</strong>, and set <strong>Who can see it → Members only</strong>. Guests
+        can view, copy, and cook shared recipes, but can’t edit them or see your grocery list.
+      </p>
+      {hidden.length > 0 ? (
+        <button
+          type="button"
+          onClick={shareAll}
+          disabled={busy}
+          className="mt-3 min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
+        >
+          {busy
+            ? 'Sharing…'
+            : `Make ${hidden.length} hidden ${hidden.length === 1 ? 'recipe' : 'recipes'} visible to guests`}
+        </button>
+      ) : (
+        <p className="mt-3 text-sm text-ink-faint">{done ? 'Done — ' : ''}All recipes are visible to guests.</p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -649,6 +712,8 @@ export default function SettingsPage() {
         <PeopleList />
 
         {youAreMember && <KitchenNameEditor />}
+
+        {youAreMember && <GuestSharing />}
 
         {youAreMember && (
           <section className="space-y-3">

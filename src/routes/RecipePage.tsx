@@ -176,17 +176,18 @@ export default function RecipePage() {
                 Start cooking →
               </Link>
             ))}
-          {/* The grocery list and meal plan are members-only — a guest can't
-              write them, so don't offer the buttons. */}
-          {isMember && (
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowAddToList(true)}
-                className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-              >
-                Add to list
-              </button>
+          <div className="flex gap-3">
+            {/* Add-to-list works for guests too — it goes to one of THEIR own
+                kitchens (the sheet picks), never this shared list. */}
+            <button
+              type="button"
+              onClick={() => setShowAddToList(true)}
+              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+            >
+              Add to list
+            </button>
+            {/* The meal plan is members-only. */}
+            {isMember && (
               <button
                 type="button"
                 onClick={() => setShowAddToPlan(true)}
@@ -194,8 +195,18 @@ export default function RecipePage() {
               >
                 Add to plan
               </button>
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Copying makes an independent copy in a kitchen you're a member of,
+              so guests can save a recipe into their own kitchen too. */}
+          <button
+            type="button"
+            onClick={() => setShowCopy(true)}
+            className="grid h-14 w-full place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+          >
+            Copy to another kitchen
+          </button>
         </div>
 
         {showAddToList && (
@@ -272,13 +283,6 @@ export default function RecipePage() {
               >
                 Edit recipe
               </Link>
-              <button
-                type="button"
-                onClick={() => setShowCopy(true)}
-                className="min-h-11 rounded-full border border-line px-4 text-sm text-ink-soft transition active:scale-[0.98]"
-              >
-                Copy to another kitchen
-              </button>
               <button
                 type="button"
                 onClick={onDelete}

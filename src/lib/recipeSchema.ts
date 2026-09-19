@@ -96,7 +96,7 @@ export const recipeInputSchema = z.object({
   equipment: z.array(z.string().trim().min(1)).optional(),
   notes: z.array(z.string().trim().min(1)).optional(),
   images: z.array(z.string().trim()).optional(),
-  visibility: z.enum(['private', 'household', 'friends']).default('household'),
+  visibility: z.enum(['private', 'household', 'friends']).default('friends'),
 })
 
 export type RecipeInput = z.infer<typeof recipeInputSchema>
