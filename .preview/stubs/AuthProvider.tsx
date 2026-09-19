@@ -15,7 +15,7 @@ export function useAuth() {
 
   return {
     user: signedOut ? null : { uid: 'u', displayName: 'Cassidy', email: 'c@example.com', photoURL: null },
-    profile: null,
+    profile: signedOut ? null : { uid: 'u', displayName: 'Cassidy', email: 'c@example.com', photoURL: null, householdIds: ['hh_preview'], defaultHouseholdId: 'hh_preview', pendingInvite: null },
     household: signedOut
       ? null
       : { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },

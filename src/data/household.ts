@@ -145,3 +145,14 @@ export async function fetchProfiles(uids: string[]): Promise<UserProfile[]> {
         },
   )
 }
+
+/**
+ * Set the current user's screen name. It's stored on their profile and, once
+ * set, wins over the email-derived fallback on every future sign-in (see
+ * ensureUserAndHousehold). An empty name clears it, falling back to the
+ * derived one. Members see this name in the recipe byline and the roster.
+ */
+export async function setDisplayName(uid: string, name: string): Promise<void> {
+  const trimmed = name.trim()
+  await updateDoc(doc(db, 'users', uid), { displayName: trimmed || null })
+}

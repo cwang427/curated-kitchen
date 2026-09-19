@@ -8,7 +8,9 @@ interface Props {
 }
 
 export default function AppHeader({ title, back }: Props) {
-  const { user, household } = useAuth()
+  const { user, profile, household } = useAuth()
+  // Email/password accounts carry no auth displayName, so prefer the profile's.
+  const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
 
   return (
     <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
@@ -56,7 +58,7 @@ export default function AppHeader({ title, back }: Props) {
             />
           ) : (
             <span className="grid size-9 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
-              {(user?.displayName ?? user?.email ?? '?').slice(0, 1).toUpperCase()}
+              {displayName.slice(0, 1).toUpperCase()}
             </span>
           )}
         </Link>

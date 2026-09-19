@@ -17,3 +17,7 @@ export async function fetchProfiles(uids: string[]): Promise<UserProfile[]> {
     pendingInvite: null,
   }))
 }
+
+export async function setDisplayName(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 200))
+}
