@@ -135,11 +135,12 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator).
 - `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
-  `npm run test:steps` — pure-logic unit tests for the JSON-LD converter, the
-  grocery merge/aisle logic, the meal-plan day window + plan→groceries
-  aggregation, and the cook-mode sentence splitter. Run after touching
-  `src/lib/importRecipe.ts`, `src/lib/grocery.ts`, `src/lib/plan.ts`, or
-  `src/lib/quantity.ts`.
+  `npm run test:steps` / `npm run test:draft` — pure-logic unit tests for the
+  JSON-LD converter, the grocery merge/aisle logic, the meal-plan day window +
+  plan→groceries aggregation, the cook-mode sentence splitter, and the recipe
+  editor's draft↔schema round-trip. Run after touching `src/lib/importRecipe.ts`,
+  `src/lib/grocery.ts`, `src/lib/plan.ts`, `src/lib/quantity.ts`, or
+  `src/lib/recipeDraft.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -177,9 +178,15 @@ kitchen you're a member of, delete a recipe with confirm; the sync prune spares
 app-copied recipes via `origin`), and AI recipe ingestion (paste text or a photo
 → Claude via the `worker/` Cloudflare Worker → structured → validated by the same
 `parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline
-stays as a power-user path). Next: inline editing of the AI preview (fix a field
-without re-reading), more ingestion pathways (URL with a JSON-LD fast path, PWA
-share-target), then ownership transfer / co-owner. The cook log is intentionally
-skipped —
+stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
+`src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
+step's text + cook-mode `brief`; start from scratch or edit an ingestion result
+before saving — draft↔schema round-trip validated by the same `parseRecipe`).
+Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
+and/or iOS Live Text) + a rule-based text→recipe parser building on
+`parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the
+paid Claude Worker in `worker/` is left dormant/optional); then more pathways
+(URL JSON-LD fast path, PWA share-target) and ownership transfer / co-owner. The
+cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.
