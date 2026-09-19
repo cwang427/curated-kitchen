@@ -1,27 +1,26 @@
-# Push recipes/*.json into Firestore whenever they change.
+# Restore recipes from the repo archive into Firestore — MANUAL ONLY (retired).
 #
-# This is what lets recipes be added from a phone: edit a JSON file, commit,
-# and CI syncs it to Firestore — no service-account key ever touches your
-# device. The key lives only as an encrypted repo secret.
+# The repo used to be the authoritative source for recipes: every push synced
+# recipes/*.json into Firestore and pruned anything removed. That's retired now
+# that recipes are authored and owned inside the app — a live sync would clobber
+# in-app edits by slug on every push. So this no longer runs on push.
 #
-# One-time setup (see README › Adding recipes):
+# The recipes/*.json files are kept as a FROZEN ARCHIVE / backup. If you ever
+# need to re-seed a kitchen from that archive, run this workflow by hand
+# (Actions › Restore recipes from archive › Run workflow). It upserts by slug
+# and does NOT prune, so it won't delete app-created recipes — but it WILL
+# overwrite any in-app edits to a recipe whose slug matches an archived file.
+# Use it only for disaster recovery.
+#
+# Requires (same one-time setup as before):
 #   • Secret  FIREBASE_SERVICE_ACCOUNT — the service-account JSON, pasted whole.
-#   • Variable KITCHEN_HOUSEHOLD_ID    — the household these recipes belong to.
-name: Sync recipes
+#   • Variable KITCHEN_HOUSEHOLD_ID    — the household to restore into.
+name: Restore recipes from archive
 
 on:
-  push:
-    branches:
-      - main
-      - claude/clever-hawking-xe57hp
-    paths:
-      - 'recipes/**'
-      - 'scripts/sync-recipes.ts'
-      - 'scripts/recipe-files.ts'
-      - 'src/lib/recipeSchema.ts'
   workflow_dispatch:
 
-# One sync at a time, so two quick pushes can't race to write the same docs.
+# One restore at a time.
 concurrency:
   group: sync-recipes
   cancel-in-progress: false
@@ -41,7 +40,7 @@ jobs:
           [ -z "$SA" ] && missing="$missing FIREBASE_SERVICE_ACCOUNT(secret)"
           [ -z "$HH" ] && missing="$missing KITCHEN_HOUSEHOLD_ID(variable)"
           if [ -n "$missing" ]; then
-            echo "::error::Recipe sync isn't configured yet. Missing:$missing"
+            echo "::error::Recipe restore isn't configured. Missing:$missing"
             echo "See README › Adding recipes for the one-time setup."
             exit 1
           fi
@@ -65,7 +64,6 @@ jobs:
           # projectId is read straight from the key, so nothing else to set.
           echo "FIREBASE_PROJECT_ID=$(node -p "require('$RUNNER_TEMP/sa.json').project_id")" >> "$GITHUB_ENV"
 
-      - name: Sync
-        # --prune makes the repo authoritative: a renamed or deleted recipe
-        # file removes the stale document instead of leaving a duplicate.
-        run: npm run sync:recipes -- --household="${{ vars.KITCHEN_HOUSEHOLD_ID }}" --prune
+      - name: Restore
+        # No --prune: a manual restore must never delete app-created recipes.
+        run: npm run sync:recipes -- --household="${{ vars.KITCHEN_HOUSEHOLD_ID }}"

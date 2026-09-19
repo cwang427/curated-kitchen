@@ -247,3 +247,20 @@ export async function createRecipeInHousehold(
   })
   return seed.slug
 }
+
+/**
+ * Save edits to an existing recipe in place, keyed by its slug (the doc id, so
+ * the URL never changes even if the title does). A merge write overwrites the
+ * edited fields while leaving householdId, createdBy, and createdAt untouched.
+ * Editing in the app claims ownership: origin becomes 'app' so the retired
+ * recipe restore (were it ever run) and any prune leave the edit alone. Rules
+ * allow this only for members of the recipe's household.
+ */
+export async function updateRecipe(seed: RecipeSeed): Promise<string> {
+  await setDoc(
+    doc(db, 'recipes', seed.slug),
+    { ...seed, origin: 'app', updatedAt: serverTimestamp() },
+    { merge: true },
+  )
+  return seed.slug
+}

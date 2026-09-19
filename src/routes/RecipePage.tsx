@@ -79,12 +79,9 @@ export default function RecipePage() {
   const isMember = !!(user && household && household.memberUids.includes(user.uid))
 
   const onDelete = async () => {
-    // Repo-managed (or legacy) recipes come back on the next sync; app copies don't.
-    const managed = recipe.origin !== 'app'
-    const message = managed
-      ? `Delete “${recipe.title}”? It’ll come back the next time recipes are synced from your recipe files, unless you also remove its file.`
-      : `Delete “${recipe.title}”? This can’t be undone.`
-    if (!confirm(message)) return
+    // The repo→Firestore sync is retired, so a delete is permanent for every
+    // recipe (nothing re-creates it on push anymore).
+    if (!confirm(`Delete “${recipe.title}”? This can’t be undone.`)) return
     try {
       await deleteRecipe(recipe.slug)
       navigate('/')
@@ -265,6 +262,12 @@ export default function RecipePage() {
               Manage
             </h2>
             <div className="flex flex-wrap gap-3">
+              <Link
+                to={`/r/${recipe.slug}/edit`}
+                className="min-h-11 grid place-items-center rounded-full border border-line px-4 text-sm text-ink-soft transition active:scale-[0.98]"
+              >
+                Edit recipe
+              </Link>
               <button
                 type="button"
                 onClick={() => setShowCopy(true)}

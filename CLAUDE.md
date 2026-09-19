@@ -31,17 +31,20 @@ confusion:
   **Firebase console → Firestore Database → Rules → paste → Publish** (or
   `npm run deploy:rules` from a computer). **Whenever a change touches
   `firestore.rules`, tell the owner to re-publish, every time.**
-- **Recipe content → on push, if configured.** Editing `recipes/*.json` runs
-  `.github/workflows/sync-recipes.yml`, which writes to Firestore using the
-  `FIREBASE_SERVICE_ACCOUNT` repo secret and the `KITCHEN_HOUSEHOLD_ID` repo
-  variable. Fails with a clear message if those aren't set. CI syncs with
-  `--prune`, so the repo is authoritative: renaming or deleting a recipe file
-  removes the old Firestore document instead of leaving a duplicate (the doc id
-  is the slug). Renaming a recipe = new slug + delete old file; prune handles
-  the cleanup. Synced recipes are tagged `origin: 'repo'`; the prune only
-  removes repo-tagged recipes, so recipes **created or copied inside the app**
-  (`origin: 'app'`) are never deleted by a sync. Deleting a repo recipe in the
-  app is futile — the next sync re-creates it; remove its file instead.
+- **Recipe content → authored in the app now (repo sync RETIRED).** Recipes are
+  created, edited, copied, and deleted **inside the app** (`RecipeEditor` →
+  `origin: 'app'` docs). The old repo→Firestore sync — where `recipes/*.json`
+  was authoritative and pushed to Firestore on every commit — is retired,
+  because a live sync would clobber in-app edits by slug on each push. The
+  `recipes/*.json` files are kept only as a **frozen archive/backup**, and
+  `.github/workflows/sync-recipes.yml` no longer runs on push: it's now
+  **manual-only** ("Restore recipes from archive"), runs **without `--prune`**,
+  and is for disaster recovery — running it re-seeds from the archive and would
+  overwrite in-app edits to any recipe whose slug matches an archived file, so
+  reach for it only to recover a lost kitchen. (Follow-up idea if a live backup
+  is wanted: reverse the direction — a scheduled Firestore→`recipes/*.json`
+  snapshot that never overwrites live edits.) Editing a recipe in the app marks
+  it `origin: 'app'`; deleting one is now permanent (nothing re-creates it).
 - **Recipe import Worker → MANUAL (Cloudflare, one-time).** In-app "Add recipe"
   (paste text or a photo → Claude → our structured shape → validated by the same
   `parseRecipe` → editable preview → save as an `origin: 'app'` recipe) calls a
@@ -182,8 +185,12 @@ app-copied recipes via `origin`), and AI recipe ingestion (paste text or a photo
 `parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline
 stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
-step's text + cook-mode `brief`; start from scratch or edit an ingestion result
-before saving — draft↔schema round-trip validated by the same `parseRecipe`),
+step's text + cook-mode `brief`; start from scratch, edit an ingestion result
+before saving, or **edit an existing recipe in place** at `/r/:slug/edit`
+(`EditRecipePage` → `updateRecipe`, same slug/URL, becomes `origin: 'app'`) —
+draft↔schema round-trip validated by the same `parseRecipe`; recipe authoring is
+now fully in-app and the repo→Firestore sync is retired to a manual archive
+restore, see Deploy tracks),
 and a **live cooking timeline** (`/cooking`, `src/routes/CookingPage.tsx`) that
 coordinates several dishes at once from the local cook board: a glanceable strip
 of each dish's running timers plus a merged, time-sorted "Up next" list of what

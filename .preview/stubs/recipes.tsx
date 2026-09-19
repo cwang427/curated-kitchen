@@ -53,3 +53,6 @@ export async function deleteRecipe(): Promise<void> {}
 export async function createRecipeInHousehold(): Promise<string> {
   return 'new-recipe'
 }
+export async function updateRecipe(): Promise<string> {
+  return 'edited-recipe'
+}

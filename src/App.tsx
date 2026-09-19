@@ -8,6 +8,7 @@ import CookingPage from './routes/CookingPage'
 import GroceryListPage from './routes/GroceryListPage'
 import PlanPage from './routes/PlanPage'
 import AddRecipePage from './routes/AddRecipePage'
+import EditRecipePage from './routes/EditRecipePage'
 import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 
@@ -54,6 +55,7 @@ export default function App() {
       <Route path="/list" element={<GroceryListPage />} />
       <Route path="/plan" element={<PlanPage />} />
       <Route path="/add" element={<AddRecipePage />} />
+      <Route path="/r/:slug/edit" element={<EditRecipePage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

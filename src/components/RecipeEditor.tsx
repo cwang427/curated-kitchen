@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
-import { createRecipeInHousehold } from '../data/recipes'
+import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -72,15 +72,20 @@ function RowControls({
 /**
  * Edit a recipe (overall details, the ingredient list, and each step's full
  * text + the concise cook-mode "brief"), then validate against the same schema
- * CI uses and save it as an app recipe. Used for the ingestion preview and for
- * starting a recipe from scratch.
+ * CI uses and save it. Three ways in: the ingestion preview, starting from
+ * scratch, and editing an existing recipe in place. When `editingSlug` is set,
+ * saving updates that recipe (its slug/URL never changes); otherwise it mints a
+ * fresh slug and creates a new app recipe.
  */
 export default function RecipeEditor({
   initial,
+  editingSlug = null,
   onSaved,
   onCancel,
 }: {
   initial: RecipeSeed | null
+  /** The slug of an existing recipe to update in place, or null to create new. */
+  editingSlug?: string | null
   onSaved: (slug: string) => void
   onCancel: () => void
 }) {
@@ -101,9 +106,14 @@ export default function RecipeEditor({
     setError(null)
     setSaving(true)
     try {
-      const slug = `${slugify(draft.title) || 'recipe'}-${Math.random().toString(36).slice(2, 7)}`
+      // Editing keeps the existing slug (the doc id / URL is stable); a new
+      // recipe mints one from the title.
+      const slug =
+        editingSlug ?? `${slugify(draft.title) || 'recipe'}-${Math.random().toString(36).slice(2, 7)}`
       const { recipe } = parseRecipe({ ...draftToInput(draft), slug })
-      const saved = await createRecipeInHousehold(recipe, household.id, user.uid)
+      const saved = editingSlug
+        ? await updateRecipe(recipe)
+        : await createRecipeInHousehold(recipe, household.id, user.uid)
       onSaved(saved)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t save — check the fields above.')
@@ -261,7 +271,7 @@ export default function RecipeEditor({
             disabled={saving || !draft.title.trim()}
             className="grid h-12 flex-[1.4] place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
           >
-            {saving ? 'Saving…' : 'Save recipe'}
+            {saving ? 'Saving…' : editingSlug ? 'Save changes' : 'Save recipe'}
           </button>
         </div>
       </div>
