@@ -2,7 +2,9 @@ name = "curated-kitchen-import"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
-# Non-secret config. Secrets (the Anthropic key) are set separately — see README.
+# Non-secret config. The free /url (paste-a-link) route needs only these vars.
+# The Anthropic key (for the optional paid text/photo route) is a secret set
+# separately — see README.
 [vars]
 FIREBASE_PROJECT_ID = "REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID"
 ALLOWED_ORIGIN = "https://cwang427.github.io"

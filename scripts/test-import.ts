@@ -104,7 +104,8 @@ console.log('recipeFromJsonLd → validates against the schema')
 
   const { recipe, warnings } = recipeFromJsonLd(jsonld, 'https://www.seriouseats.com/example')
   check('title', recipe.title === 'Braised Short Ribs Test')
-  check('source name', (recipe.source as { name: string }).name === 'Serious Eats')
+  // No publisher in the markup → source name falls back to the site's hostname.
+  check('source name from hostname', (recipe.source as { name: string }).name === 'seriouseats.com')
   check('author', (recipe.source as { author: string }).author === 'Test Cook')
   check('yield range', JSON.stringify(recipe.yield) === JSON.stringify({ amount: 4, amountMax: 6, unit: 'servings' }))
   check('7 ingredients', (recipe.ingredients as unknown[]).length === 7)
@@ -122,6 +123,19 @@ console.log('recipeFromJsonLd → validates against the schema')
   }
 
   console.log(`    import produced ${warnings.length} review warnings`)
+}
+
+console.log('recipeFromJsonLd → publisher name wins over hostname')
+{
+  const jsonld = {
+    '@type': 'Recipe',
+    name: 'Test',
+    publisher: { '@type': 'Organization', name: 'Bon Appétit' },
+    recipeIngredient: ['1 cup flour'],
+    recipeInstructions: ['Mix.'],
+  }
+  const { recipe } = recipeFromJsonLd(jsonld, 'https://www.bonappetit.com/x')
+  check('source name from publisher', (recipe.source as { name: string }).name === 'Bon Appétit')
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

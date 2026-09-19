@@ -4,10 +4,11 @@ import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'
-import { aiImportConfigured } from '../lib/aiConfig'
+import { importRecipeFromUrl } from '../data/urlImport'
+import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import type { RecipeSeed } from '../lib/types'
 
-type Mode = 'choose' | 'capture' | 'edit'
+type Mode = 'choose' | 'link' | 'capture' | 'edit'
 
 export default function AddRecipePage() {
   const { user, household } = useAuth()
@@ -17,6 +18,7 @@ export default function AddRecipePage() {
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
   const [tab, setTab] = useState<'text' | 'photo'>('text')
   const [text, setText] = useState('')
+  const [link, setLink] = useState('')
   const [image, setImage] = useState<{ data: string; mediaType: string; name: string } | null>(null)
   const [reading, setReading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +55,21 @@ export default function AddRecipePage() {
 
   const canRead = tab === 'photo' ? !!image : text.trim().length > 0
 
+  const readLink = async () => {
+    setError(null)
+    setReading(true)
+    try {
+      const res = await importRecipeFromUrl(link.trim())
+      setInitial(res.seed)
+      setMode('edit')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
+    } finally {
+      setReading(false)
+    }
+  }
+  const canReadLink = /^https?:\/\/\S+/i.test(link.trim())
+
   return (
     <div className="min-h-dvh">
       <AppHeader title="Add a recipe" back />
@@ -68,6 +85,47 @@ export default function AddRecipePage() {
             onSaved={(slug) => navigate(`/r/${slug}`)}
             onCancel={() => setMode('choose')}
           />
+        ) : mode === 'link' ? (
+          <div className="space-y-4">
+            <input
+              type="url"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://…"
+              aria-label="Recipe link"
+              className="min-h-14 w-full rounded-2xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+            />
+            <p className="text-sm text-ink-soft">
+              Paste a link from most cooking sites and we’ll pull the ingredients and steps for you
+              to review before saving. Some sites block automatic reading — if it doesn’t work, use
+              paste or a photo instead.
+            </p>
+
+            {error && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={readLink}
+              disabled={!canReadLink || reading}
+              className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
+            >
+              {reading ? 'Reading…' : 'Read recipe'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('choose'); setError(null) }}
+              className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
+            >
+              Back
+            </button>
+          </div>
         ) : mode === 'capture' ? (
           <div className="space-y-4">
             <div className="flex gap-2">
@@ -145,7 +203,20 @@ export default function AddRecipePage() {
               <span className="mt-0.5 block text-sm text-ink-soft">Type the recipe in yourself.</span>
             </button>
 
-            {aiImportConfigured ? (
+            {urlImportConfigured && (
+              <button
+                type="button"
+                onClick={() => setMode('link')}
+                className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+              >
+                <span className="block font-medium">Paste a link</span>
+                <span className="mt-0.5 block text-sm text-ink-soft">
+                  Read a recipe straight from most cooking sites, then review before saving.
+                </span>
+              </button>
+            )}
+
+            {aiImportConfigured && (
               <button
                 type="button"
                 onClick={() => setMode('capture')}
@@ -156,12 +227,14 @@ export default function AddRecipePage() {
                   Read it in automatically, then review and edit before saving.
                 </span>
               </button>
-            ) : (
+            )}
+
+            {!urlImportConfigured && !aiImportConfigured && (
               <div className="rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft">
-                <span className="block font-medium text-ink">Paste or photo — coming soon</span>
+                <span className="block font-medium text-ink">Import — coming soon</span>
                 <span className="mt-0.5 block">
-                  Automatic reading (paste text or snap a photo) arrives with the ingestion
-                  engine. For now, start from scratch above.
+                  Reading a recipe from a link (or a paste/photo) turns on once the importer is
+                  deployed. For now, start from scratch above.
                 </span>
               </div>
             )}

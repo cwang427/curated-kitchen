@@ -230,6 +230,15 @@ function firstString(value: unknown): string | null {
   return null
 }
 
+/** The site's display name for the `source`: "www.seriouseats.com" → "seriouseats.com". */
+function hostName(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '') || null
+  } catch {
+    return null
+  }
+}
+
 /** Find the Recipe node inside a parsed JSON-LD blob (handles @graph, arrays). */
 export function findRecipeNode(jsonld: unknown): Record<string, unknown> | null {
   const isRecipe = (node: unknown): node is Record<string, unknown> => {
@@ -312,11 +321,15 @@ export function recipeFromJsonLd(jsonld: unknown, sourceUrl: string): ImportResu
     'Steps were imported as plain text — add {{ }} tokens for amounts and any step timers by hand.',
   )
 
+  // The publication name comes from the page's own publisher, falling back to
+  // the site's hostname — never hardcoded, since this imports from any site.
+  const sourceName = firstString(node.publisher) ?? hostName(sourceUrl)
+
   const recipe: Record<string, unknown> = {
     slug: slugify(title),
     title,
     source: {
-      name: 'Serious Eats',
+      name: sourceName,
       author,
       url: sourceUrl,
     },
@@ -325,7 +338,8 @@ export function recipeFromJsonLd(jsonld: unknown, sourceUrl: string): ImportResu
     ingredients,
     steps,
     tags: [...new Set(tags)],
-    visibility: 'household',
+    // visibility is left to the schema default (shared with the kitchen); a
+    // member can hide it after review in the editor.
   }
 
   const description = firstString(node.description)

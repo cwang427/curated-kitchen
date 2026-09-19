@@ -58,16 +58,25 @@ confusion:
   main; run it by hand from the Actions tab any time. It reuses the existing
   `FIREBASE_SERVICE_ACCOUNT` secret + `KITCHEN_HOUSEHOLD_ID` variable — no new
   setup.
-- **Recipe import Worker → MANUAL (Cloudflare, one-time).** In-app "Add recipe"
-  (paste text or a photo → Claude → our structured shape → validated by the same
-  `parseRecipe` → editable preview → save as an `origin: 'app'` recipe) calls a
-  tiny Cloudflare Worker in `worker/` that holds the Anthropic API key — the key
-  must never live in the public app. Deploy it once (`worker/README.md`) and put
-  its URL in `src/lib/aiConfig.ts` (not secret; empty until set, which just
-  shows a setup note). The Worker verifies the caller's Firebase ID token, so
-  only signed-in members can spend the key. No `firestore.rules` change —
-  creating a recipe is already a member action. `worker/` is outside the app's
-  tsc build; `wrangler` builds it.
+- **Recipe import Worker → MANUAL (Cloudflare, one-time).** The `worker/`
+  Cloudflare Worker powers "Add a recipe" imports and has **two routes**:
+  - **`/url` (FREE) — paste a link.** The app can't fetch another site directly
+    (browser CORS), so the Worker fetches the page server-side and returns the
+    schema.org **JSON-LD** most recipe sites embed; the app converts it with the
+    same pure `recipeFromJsonLd` (`src/lib/importRecipe.ts`) and validates with
+    `parseRecipe` → editable preview → save as `origin: 'app'`. **No API key** —
+    reading structured data is deterministic. Fragile per-site (bot walls / no
+    JSON-LD), so it degrades to paste/photo; that's expected.
+  - **root (PAID, optional) — paste text or a photo → Claude.** Needs the
+    Anthropic key (a Worker secret; never in the public app). Off in the app
+    until `AI_IMPORT_ENABLED = true`.
+
+  Deploy once (`worker/README.md`); URL import needs only `FIREBASE_PROJECT_ID`.
+  Put the Worker URL in `src/lib/aiConfig.ts` (`IMPORT_WORKER_URL`; not secret,
+  empty until set → the options that need it stay hidden). The Worker verifies
+  the caller's Firebase ID token (members only) and guards its fetcher against
+  private/loopback hosts (basic SSRF). No `firestore.rules` change. `worker/` is
+  outside the app's tsc build; `wrangler` builds it.
 
 ## The core bet: ingredients are structured data
 
@@ -224,10 +233,14 @@ can hide one via the editor; guests can view, cook, copy into their own kitchen,
 and add ingredients to their own grocery list, but never edit in place or see the
 kitchen's list/plan — no rules change, since copy/add-to-list act on the guest's
 own kitchen; Settings › Guests one-taps pre-existing recipes into the default),
-and AI recipe ingestion (paste text or a photo
-→ Claude via the `worker/` Cloudflare Worker → structured → validated by the same
-`parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline
-stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
+and recipe import from a link (Add a recipe → **Paste a link** →
+the `worker/` `/url` route fetches the page → `recipeFromJsonLd` reads its
+schema.org JSON-LD → validated by the same `parseRecipe` → editable preview →
+save as `origin: 'app'`; free/no-key, degrades to paste/photo on sites that block
+it or lack structured data), and AI recipe ingestion (paste text or a photo
+→ Claude via the same Worker's paid route, off unless enabled → structured →
+validated by the same `parseRecipe` → editable preview → save as `origin: 'app'`;
+the JSON pipeline stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result
 before saving, or **edit an existing recipe in place** at `/r/:slug/edit`
@@ -250,8 +263,10 @@ disaster-recovery restore via `--restore`; see Deploy tracks).
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the
-paid Claude Worker in `worker/` is left dormant/optional); then more pathways
-(URL JSON-LD fast path, PWA share-target) and ownership transfer / co-owner. The
+paid Claude Worker route is left dormant/optional; the free link import already
+covers sites with structured data); then a PWA share-target ("Share → Curated
+Kitchen" hands over the page text, sidestepping CORS) and ownership transfer /
+co-owner. The
 cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

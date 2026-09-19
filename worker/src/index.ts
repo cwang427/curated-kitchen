@@ -13,7 +13,10 @@
  */
 
 interface Env {
-  ANTHROPIC_API_KEY: string
+  // Only needed for the (optional, paid) AI route. The free /url route works
+  // without it, so it's optional — deploy with just FIREBASE_PROJECT_ID for
+  // URL import alone.
+  ANTHROPIC_API_KEY?: string
   FIREBASE_PROJECT_ID: string
   ANTHROPIC_MODEL?: string
   ALLOWED_ORIGIN?: string
@@ -201,6 +204,104 @@ async function verifyFirebaseToken(token: string, projectId: string): Promise<st
   return ok ? payload.sub : null
 }
 
+/* ---- Free URL import: fetch a page and pull its schema.org JSON-LD ---- */
+
+/** Block loopback / private / link-local hosts so the fetcher can't be pointed
+ * at internal addresses (basic SSRF hygiene; only members can call it anyway). */
+function isBlockedHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) {
+    return true
+  }
+  if (h === '::1' || h.startsWith('fd') || h.startsWith('fe80')) return true
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const p = h.split('.').map(Number)
+    if (p[0] === 10 || p[0] === 127 || p[0] === 0) return true
+    if (p[0] === 169 && p[1] === 254) return true // link-local / cloud metadata
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true
+    if (p[0] === 192 && p[1] === 168) return true
+  }
+  return false
+}
+
+/** Pull the contents of every <script type="application/ld+json"> block. */
+function extractJsonLd(html: string): unknown[] {
+  const out: unknown[] = []
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    let text = m[1].trim()
+    if (!text) continue
+    text = text.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim()
+    try {
+      out.push(JSON.parse(text))
+    } catch {
+      // A malformed block is skipped rather than failing the whole import.
+    }
+    if (out.length >= 20) break
+  }
+  return out
+}
+
+async function handleUrlImport(
+  body: { url?: string },
+  origin: string,
+): Promise<Response> {
+  const raw = typeof body.url === 'string' ? body.url.trim() : ''
+  let target: URL
+  try {
+    target = new URL(raw)
+  } catch {
+    return json({ error: 'Enter a valid recipe link (starting with https://).' }, 400, origin)
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    return json({ error: 'Only http(s) links are supported.' }, 400, origin)
+  }
+  if (isBlockedHost(target.hostname)) {
+    return json({ error: 'That link can’t be fetched.' }, 400, origin)
+  }
+
+  let page: Response
+  try {
+    page = await fetch(target.toString(), {
+      headers: {
+        // A real browser UA clears the most basic bot checks; aggressive sites
+        // still block, and the app falls back to paste/photo then.
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+      redirect: 'follow',
+    })
+  } catch {
+    return json({ error: 'Couldn’t reach that page.' }, 502, origin)
+  }
+
+  if (!page.ok) {
+    const blocked = page.status === 403 || page.status === 429 || page.status === 401
+    return json(
+      {
+        error: blocked
+          ? 'That site blocked the import. Try paste or a screenshot instead.'
+          : `Couldn’t load the page (${page.status}).`,
+      },
+      502,
+      origin,
+    )
+  }
+
+  const html = await page.text()
+  const jsonld = extractJsonLd(html)
+  if (jsonld.length === 0) {
+    return json(
+      { error: 'No structured recipe data on that page. Try paste or a screenshot instead.' },
+      422,
+      origin,
+    )
+  }
+  return json({ jsonld, url: target.toString() }, 200, origin)
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
@@ -212,19 +313,30 @@ export default {
       return json({ error: 'Use POST.' }, 405, origin)
     }
 
-    // Only signed-in household members may spend the key.
+    // Only signed-in household members may use the Worker.
     const auth = request.headers.get('Authorization') ?? ''
     const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : ''
     if (!idToken) return json({ error: 'Missing sign-in token.' }, 401, origin)
     const uid = await verifyFirebaseToken(idToken, env.FIREBASE_PROJECT_ID)
     if (!uid) return json({ error: 'Not signed in.' }, 401, origin)
 
-    let input: { text?: string; image?: { data: string; mediaType: string } }
+    let body: { text?: string; image?: { data: string; mediaType: string }; url?: string }
     try {
-      input = await request.json()
+      body = await request.json()
     } catch {
       return json({ error: 'Bad request body.' }, 400, origin)
     }
+
+    // Free route: fetch a URL and return its structured data. No API key needed.
+    if (new URL(request.url).pathname.replace(/\/+$/, '').endsWith('/url')) {
+      return handleUrlImport(body, origin)
+    }
+
+    // Paid route: Claude turns pasted text / a photo into a recipe.
+    if (!env.ANTHROPIC_API_KEY) {
+      return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)
+    }
+    const input = body
     if (!input.text && !input.image) {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }

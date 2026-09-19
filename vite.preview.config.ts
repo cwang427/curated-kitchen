@@ -26,6 +26,7 @@ export default defineConfig({
       { find: /^.*\/data\/plan$/, replacement: stub("plan.ts") },
       { find: /^.*\/data\/cooksession$/, replacement: stub("cooksession.ts") },
       { find: /^.*\/data\/aiImport$/, replacement: stub("aiImport.ts") },
+      { find: /^.*\/data\/urlImport$/, replacement: stub("urlImport.ts") },
       { find: /^.*\/lib\/aiConfig$/, replacement: stub("aiConfig.ts") },
     ],
   },
