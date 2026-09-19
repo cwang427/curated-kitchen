@@ -45,3 +45,8 @@ export function useRecipe() {
   const recipe = ALL.find((r) => r.slug === slug) ?? cacioRecipe
   return { recipe, loading: false, error: null }
 }
+
+export async function copyRecipeToHousehold(): Promise<string> {
+  return 'copied-recipe'
+}
+export async function deleteRecipe(): Promise<void> {}

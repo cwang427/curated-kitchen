@@ -3,11 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
 import PlanSheet from '../components/PlanSheet'
+import CopyRecipeSheet from '../components/CopyRecipeSheet'
 import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
-import { useRecipe } from '../data/recipes'
+import { useAuth } from '../auth/AuthProvider'
+import { deleteRecipe, useRecipe } from '../data/recipes'
 import { clearSoloCook, readSoloCook } from '../data/soloCook'
+import { describeFirestoreError } from '../lib/errors'
 import { formatMinutes } from '../lib/quantity'
 
 function useToggleSet() {
@@ -25,6 +28,7 @@ function useToggleSet() {
 export default function RecipePage() {
   const { slug } = useParams<{ slug: string }>()
   const navigate = useNavigate()
+  const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   // A solo cook in progress on this device (read once on mount).
   const solo = useMemo(() => readSoloCook(), [])
@@ -33,6 +37,7 @@ export default function RecipePage() {
   const [doneSteps, toggleStep] = useToggleSet()
   const [showAddToList, setShowAddToList] = useState(false)
   const [showAddToPlan, setShowAddToPlan] = useState(false)
+  const [showCopy, setShowCopy] = useState(false)
 
   if (loading) {
     return (
@@ -70,6 +75,23 @@ export default function RecipePage() {
   const attribution = [recipe.source.author, recipe.source.name, recipe.source.book]
     .filter(Boolean)
     .join(' · ')
+
+  const isMember = !!(user && household && household.memberUids.includes(user.uid))
+
+  const onDelete = async () => {
+    // Repo-managed (or legacy) recipes come back on the next sync; app copies don't.
+    const managed = recipe.origin !== 'app'
+    const message = managed
+      ? `Delete “${recipe.title}”? It’ll come back the next time recipes are synced from your recipe files, unless you also remove its file.`
+      : `Delete “${recipe.title}”? This can’t be undone.`
+    if (!confirm(message)) return
+    try {
+      await deleteRecipe(recipe.slug)
+      navigate('/')
+    } catch (cause) {
+      alert(describeFirestoreError(cause, 'delete the recipe'))
+    }
+  }
 
   return (
     <div className="min-h-dvh">
@@ -236,6 +258,32 @@ export default function RecipePage() {
             </ul>
           </section>
         )}
+
+        {isMember && (
+          <section className="mt-8 border-t border-line pt-5">
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+              Manage
+            </h2>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCopy(true)}
+                className="min-h-11 rounded-full border border-line px-4 text-sm text-ink-soft transition active:scale-[0.98]"
+              >
+                Copy to another kitchen
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                className="min-h-11 rounded-full border border-red-300 px-4 text-sm text-red-600 transition active:scale-[0.98] dark:border-red-900 dark:text-red-400"
+              >
+                Delete recipe
+              </button>
+            </div>
+          </section>
+        )}
+
+        {showCopy && <CopyRecipeSheet recipe={recipe} onClose={() => setShowCopy(false)} />}
       </main>
     </div>
   )

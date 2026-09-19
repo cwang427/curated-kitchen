@@ -156,6 +156,12 @@ export interface Recipe {
   createdBy: string | null
   createdAt: number | null
   updatedAt: number | null
+  /**
+   * Where this recipe came from: 'repo' = synced from recipes/*.json (the
+   * repo is authoritative for these — the sync prunes them), 'app' = created or
+   * copied inside the app (never pruned). Absent on legacy docs; treat as repo.
+   */
+  origin?: 'repo' | 'app'
 }
 
 /** What lives in recipes/*.json — the server fills in the rest. */

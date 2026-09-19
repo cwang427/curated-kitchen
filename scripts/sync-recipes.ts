@@ -135,6 +135,9 @@ for (const { recipe } of selected) {
       ...recipe,
       id: recipe.slug,
       householdId: options.householdId,
+      // Marks this as repo-managed, so the prune below (and app-side delete)
+      // can tell it apart from recipes created or copied inside the app.
+      origin: 'repo',
       createdBy: existing.data()?.createdBy ?? null,
       createdAt: existing.data()?.createdAt ?? FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -150,15 +153,20 @@ console.log(
 )
 
 if (options.prune) {
-  // The repo is the source of truth: any recipe in this household without a
-  // matching file is stale (a rename or a deletion) and gets removed.
+  // The repo is the source of truth for repo-managed recipes: any such recipe
+  // in this household without a matching file is stale (a rename or a deletion)
+  // and gets removed. Recipes created or copied inside the app (origin 'app')
+  // are left alone — the repo was never their source, so pruning them would
+  // silently delete a member's own recipe.
   const localSlugs = new Set(loaded.map((r) => r.recipe.slug))
   const existing = await db
     .collection('recipes')
     .where('householdId', '==', options.householdId)
     .get()
 
-  const stale = existing.docs.filter((doc) => !localSlugs.has(doc.id))
+  const stale = existing.docs.filter(
+    (doc) => !localSlugs.has(doc.id) && doc.data().origin !== 'app',
+  )
   if (stale.length === 0) {
     console.log('Prune: nothing stale to remove.')
   } else {

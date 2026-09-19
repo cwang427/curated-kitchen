@@ -38,7 +38,10 @@ confusion:
   `--prune`, so the repo is authoritative: renaming or deleting a recipe file
   removes the old Firestore document instead of leaving a duplicate (the doc id
   is the slug). Renaming a recipe = new slug + delete old file; prune handles
-  the cleanup.
+  the cleanup. Synced recipes are tagged `origin: 'repo'`; the prune only
+  removes repo-tagged recipes, so recipes **created or copied inside the app**
+  (`origin: 'app'`) are never deleted by a sync. Deleting a repo recipe in the
+  app is futile — the next sync re-creates it; remove its file instead.
 
 ## The core bet: ingredients are structured data
 
@@ -159,9 +162,11 @@ together" sync (both phones follow the same step and timers via a shared
 demotes members and promotes friends; either member manages guests; anyone but
 the owner can leave), and a multi-kitchen switcher (belong to several kitchens,
 switch the active one, create/name new ones — "Personal" vs "Shared" derived
-from membership). Next: in-app recipe authoring + moving/copying recipes between
-kitchens (blocked on teaching the recipe-sync `--prune` to spare app-created
-recipes, so they aren't deleted from the CI-authoritative kitchen), then
-ownership transfer / co-owner. The cook log is intentionally skipped —
+from membership), and cross-kitchen recipe management (copy a recipe to another
+kitchen you're a member of, delete a recipe with confirm; the sync prune spares
+app-copied recipes via `origin`). Next: in-app recipe authoring (create a recipe
+from scratch, so an independent kitchen can hold originals that never came from
+the repo), then ownership transfer / co-owner. The cook log is intentionally
+skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

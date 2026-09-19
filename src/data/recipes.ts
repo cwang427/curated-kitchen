@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   query,
+  serverTimestamp,
+  setDoc,
   where,
   type DocumentData,
 } from 'firebase/firestore'
@@ -40,6 +43,7 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     createdBy: data.createdBy ?? null,
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
+    origin: data.origin === 'app' ? 'app' : data.origin === 'repo' ? 'repo' : undefined,
   }
 }
 
@@ -172,4 +176,53 @@ export function collectTags(recipes: Recipe[]): string[] {
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([tag]) => tag)
+}
+
+/** A short, URL-safe suffix so a copied recipe gets a globally unique slug. */
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 7)
+}
+
+/**
+ * Copy a recipe into another kitchen the caller belongs to. Recipes are keyed by
+ * slug (the doc id and the URL), which is global, so the copy gets a fresh
+ * unique slug. It's marked origin 'app' so the recipe-sync prune leaves it be.
+ * Returns the new slug. The rules allow this only if you're a member of the
+ * target household.
+ */
+export async function copyRecipeToHousehold(
+  recipe: Recipe,
+  targetHouseholdId: string,
+  uid: string,
+): Promise<string> {
+  const slug = `${recipe.slug}-${randomSuffix()}`
+  await setDoc(doc(db, 'recipes', slug), {
+    schemaVersion: recipe.schemaVersion,
+    slug,
+    title: recipe.title,
+    subtitle: recipe.subtitle,
+    description: recipe.description,
+    source: recipe.source,
+    yield: recipe.yield,
+    times: recipe.times,
+    ingredients: recipe.ingredients,
+    steps: recipe.steps,
+    groups: recipe.groups,
+    tags: recipe.tags,
+    equipment: recipe.equipment,
+    notes: recipe.notes,
+    images: recipe.images,
+    visibility: recipe.visibility,
+    householdId: targetHouseholdId,
+    origin: 'app',
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return slug
+}
+
+/** Delete a recipe. The rules allow this only for members of its household. */
+export async function deleteRecipe(slug: string): Promise<void> {
+  await deleteDoc(doc(db, 'recipes', slug))
 }
