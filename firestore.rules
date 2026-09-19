@@ -151,6 +151,25 @@ service cloud.firestore {
       }
     }
 
+    // The shared meal plan. Like the grocery list, its document id IS the
+    // household id, so membership is checked on planId directly — the entries
+    // subcollection then reads fine before the (lazily created) parent doc
+    // exists. Household-only: friends never see what's being cooked this week.
+    match /plans/{planId} {
+      allow read, write: if isMember(planId);
+
+      match /entries/{entryId} {
+        allow read, write: if isMember(planId);
+      }
+    }
+
+    // The live "cook together" session. One doc per household (id = household
+    // id), read/written by both phones as they step through a recipe together.
+    // Household-only, same as everything else the household owns.
+    match /sessions/{sessionId} {
+      allow read, write: if isMember(sessionId);
+    }
+
     match /cooks/{cookId} {
       allow read, update, delete: if isMember(resource.data.householdId);
       allow create: if isMember(request.resource.data.householdId)

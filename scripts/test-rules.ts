@@ -182,6 +182,50 @@ async function main(): Promise<void> {
     await getDocs(collection(E.db, 'lists', hhA, 'items'))
   })
 
+  console.log('Meal plan')
+  // Same regression guard as the grocery list: the entries subcollection must
+  // read before the parent plan doc exists.
+  await expectAllow('member reads the empty plan entries (no plan doc yet)', () =>
+    getDocs(collection(A.db, 'plans', hhA, 'entries')),
+  )
+  await expectAllow('member creates the parent plan doc', () =>
+    setDoc(doc(A.db, 'plans', hhA), { householdId: hhA }),
+  )
+  await expectAllow('member adds a plan entry', () =>
+    setDoc(doc(A.db, 'plans', hhA, 'entries', 'p1'), { recipeSlug: 'r1', recipeTitle: 'X', date: null, scale: 1 }),
+  )
+  await expectAllow('the other member reads the plan entry', () =>
+    getDoc(doc(B.db, 'plans', hhA, 'entries', 'p1')),
+  )
+  await expectDeny('a friend cannot read the meal plan', () =>
+    getDocs(collection(C.db, 'plans', hhA, 'entries')),
+  )
+  await expectDeny('a friend cannot add a plan entry', () =>
+    setDoc(doc(C.db, 'plans', hhA, 'entries', 'sneaky'), { recipeSlug: 'r2', recipeTitle: 'Y', date: null, scale: 1 }),
+  )
+  await expectDeny('an outsider cannot read the meal plan', async () => {
+    const E = await asUser('e-plan@kitchen.local')
+    await getDocs(collection(E.db, 'plans', hhA, 'entries'))
+  })
+
+  console.log('Cook session')
+  await expectAllow('member starts a cook session', () =>
+    setDoc(doc(A.db, 'sessions', hhA), { householdId: hhA, recipeSlug: 'r1', stepIndex: 0, timers: [], active: true }),
+  )
+  await expectAllow('the other member reads and advances the session', () =>
+    updateDoc(doc(B.db, 'sessions', hhA), { stepIndex: 1 }),
+  )
+  await expectDeny('a friend cannot read the cook session', () =>
+    getDoc(doc(C.db, 'sessions', hhA)),
+  )
+  await expectDeny('a friend cannot write the cook session', () =>
+    updateDoc(doc(C.db, 'sessions', hhA), { stepIndex: 99 }),
+  )
+  await expectDeny('an outsider cannot read the cook session', async () => {
+    const E = await asUser('e-session@kitchen.local')
+    await getDoc(doc(E.db, 'sessions', hhA))
+  })
+
   console.log('Invite revocation')
   await expectAllow('member revokes an invite', () => deleteInvite(A.db, memberCode))
   await expectDeny('a revoked invite can no longer be redeemed', async () => {

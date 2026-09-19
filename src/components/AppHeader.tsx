@@ -5,11 +5,13 @@ interface Props {
   title?: string
   /** Show a back chevron that returns to the recipe list. */
   back?: boolean
+  /** Show the meal-plan (calendar) shortcut. */
+  plan?: boolean
   /** Show the grocery-list (cart) shortcut. */
   cart?: boolean
 }
 
-export default function AppHeader({ title, back, cart }: Props) {
+export default function AppHeader({ title, back, plan, cart }: Props) {
   const { user, profile, household } = useAuth()
   // Email/password accounts carry no auth displayName, so prefer the profile's.
   const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
@@ -46,6 +48,19 @@ export default function AppHeader({ title, back, cart }: Props) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+        {plan && (
+          <Link
+            to="/plan"
+            title="Meal plan"
+            aria-label="Meal plan"
+            className="grid size-9 place-items-center rounded-full border border-line text-ink-soft transition active:bg-line"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M4 9h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </Link>
+        )}
         {cart && (
           <Link
             to="/list"

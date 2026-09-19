@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
+import PlanSheet from '../components/PlanSheet'
 import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
@@ -27,6 +28,7 @@ export default function RecipePage() {
   const [checkedIngredients, toggleIngredient] = useToggleSet()
   const [doneSteps, toggleStep] = useToggleSet()
   const [showAddToList, setShowAddToList] = useState(false)
+  const [showAddToPlan, setShowAddToPlan] = useState(false)
 
   if (loading) {
     return (
@@ -67,7 +69,7 @@ export default function RecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title={recipe.title} back cart />
+      <AppHeader title={recipe.title} back plan cart />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         <header className="space-y-3">
@@ -122,26 +124,38 @@ export default function RecipePage() {
           <ScaleControl scale={scale} onChange={setScale} recipeYield={recipe.yield} />
         </div>
 
-        <div className="mt-6 flex gap-3">
-          <button
-            type="button"
-            onClick={() => setShowAddToList(true)}
-            className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-          >
-            Add to list
-          </button>
+        <div className="mt-6 space-y-3">
           {recipe.steps.length > 0 && (
             <Link
               to={`/r/${recipe.slug}/cook?x=${scale}`}
-              className="grid h-14 flex-1 place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+              className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
             >
               Start cooking →
             </Link>
           )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowAddToList(true)}
+              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+            >
+              Add to list
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAddToPlan(true)}
+              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+            >
+              Add to plan
+            </button>
+          </div>
         </div>
 
         {showAddToList && (
           <AddToListSheet recipe={recipe} scale={scale} onClose={() => setShowAddToList(false)} />
+        )}
+        {showAddToPlan && (
+          <PlanSheet recipe={recipe} scale={scale} onClose={() => setShowAddToPlan(false)} />
         )}
 
         <section className="mt-6" aria-labelledby="ingredients-heading">

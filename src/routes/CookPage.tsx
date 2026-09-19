@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useRecipe } from '../data/recipes'
+import { useAuth } from '../auth/AuthProvider'
+import {
+  endCookSession,
+  setSessionStep,
+  setSessionTimers,
+  startCookSession,
+  useCookSession,
+} from '../data/cooksession'
 import { formatIngredient, formatStepQuantity, parseStepText } from '../lib/quantity'
-import type { Ingredient, Step } from '../lib/types'
+import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
 /* ---------------------------------------------------------------- *
  * Cook mode
@@ -11,20 +19,15 @@ import type { Ingredient, Step } from '../lib/types'
  * targets (hands are wet or full), the screen kept awake, and timers that keep
  * running in a tray as you move between steps — because you start a simmer on
  * step 4 and then go prep step 5 while it runs.
+ *
+ * "Cook together" mirrors the current step and the timers to a shared session
+ * doc so both phones stay in step. Timers are stored endsAt-first (a wall-clock
+ * epoch), so each phone derives its own countdown from a local tick and we only
+ * write on real actions — never every second.
  * ---------------------------------------------------------------- */
 
-interface ActiveTimer {
-  id: string
-  label: string
-  total: number
-  /** Seconds left when paused; while running, derived from `endsAt`. */
-  remaining: number
-  /** Epoch ms the timer will hit zero, or null when paused. */
-  endsAt: number | null
-  done: boolean
-  /** stepId:label — lets a step show "running" instead of a second Start. */
-  source: string
-}
+/** A timer with its live countdown filled in for display. */
+type DisplayTimer = SyncTimer & { done: boolean }
 
 function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
@@ -36,6 +39,11 @@ function clock(seconds: number): string {
 /** "2", "1.5", "0.5" — no trailing zeros, for the ×N scale badge. */
 function fmtScale(scale: number): string {
   return String(Math.round(scale * 100) / 100)
+}
+
+/** A running timer that has reached its end time. */
+function isDone(timer: SyncTimer, at: number): boolean {
+  return timer.endsAt !== null && at >= timer.endsAt
 }
 
 /** A short beep via Web Audio; the context is unlocked by the tap that starts a timer. */
@@ -112,7 +120,7 @@ function TimerTray({
   onReset,
   onDismiss,
 }: {
-  timers: ActiveTimer[]
+  timers: DisplayTimer[]
   onToggle: (id: string) => void
   onReset: (id: string) => void
   onDismiss: (id: string) => void
@@ -181,16 +189,74 @@ export default function CookPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const { recipe, loading } = useRecipe(slug)
+  const { user, household, profile } = useAuth()
+  const householdId = household?.id ?? null
+  const { session } = useCookSession(householdId)
 
-  const scale = Number(params.get('x')) || 1
-  const [index, setIndex] = useState(0)
-  const [timers, setTimers] = useState<ActiveTimer[]>([])
+  const scaleParam = Number(params.get('x')) || 1
+  const [localIndex, setLocalIndex] = useState(0)
+  const [localTimers, setLocalTimers] = useState<SyncTimer[]>([])
   // Mise en place: which of a step's ingredients you've gathered/measured.
-  // Keyed by step + ingredient so each step tracks its own, and your ticks
-  // survive stepping Back and forth to re-read a step.
+  // Kept per-phone (personal), keyed by step + ingredient so each step tracks
+  // its own and your ticks survive stepping Back and forth.
   const [prepped, setPrepped] = useState<Set<string>>(new Set())
+  // A local clock the timers count down against, ticked every 500ms.
+  const [now, setNow] = useState(() => Date.now())
   const { unlock, ring } = useAlarm()
   useWakeLock()
+  const rungRef = useRef<Set<string>>(new Set())
+
+  // Synced when a session is live for *this* recipe. The session then owns the
+  // scale, current step, and timers; otherwise we cook solo from local state.
+  const synced = !!(session && recipe && session.recipeSlug === recipe.slug)
+  const scale = synced ? session!.scale : scaleParam
+  const timers = synced ? session!.timers : localTimers
+
+  const byId = useMemo(
+    () => new Map((recipe?.ingredients ?? []).map((i) => [i.id, i] as const)),
+    [recipe],
+  )
+
+  // Tick the local clock; timers derive their countdown from it.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [])
+
+  // Fire the alarm once as each running timer crosses zero. Ringing is local, so
+  // both phones beep independently; a reset/pause clears the ring so it can fire
+  // again next time.
+  useEffect(() => {
+    const rung = rungRef.current
+    for (const timer of timers) {
+      if (isDone(timer, now)) {
+        if (!rung.has(timer.id)) {
+          rung.add(timer.id)
+          ring()
+        }
+      } else {
+        rung.delete(timer.id)
+      }
+    }
+  }, [now, timers, ring])
+
+  // When a session ends (here or on the other phone), keep cooking solo from
+  // exactly where the shared session left off instead of snapping back.
+  const prevSyncedRef = useRef(false)
+  const lastSessionRef = useRef<CookSession | null>(null)
+  useEffect(() => {
+    if (synced && session) lastSessionRef.current = session
+  }, [synced, session])
+  useEffect(() => {
+    if (prevSyncedRef.current && !synced) {
+      const last = lastSessionRef.current
+      if (last) {
+        setLocalIndex(last.stepIndex)
+        setLocalTimers(last.timers)
+      }
+    }
+    prevSyncedRef.current = synced
+  }, [synced])
 
   const togglePrepped = (key: string) =>
     setPrepped((prev) => {
@@ -198,37 +264,6 @@ export default function CookPage() {
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
-
-  const byId = useMemo(
-    () => new Map((recipe?.ingredients ?? []).map((i) => [i.id, i] as const)),
-    [recipe],
-  )
-
-  // Tick running timers off wall-clock time (survives background throttling),
-  // and fire the alarm exactly once as each hits zero.
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTimers((prev) => {
-        let changed = false
-        const next = prev.map((t) => {
-          if (t.endsAt === null || t.done) return t
-          const remaining = Math.max(0, Math.round((t.endsAt - Date.now()) / 1000))
-          if (remaining <= 0) {
-            changed = true
-            ring()
-            return { ...t, remaining: 0, endsAt: null, done: true }
-          }
-          if (remaining !== t.remaining) {
-            changed = true
-            return { ...t, remaining }
-          }
-          return t
-        })
-        return changed ? next : prev
-      })
-    }, 500)
-    return () => clearInterval(id)
-  }, [ring])
 
   if (loading) {
     return <div className="grid min-h-dvh place-items-center text-ink-faint">Loading…</div>
@@ -247,52 +282,103 @@ export default function CookPage() {
   }
 
   const steps = recipe.steps
+  const index = Math.max(0, Math.min(synced ? session!.stepIndex : localIndex, steps.length - 1))
   const step: Step = steps[index]
   const stepIngredients = step.ingredientIds
     .map((id) => byId.get(id))
     .filter((i): i is Ingredient => i !== undefined)
 
+  // Fill in each timer's live countdown for display.
+  const displayTimers: DisplayTimer[] = timers.map((timer) => {
+    const running = timer.endsAt !== null
+    const remaining = running ? Math.max(0, Math.round((timer.endsAt! - now) / 1000)) : timer.remaining
+    return { ...timer, remaining, done: running && remaining <= 0 }
+  })
+
+  // Route a timer change to the session (synced) or local state (solo). A no-op
+  // update (same reference) is skipped so we don't write for nothing.
+  const commitTimers = (updater: (prev: SyncTimer[]) => SyncTimer[]) => {
+    const next = updater(timers)
+    if (next === timers) return
+    if (synced && householdId) void setSessionTimers(householdId, next)
+    else setLocalTimers(next)
+  }
+
+  const goToStep = (next: number) => {
+    unlock()
+    const clamped = Math.max(0, Math.min(steps.length - 1, next))
+    if (synced && householdId) void setSessionStep(householdId, clamped)
+    else setLocalIndex(clamped)
+  }
+
   const startTimer = (label: string, seconds: number) => {
     unlock()
     const source = `${step.id}:${label}`
-    setTimers((prev) => {
-      // If this step's timer is already in the tray, don't duplicate it.
-      if (prev.some((t) => t.source === source && !t.done)) return prev
+    commitTimers((prev) => {
+      // If this step's timer is already running/paused, don't duplicate it.
+      if (prev.some((t) => t.source === source && !isDone(t, Date.now()))) return prev
       return [
         ...prev,
         {
           id: `${source}:${Date.now()}`,
           label: `${label} · ${recipe.title}`,
           total: seconds,
-          remaining: seconds,
           endsAt: Date.now() + seconds * 1000,
-          done: false,
+          remaining: seconds,
           source,
         },
       ]
     })
   }
 
-  const toggleTimer = (id: string) =>
-    setTimers((prev) =>
+  const toggleTimer = (id: string) => {
+    unlock()
+    commitTimers((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t
-        return t.endsAt
+        return t.endsAt !== null
           ? { ...t, endsAt: null, remaining: Math.max(0, Math.round((t.endsAt - Date.now()) / 1000)) }
           : { ...t, endsAt: Date.now() + t.remaining * 1000 }
       }),
     )
+  }
 
-  const resetTimer = (id: string) =>
-    setTimers((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, remaining: t.total, endsAt: null, done: false } : t)),
+  const resetTimer = (id: string) => {
+    unlock()
+    commitTimers((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, remaining: t.total, endsAt: null } : t)),
     )
+  }
 
-  const dismissTimer = (id: string) => setTimers((prev) => prev.filter((t) => t.id !== id))
+  const dismissTimer = (id: string) => commitTimers((prev) => prev.filter((t) => t.id !== id))
+
+  const startSync = () => {
+    if (!householdId || !user) return
+    unlock()
+    void startCookSession(householdId, user.uid, {
+      recipeSlug: recipe.slug,
+      recipeTitle: recipe.title,
+      scale,
+      stepIndex: index,
+      timers,
+      startedByName: profile?.displayName ?? user.email ?? null,
+    })
+  }
+
+  const stopSync = () => {
+    if (householdId) void endCookSession(householdId)
+  }
+
+  const finish = () => {
+    // Finishing ends the shared session for everyone; cooking's done.
+    if (synced && householdId) void endCookSession(householdId)
+    navigate(`/r/${recipe.slug}`)
+  }
 
   const isFirst = index === 0
   const isLast = index === steps.length - 1
-  const activeTimerRunning = timers.some((t) => t.endsAt !== null && !t.done)
+  const activeTimerRunning = displayTimers.some((t) => t.endsAt !== null && !t.done)
+  const canSync = !!householdId && (household?.memberUids.length ?? 0) > 1
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
@@ -332,10 +418,33 @@ export default function CookPage() {
           </span>
         </div>
 
-        {timers.length > 0 && (
+        {/* Cook-together control */}
+        {synced ? (
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 rounded-xl border border-accent bg-accent-soft px-3 py-1.5 text-sm text-accent">
+            <span className="flex min-w-0 items-center gap-1.5 truncate">
+              <span aria-hidden="true">⇄</span>
+              Cooking together{session!.startedByName ? ` · ${session!.startedByName} started` : ''}
+            </span>
+            <button type="button" onClick={stopSync} className="shrink-0 font-semibold underline underline-offset-2">
+              Stop
+            </button>
+          </div>
+        ) : canSync ? (
+          <div className="mx-auto max-w-2xl">
+            <button
+              type="button"
+              onClick={startSync}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-card px-3 py-1.5 text-sm text-ink-soft transition active:bg-line"
+            >
+              <span aria-hidden="true">⇄</span> Cook together on both phones
+            </button>
+          </div>
+        ) : null}
+
+        {displayTimers.length > 0 && (
           <div className="mx-auto max-w-2xl">
             <TimerTray
-              timers={timers}
+              timers={displayTimers}
               onToggle={toggleTimer}
               onReset={resetTimer}
               onDismiss={dismissTimer}
@@ -410,7 +519,9 @@ export default function CookPage() {
         {step.timers.length > 0 && (
           <div className="mt-6 flex flex-wrap gap-2">
             {step.timers.map((timer) => {
-              const running = timers.some((t) => t.source === `${step.id}:${timer.label}` && !t.done)
+              const running = displayTimers.some(
+                (t) => t.source === `${step.id}:${timer.label}` && !t.done,
+              )
               return (
                 <button
                   key={timer.label}
@@ -432,7 +543,7 @@ export default function CookPage() {
         <div className="mx-auto flex max-w-2xl gap-3">
           <button
             type="button"
-            onClick={() => setIndex((i) => Math.max(0, i - 1))}
+            onClick={() => goToStep(index - 1)}
             disabled={isFirst}
             className="grid h-20 flex-1 place-items-center rounded-2xl border border-line text-lg font-semibold text-ink-soft transition active:scale-[0.98] disabled:opacity-30"
           >
@@ -447,7 +558,7 @@ export default function CookPage() {
           {isLast ? (
             <button
               type="button"
-              onClick={() => navigate(`/r/${recipe.slug}`)}
+              onClick={finish}
               className="grid h-20 flex-[1.4] place-items-center rounded-2xl bg-check text-xl font-bold text-white transition active:scale-[0.98]"
             >
               {activeTimerRunning ? 'Finish (timers still running)' : 'Finish ✓'}
@@ -455,7 +566,7 @@ export default function CookPage() {
           ) : (
             <button
               type="button"
-              onClick={() => setIndex((i) => Math.min(steps.length - 1, i + 1))}
+              onClick={() => goToStep(index + 1)}
               className="grid h-20 flex-[1.4] place-items-center rounded-2xl bg-accent text-xl font-bold text-white transition active:scale-[0.98] dark:text-stone-900"
             >
               <span className="flex items-center gap-2">

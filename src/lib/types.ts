@@ -179,6 +179,60 @@ export interface GroceryItem {
   updatedAt: number | null
 }
 
+/**
+ * One planned meal. Lives in a subcollection under the household's plan doc so
+ * two people planning at once each write their own entry and never clobber each
+ * other (same reasoning as GroceryItem). `recipeTitle` is denormalized so the
+ * plan renders without loading every recipe, and `scale` remembers the serving
+ * multiplier chosen when planning so "the whole week → groceries" is accurate.
+ */
+export interface PlanEntry {
+  id: string
+  recipeSlug: string
+  recipeTitle: string
+  /** ISO yyyy-mm-dd for a scheduled day, or null for the "anytime" bucket. */
+  date: string | null
+  /** Serving multiplier, matching the recipe reader's scale (1 = as written). */
+  scale: number
+  addedBy: string | null
+  createdAt: number | null
+}
+
+/**
+ * A live, shared cook session — the two-phone "cook together" mode. One doc per
+ * household (id = householdId), so both phones follow the same current step and
+ * the same timers. Timers are stored endsAt-first (a wall-clock epoch) so each
+ * phone derives the countdown itself without the two writing every tick.
+ */
+export interface SyncTimer {
+  id: string
+  label: string
+  /** Original duration in seconds, for reset. */
+  total: number
+  /** Epoch ms it will hit zero, or null while paused. */
+  endsAt: number | null
+  /** Seconds left, meaningful while paused; derived from endsAt while running. */
+  remaining: number
+  /** stepId:label — lets a step show "running" instead of a second Start. */
+  source: string
+}
+
+export interface CookSession {
+  householdId: string
+  recipeSlug: string
+  recipeTitle: string
+  /** Serving multiplier the session is cooking at. */
+  scale: number
+  /** The step both phones are on. */
+  stepIndex: number
+  timers: SyncTimer[]
+  startedBy: string | null
+  startedByName: string | null
+  updatedAt: number | null
+  /** False once someone stops the session; the doc lingers but is ignored. */
+  active: boolean
+}
+
 export interface Household {
   id: string
   name: string
