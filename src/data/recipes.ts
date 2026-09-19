@@ -11,7 +11,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { SCHEMA_VERSION, type Recipe } from '../lib/types'
+import { SCHEMA_VERSION, type Recipe, type RecipeSeed } from '../lib/types'
 
 function toMillis(value: unknown): number | null {
   if (value && typeof value === 'object' && 'toMillis' in value) {
@@ -225,4 +225,25 @@ export async function copyRecipeToHousehold(
 /** Delete a recipe. The rules allow this only for members of its household. */
 export async function deleteRecipe(slug: string): Promise<void> {
   await deleteDoc(doc(db, 'recipes', slug))
+}
+
+/**
+ * Save a validated recipe seed (e.g. from AI import) into a household as an
+ * app-created recipe. The seed already carries a fresh unique slug. Rules allow
+ * this only for members of the target household.
+ */
+export async function createRecipeInHousehold(
+  seed: RecipeSeed,
+  householdId: string,
+  uid: string,
+): Promise<string> {
+  await setDoc(doc(db, 'recipes', seed.slug), {
+    ...seed,
+    householdId,
+    origin: 'app',
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return seed.slug
 }

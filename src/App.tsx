@@ -6,6 +6,7 @@ import RecipePage from './routes/RecipePage'
 import CookPage from './routes/CookPage'
 import GroceryListPage from './routes/GroceryListPage'
 import PlanPage from './routes/PlanPage'
+import AddRecipePage from './routes/AddRecipePage'
 import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="/r/:slug/cook" element={<CookPage />} />
       <Route path="/list" element={<GroceryListPage />} />
       <Route path="/plan" element={<PlanPage />} />
+      <Route path="/add" element={<AddRecipePage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

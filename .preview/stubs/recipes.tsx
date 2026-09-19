@@ -50,3 +50,6 @@ export async function copyRecipeToHousehold(): Promise<string> {
   return 'copied-recipe'
 }
 export async function deleteRecipe(): Promise<void> {}
+export async function createRecipeInHousehold(): Promise<string> {
+  return 'new-recipe'
+}

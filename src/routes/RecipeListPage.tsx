@@ -148,7 +148,7 @@ export default function RecipeListPage() {
 
   return (
     <div className="relative min-h-dvh overflow-hidden">
-      <AppHeader plan cart />
+      <AppHeader add plan cart />
 
       <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">

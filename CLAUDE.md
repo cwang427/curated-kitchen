@@ -42,6 +42,16 @@ confusion:
   removes repo-tagged recipes, so recipes **created or copied inside the app**
   (`origin: 'app'`) are never deleted by a sync. Deleting a repo recipe in the
   app is futile — the next sync re-creates it; remove its file instead.
+- **Recipe import Worker → MANUAL (Cloudflare, one-time).** In-app "Add recipe"
+  (paste text or a photo → Claude → our structured shape → validated by the same
+  `parseRecipe` → editable preview → save as an `origin: 'app'` recipe) calls a
+  tiny Cloudflare Worker in `worker/` that holds the Anthropic API key — the key
+  must never live in the public app. Deploy it once (`worker/README.md`) and put
+  its URL in `src/lib/aiConfig.ts` (not secret; empty until set, which just
+  shows a setup note). The Worker verifies the caller's Firebase ID token, so
+  only signed-in members can spend the key. No `firestore.rules` change —
+  creating a recipe is already a member action. `worker/` is outside the app's
+  tsc build; `wrangler` builds it.
 
 ## The core bet: ingredients are structured data
 
@@ -164,9 +174,12 @@ the owner can leave), and a multi-kitchen switcher (belong to several kitchens,
 switch the active one, create/name new ones — "Personal" vs "Shared" derived
 from membership), and cross-kitchen recipe management (copy a recipe to another
 kitchen you're a member of, delete a recipe with confirm; the sync prune spares
-app-copied recipes via `origin`). Next: in-app recipe authoring (create a recipe
-from scratch, so an independent kitchen can hold originals that never came from
-the repo), then ownership transfer / co-owner. The cook log is intentionally
+app-copied recipes via `origin`), and AI recipe ingestion (paste text or a photo
+→ Claude via the `worker/` Cloudflare Worker → structured → validated by the same
+`parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline
+stays as a power-user path). Next: inline editing of the AI preview (fix a field
+without re-reading), more ingestion pathways (URL with a JSON-LD fast path, PWA
+share-target), then ownership transfer / co-owner. The cook log is intentionally
 skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.
