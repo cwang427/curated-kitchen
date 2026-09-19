@@ -33,6 +33,11 @@ function clock(seconds: number): string {
   return `${m}:${rem.toString().padStart(2, '0')}`
 }
 
+/** "2", "1.5", "0.5" — no trailing zeros, for the ×N scale badge. */
+function fmtScale(scale: number): string {
+  return String(Math.round(scale * 100) / 100)
+}
+
 /** A short beep via Web Audio; the context is unlocked by the tap that starts a timer. */
 function useAlarm() {
   const ctxRef = useRef<AudioContext | null>(null)
@@ -180,8 +185,19 @@ export default function CookPage() {
   const scale = Number(params.get('x')) || 1
   const [index, setIndex] = useState(0)
   const [timers, setTimers] = useState<ActiveTimer[]>([])
+  // Mise en place: which of a step's ingredients you've gathered/measured.
+  // Keyed by step + ingredient so each step tracks its own, and your ticks
+  // survive stepping Back and forth to re-read a step.
+  const [prepped, setPrepped] = useState<Set<string>>(new Set())
   const { unlock, ring } = useAlarm()
   useWakeLock()
+
+  const togglePrepped = (key: string) =>
+    setPrepped((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
 
   const byId = useMemo(
     () => new Map((recipe?.ingredients ?? []).map((i) => [i.id, i] as const)),
@@ -306,6 +322,11 @@ export default function CookPage() {
               />
             </div>
           </div>
+          {scale !== 1 && (
+            <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold tabular-nums text-accent">
+              ×{fmtScale(scale)}
+            </span>
+          )}
           <span className="shrink-0 text-sm tabular-nums text-ink-faint">
             {index + 1}/{steps.length}
           </span>
@@ -345,17 +366,33 @@ export default function CookPage() {
 
         {stepIngredients.length > 0 && (
           <div className="mt-6">
-            <p className="mb-2 text-sm font-medium text-ink-faint">What you need</p>
-            <ul className="space-y-1.5">
+            <p className="mb-2 text-sm font-medium text-ink-faint">
+              What you need — tap as you go
+            </p>
+            <ul>
               {stepIngredients.map((ingredient) => {
                 const f = formatIngredient(ingredient, scale)
+                const key = `${step.id}:${ingredient.id}`
+                const done = prepped.has(key)
                 return (
-                  <li key={ingredient.id} className="text-lg">
-                    <span className="font-medium tabular-nums">
-                      {[f.quantity, f.unit].filter(Boolean).join(' ')}
-                    </span>{' '}
-                    {f.item}
-                    {f.prep && <span className="text-ink-soft">, {f.prep}</span>}
+                  <li key={ingredient.id}>
+                    <label className="flex min-h-12 cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={done}
+                        onChange={() => togglePrepped(key)}
+                        className="size-6 shrink-0 accent-[var(--check)]"
+                      />
+                      <span className={`text-lg ${done ? 'text-ink-faint line-through' : ''}`}>
+                        <span className="font-medium tabular-nums">
+                          {[f.quantity, f.unit].filter(Boolean).join(' ')}
+                        </span>{' '}
+                        {f.item}
+                        {f.prep && (
+                          <span className={done ? '' : 'text-ink-soft'}>, {f.prep}</span>
+                        )}
+                      </span>
+                    </label>
                   </li>
                 )
               })}
