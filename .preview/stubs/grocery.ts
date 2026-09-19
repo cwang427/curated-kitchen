@@ -25,7 +25,6 @@ export function useGroceryList() {
 export async function addToList() {
   return { created: 0, updated: 0 }
 }
-export async function quickAdd() {}
 export async function toggleItem() {}
 export async function removeItem() {}
 export async function clearChecked() {

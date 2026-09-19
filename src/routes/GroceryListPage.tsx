@@ -1,14 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import AppHeader from '../components/AppHeader'
 import { useAuth } from '../auth/AuthProvider'
-import {
-  clearChecked,
-  quickAdd,
-  removeItem,
-  toggleItem,
-  useGroceryList,
-} from '../data/grocery'
-import { categoryLabel, formatGroceryAmount, groupByAisle } from '../lib/grocery'
+import { addToList, clearChecked, removeItem, toggleItem, useGroceryList } from '../data/grocery'
+import { categoryLabel, formatGroceryAmount, groupByAisle, parseQuickAdd } from '../lib/grocery'
 import { GROCERY_CATEGORIES, type GroceryCategory, type GroceryItem } from '../lib/types'
 
 function ItemRow({
@@ -55,7 +49,16 @@ export default function GroceryListPage() {
 
   const [name, setName] = useState('')
   const [category, setCategory] = useState<GroceryCategory>('produce')
+  // Once you pick an aisle by hand, stop auto-guessing it from the text.
+  const [aisleTouched, setAisleTouched] = useState(false)
   const [adding, setAdding] = useState(false)
+
+  const parsed = useMemo(() => parseQuickAdd(name), [name])
+
+  // Let the aisle follow the parsed guess as you type, until you override it.
+  useEffect(() => {
+    if (!aisleTouched && parsed) setCategory(parsed.category)
+  }, [parsed, aisleTouched])
 
   if (!user || !household || !householdId) return null
 
@@ -65,11 +68,13 @@ export default function GroceryListPage() {
 
   const onAdd = async (event: FormEvent) => {
     event.preventDefault()
-    if (!name.trim() || adding) return
+    if (!parsed || adding) return
     setAdding(true)
     try {
-      await quickAdd(householdId, user.uid, name, category)
+      // Use the parsed quantity/unit/name, with the (possibly overridden) aisle.
+      await addToList(householdId, user.uid, [{ ...parsed, category }])
       setName('')
+      setAisleTouched(false)
     } finally {
       setAdding(false)
     }
@@ -87,13 +92,14 @@ export default function GroceryListPage() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Add an item…"
+              placeholder="e.g. 2 lemons, 1 cup rice, milk…"
               aria-label="Add an item"
+              autoCapitalize="none"
               className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
             <button
               type="submit"
-              disabled={!name.trim() || adding}
+              disabled={!parsed || adding}
               className="min-h-12 shrink-0 rounded-xl bg-accent px-5 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
             >
               Add
@@ -103,7 +109,10 @@ export default function GroceryListPage() {
             Aisle
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value as GroceryCategory)}
+              onChange={(e) => {
+                setCategory(e.target.value as GroceryCategory)
+                setAisleTouched(true)
+              }}
               aria-label="Aisle"
               className="min-h-9 flex-1 rounded-lg border border-line bg-card px-2 text-sm text-ink-soft outline-none focus:border-accent"
             >
@@ -114,6 +123,23 @@ export default function GroceryListPage() {
               ))}
             </select>
           </label>
+          {parsed && parsed.quantity !== null && (
+            <p className="text-xs text-ink-faint">
+              Adding{' '}
+              <span className="font-medium text-ink-soft">
+                {[
+                  formatGroceryAmount({
+                    id: '', name: '', canonical: '', quantity: parsed.quantity,
+                    quantityMax: parsed.quantityMax, unit: parsed.unit, category, checked: false,
+                    note: null, addedBy: null, createdAt: null, updatedAt: null,
+                  }),
+                  parsed.name,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              </span>
+            </p>
+          )}
         </form>
 
         {error && (

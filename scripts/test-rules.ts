@@ -16,9 +16,11 @@ import {
 } from 'firebase/auth'
 import {
   arrayUnion,
+  collection,
   connectFirestoreEmulator,
   doc,
   getDoc,
+  getDocs,
   getFirestore,
   setDoc,
   updateDoc,
@@ -155,9 +157,30 @@ async function main(): Promise<void> {
   )
   await expectAllow('friend can read a friends-visible recipe', () => getDoc(doc(C.db, 'recipes', 'r2')))
   await expectDeny('friend cannot read a household-only recipe', () => getDoc(doc(C.db, 'recipes', 'r1')))
-  await expectDeny('friend cannot write a grocery list', () =>
-    setDoc(doc(C.db, 'lists', 'l1'), { householdId: hhA, name: 'Groceries' }),
+
+  console.log('Grocery list')
+  // The regression: a member can read the items subcollection BEFORE the parent
+  // list doc exists — an empty new list must not permission-deny.
+  await expectAllow('member reads the empty items subcollection (no list doc yet)', () =>
+    getDocs(collection(A.db, 'lists', hhA, 'items')),
   )
+  await expectAllow('member creates a grocery item', () =>
+    setDoc(doc(A.db, 'lists', hhA, 'items', 'g1'), { name: 'onion', canonical: 'onion', category: 'produce', checked: false }),
+  )
+  await expectAllow('the other member reads the item', () => getDoc(doc(B.db, 'lists', hhA, 'items', 'g1')))
+  await expectAllow('member creates the parent list doc (ensureList)', () =>
+    setDoc(doc(A.db, 'lists', hhA), { householdId: hhA, name: 'Groceries' }),
+  )
+  await expectDeny('a friend cannot read the grocery items', () =>
+    getDocs(collection(C.db, 'lists', hhA, 'items')),
+  )
+  await expectDeny('a friend cannot add a grocery item', () =>
+    setDoc(doc(C.db, 'lists', hhA, 'items', 'sneaky'), { name: 'x', canonical: 'x', category: 'other', checked: false }),
+  )
+  await expectDeny('an outsider cannot read the grocery items', async () => {
+    const E = await asUser('e@kitchen.local')
+    await getDocs(collection(E.db, 'lists', hhA, 'items'))
+  })
 
   console.log('Invite revocation')
   await expectAllow('member revokes an invite', () => deleteInvite(A.db, memberCode))

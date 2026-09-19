@@ -139,14 +139,15 @@ service cloud.firestore {
 
     // Grocery lists and the cook log are household-only — friends never see
     // what you're buying or what you cooked last Tuesday.
+    // The grocery list. Its document id IS the household id by construction, so
+    // membership is checked on listId directly — no read of the parent doc,
+    // which also means an item subcollection reads fine before the (lazily
+    // created) parent list doc exists, instead of erroring on an empty list.
     match /lists/{listId} {
-      allow read, write: if isMember(resource.data.householdId);
-      allow create: if isMember(request.resource.data.householdId);
+      allow read, write: if isMember(listId);
 
       match /items/{itemId} {
-        allow read, write: if isMember(
-          get(/databases/$(database)/documents/lists/$(listId)).data.householdId
-        );
+        allow read, write: if isMember(listId);
       }
     }
 

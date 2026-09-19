@@ -2,7 +2,7 @@
  * Unit test for grocery merge + aisle grouping.
  *   npx tsx scripts/test-grocery.ts
  */
-import { additionFromIngredient, planMerge, groupByAisle, formatGroceryAmount } from '../src/lib/grocery'
+import { additionFromIngredient, planMerge, groupByAisle, formatGroceryAmount, parseQuickAdd } from '../src/lib/grocery'
 import type { Addition } from '../src/lib/grocery'
 import type { GroceryItem, Ingredient } from '../src/lib/types'
 
@@ -100,6 +100,26 @@ console.log('formatGroceryAmount')
   check('count', formatGroceryAmount(item({ quantity: 3, unit: null })) === '3')
   check('fraction + unit', formatGroceryAmount(item({ quantity: 1.5, unit: 'cup' })) === '1½ cups')
   check('none', formatGroceryAmount(item({ quantity: null })) === '')
+}
+
+console.log('parseQuickAdd')
+{
+  const lemons = parseQuickAdd('2 lemons')!
+  check('parses count', lemons.quantity === 2 && lemons.unit === null, JSON.stringify(lemons))
+  check('names the item', lemons.name === 'lemons', lemons.name)
+  check('guesses produce', lemons.category === 'produce', lemons.category)
+
+  const rice = parseQuickAdd('1 cup rice')!
+  check('parses unit', rice.quantity === 1 && rice.unit === 'cup', JSON.stringify(rice))
+
+  const milk = parseQuickAdd('2% milk')!
+  check('odd leading token kept whole', milk.name === '2% milk' && milk.quantity === null, JSON.stringify(milk))
+  check('still guesses dairy', milk.category === 'dairy', milk.category)
+
+  const bare = parseQuickAdd('paper towels')!
+  check('bare item, no amount', bare.quantity === null && bare.name === 'paper towels', JSON.stringify(bare))
+
+  check('empty → null', parseQuickAdd('   ') === null)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -1,4 +1,5 @@
 import { formatIngredient, scaleIngredient } from './quantity'
+import { parseIngredientLine } from './importRecipe'
 import { convert, getUnit, isCompatible, unitLabel } from './units'
 import { GROCERY_CATEGORIES, type GroceryCategory, type GroceryItem, type Ingredient } from './types'
 
@@ -207,4 +208,39 @@ export function canonicalize(name: string): string {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '') || 'item'
   )
+}
+
+/**
+ * Parse a free-typed quick-add ("2 lemons", "1 cup rice", "2% milk") into a
+ * structured Addition, reusing the recipe importer's line parser so quantity,
+ * unit, item, and a guessed aisle all come from one field. When the leading
+ * token isn't a clean quantity (e.g. "2% milk"), the whole text is kept as the
+ * name with no amount, so nothing is mangled.
+ */
+export function parseQuickAdd(text: string): Addition | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const parsed = parseIngredientLine(trimmed)
+  const cleanItem = /^[\p{L}]/u.test(parsed.item)
+
+  if (!cleanItem) {
+    return {
+      name: trimmed,
+      canonical: canonicalize(trimmed),
+      quantity: null,
+      quantityMax: null,
+      unit: null,
+      category: parsed.category,
+      note: null,
+    }
+  }
+  return {
+    name: parsed.item,
+    canonical: canonicalize(parsed.item),
+    quantity: parsed.quantity,
+    quantityMax: parsed.quantityMax,
+    unit: parsed.unit,
+    category: parsed.category,
+    note: parsed.prep ?? null,
+  }
 }

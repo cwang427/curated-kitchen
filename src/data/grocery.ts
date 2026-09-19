@@ -12,7 +12,8 @@ import {
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { canonicalize, planMerge, type Addition } from '../lib/grocery'
+import { planMerge, type Addition } from '../lib/grocery'
+import { describeFirestoreError } from '../lib/errors'
 import type { GroceryCategory, GroceryItem } from '../lib/types'
 
 /**
@@ -83,7 +84,7 @@ export function useGroceryList(householdId: string | null): GroceryState {
         setLoading(false)
       },
       (cause) => {
-        setError(cause.message)
+        setError(describeFirestoreError(cause, 'load the grocery list'))
         setLoading(false)
       },
     )
@@ -132,28 +133,6 @@ export async function addToList(
   }
   await batch.commit()
   return { created: plan.creates.length, updated: plan.updates.length }
-}
-
-/** Manual quick-add of a single free-typed item. */
-export async function quickAdd(
-  householdId: string,
-  uid: string,
-  name: string,
-  category: GroceryCategory,
-): Promise<void> {
-  const trimmed = name.trim()
-  if (!trimmed) return
-  await addToList(householdId, uid, [
-    {
-      name: trimmed,
-      canonical: canonicalize(trimmed),
-      quantity: null,
-      quantityMax: null,
-      unit: null,
-      category,
-      note: null,
-    },
-  ])
 }
 
 export async function toggleItem(householdId: string, itemId: string, checked: boolean): Promise<void> {
