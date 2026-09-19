@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
 import PlanSheet from '../components/PlanSheet'
@@ -7,6 +7,7 @@ import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
 import { useRecipe } from '../data/recipes'
+import { clearSoloCook, readSoloCook } from '../data/soloCook'
 import { formatMinutes } from '../lib/quantity'
 
 function useToggleSet() {
@@ -23,7 +24,10 @@ function useToggleSet() {
 
 export default function RecipePage() {
   const { slug } = useParams<{ slug: string }>()
+  const navigate = useNavigate()
   const { recipe, loading, error } = useRecipe(slug)
+  // A solo cook in progress on this device (read once on mount).
+  const solo = useMemo(() => readSoloCook(), [])
   const [scale, setScale] = useState(1)
   const [checkedIngredients, toggleIngredient] = useToggleSet()
   const [doneSteps, toggleStep] = useToggleSet()
@@ -125,14 +129,34 @@ export default function RecipePage() {
         </div>
 
         <div className="mt-6 space-y-3">
-          {recipe.steps.length > 0 && (
-            <Link
-              to={`/r/${recipe.slug}/cook?x=${scale}`}
-              className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
-            >
-              Start cooking →
-            </Link>
-          )}
+          {recipe.steps.length > 0 &&
+            (solo && solo.slug === recipe.slug ? (
+              <div className="space-y-2">
+                <Link
+                  to={`/r/${recipe.slug}/cook?x=${solo.scale}`}
+                  className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+                >
+                  Resume cooking →
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSoloCook()
+                    navigate(`/r/${recipe.slug}/cook?x=${scale}`)
+                  }}
+                  className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
+                >
+                  Start over
+                </button>
+              </div>
+            ) : (
+              <Link
+                to={`/r/${recipe.slug}/cook?x=${scale}`}
+                className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+              >
+                Start cooking →
+              </Link>
+            ))}
           <div className="flex gap-3">
             <button
               type="button"

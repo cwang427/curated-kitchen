@@ -5,8 +5,28 @@ import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
 import { useCookSession } from '../data/cooksession'
+import { readSoloCook } from '../data/soloCook'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import type { Recipe } from '../lib/types'
+
+/** The "cooking now" banner at the top of the list — shared session or solo. */
+function CookBanner({ to, label, detail }: { to: string; label: string; detail: string }) {
+  return (
+    <Link
+      to={to}
+      className="mb-3 flex items-center gap-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-accent transition active:scale-[0.99]"
+    >
+      <span className="text-xl" aria-hidden="true">🍳</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold">{label}</span>
+        <span className="block truncate text-sm">{detail}</span>
+      </span>
+      <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" aria-hidden="true">
+        <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </Link>
+  )
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -63,6 +83,9 @@ export default function RecipeListPage() {
   const [nonce, setNonce] = useState(0)
   const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce)
   const { session } = useCookSession(household?.id ?? null)
+  // A solo cook is per-device; read it once on mount.
+  const solo = useMemo(() => readSoloCook(), [])
+  const soloRecipe = solo ? recipes.find((r) => r.slug === solo.slug) : undefined
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
@@ -100,33 +123,25 @@ export default function RecipeListPage() {
 
       <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
-        {session && (
-          // The person who started the session is resuming their own cook; the
-          // other member is joining someone else's.
-          (() => {
-            const mine = session.startedBy === user?.uid
-            return (
-              <Link
-                to={`/r/${session.recipeSlug}/cook?x=${session.scale}`}
-                className="mb-3 flex items-center gap-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-accent transition active:scale-[0.99]"
-              >
-                <span className="text-xl" aria-hidden="true">🍳</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">
-                    Cooking now — tap to {mine ? 'resume' : 'join'}
-                  </span>
-                  <span className="block truncate text-sm">
-                    {!mine && session.startedByName ? `${session.startedByName} · ` : ''}
-                    {session.recipeTitle}
-                  </span>
-                </span>
-                <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" aria-hidden="true">
-                  <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </Link>
-            )
-          })()
-        )}
+        {/* A live shared session takes priority; otherwise a solo cook you can
+            resume on this device. */}
+        {session ? (
+          <CookBanner
+            to={`/r/${session.recipeSlug}/cook?x=${session.scale}`}
+            label={`Cooking now — tap to ${session.startedBy === user?.uid ? 'resume' : 'join'}`}
+            detail={
+              session.startedBy !== user?.uid && session.startedByName
+                ? `${session.startedByName} · ${session.recipeTitle}`
+                : session.recipeTitle
+            }
+          />
+        ) : soloRecipe && solo ? (
+          <CookBanner
+            to={`/r/${solo.slug}/cook?x=${solo.scale}`}
+            label="Cooking now — tap to resume"
+            detail={soloRecipe.title}
+          />
+        ) : null}
         <input
           type="search"
           value={term}

@@ -139,7 +139,8 @@ the deploy and leaves the previous version up.
 Done: sign-in, recipe reader + scaling, household/friend sharing by invite,
 recipe sync CI, version stamp, cook mode (full-screen steps, wake lock,
 cross-step timers, large controls, per-step mise-en-place checklist,
-scannable step bullets — authored `brief` or auto-split prose),
+scannable step bullets — authored `brief` or auto-split prose, resume an
+interrupted solo cook via `src/data/soloCook.ts` in localStorage),
 pull-to-refresh, screen-name editor, recipe import (URL via CI, or paste text),
 the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
 order, realtime check-off, quick-add), the meal plan (plan recipes onto a

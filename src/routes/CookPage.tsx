@@ -9,6 +9,7 @@ import {
   startCookSession,
   useCookSession,
 } from '../data/cooksession'
+import { clearSoloCook, readSoloCook, writeSoloCook } from '../data/soloCook'
 import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
 import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
@@ -211,8 +212,16 @@ export default function CookPage() {
   const { session } = useCookSession(householdId)
 
   const scaleParam = Number(params.get('x')) || 1
-  const [localIndex, setLocalIndex] = useState(0)
-  const [localTimers, setLocalTimers] = useState<SyncTimer[]>([])
+  // Solo cooking resumes from this device's saved progress (localStorage) when
+  // it's for this recipe; otherwise it starts fresh.
+  const [localIndex, setLocalIndex] = useState(() => {
+    const saved = readSoloCook()
+    return saved && saved.slug === slug ? saved.stepIndex : 0
+  })
+  const [localTimers, setLocalTimers] = useState<SyncTimer[]>(() => {
+    const saved = readSoloCook()
+    return saved && saved.slug === slug ? saved.timers : []
+  })
   // Mise en place: which of a step's ingredients you've gathered/measured.
   // Kept per-phone (personal), keyed by step + ingredient so each step tracks
   // its own and your ticks survive stepping Back and forth.
@@ -274,6 +283,16 @@ export default function CookPage() {
     }
     prevSyncedRef.current = synced
   }, [synced])
+
+  // Persist solo progress to this device so you can leave and resume. Skipped
+  // while synced (the session doc is the source of truth there), and skipped at
+  // the very start so merely opening cook mode doesn't create a resume banner or
+  // clobber another recipe's saved cook — only real progress is saved.
+  useEffect(() => {
+    if (synced || !slug) return
+    if (localIndex === 0 && localTimers.length === 0) return
+    writeSoloCook({ slug, scale: scaleParam, stepIndex: localIndex, timers: localTimers, updatedAt: Date.now() })
+  }, [synced, slug, scaleParam, localIndex, localTimers])
 
   const togglePrepped = (key: string) =>
     setPrepped((prev) => {
@@ -375,6 +394,8 @@ export default function CookPage() {
   const startSync = () => {
     if (!householdId || !user) return
     unlock()
+    // Moving into a shared session; the solo resume slot no longer applies.
+    clearSoloCook()
     void startCookSession(householdId, user.uid, {
       recipeSlug: recipe.slug,
       recipeTitle: recipe.title,
@@ -390,8 +411,10 @@ export default function CookPage() {
   }
 
   const finish = () => {
-    // Finishing ends the shared session for everyone; cooking's done.
+    // Finishing ends the shared session for everyone; cooking's done. Solo,
+    // it clears this device's resume slot.
     if (synced && householdId) void endCookSession(householdId)
+    else clearSoloCook()
     navigate(`/r/${recipe.slug}`)
   }
 
