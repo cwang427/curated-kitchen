@@ -1,6 +1,6 @@
 import { parseRecipe } from '../../src/lib/recipeSchema'
 import type { Recipe } from '../../src/lib/types'
-import cacio from '../../recipes/bucatini-cacio-e-pepe.json'
+import cacio from '../../recipes/cacio-e-pepe.json'
 
 const seed = parseRecipe(cacio).recipe
 const base: Recipe = {

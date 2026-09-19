@@ -66,4 +66,6 @@ jobs:
           echo "FIREBASE_PROJECT_ID=$(node -p "require('$RUNNER_TEMP/sa.json').project_id")" >> "$GITHUB_ENV"
 
       - name: Sync
-        run: npm run sync:recipes -- --household="${{ vars.KITCHEN_HOUSEHOLD_ID }}"
+        # --prune makes the repo authoritative: a renamed or deleted recipe
+        # file removes the stale document instead of leaving a duplicate.
+        run: npm run sync:recipes -- --household="${{ vars.KITCHEN_HOUSEHOLD_ID }}" --prune

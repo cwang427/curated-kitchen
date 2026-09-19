@@ -5,7 +5,12 @@
  * so re-running this is idempotent and edits to a file overwrite the document.
  * `createdAt` and `createdBy` survive re-syncs.
  *
- *   npm run sync:recipes -- --household=<householdId> [--dry-run] [--only=slug]
+ *   npm run sync:recipes -- --household=<householdId> [--dry-run] [--only=slug] [--prune]
+ *
+ * --prune makes the repo authoritative: household recipes whose slug no longer
+ * has a file are deleted, so renaming or removing a recipes/*.json file removes
+ * the stale document instead of leaving a duplicate. CI passes it; it is
+ * refused alongside --only, which only touches one recipe.
  */
 import { cert, initializeApp, applicationDefault } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
@@ -16,6 +21,7 @@ interface Options {
   householdId: string
   dryRun: boolean
   only: string | null
+  prune: boolean
 }
 
 function parseArgs(): Options {
@@ -35,7 +41,14 @@ function parseArgs(): Options {
     process.exit(1)
   }
 
-  return { householdId, dryRun: args.includes('--dry-run'), only: get('only') }
+  const only = get('only')
+  const prune = args.includes('--prune')
+  if (prune && only) {
+    console.error('--prune cannot be combined with --only (it would delete every other recipe).')
+    process.exit(1)
+  }
+
+  return { householdId, dryRun: args.includes('--dry-run'), only, prune }
 }
 
 function initAdmin(): void {
@@ -135,3 +148,23 @@ console.log(
   `\nSynced ${selected.length} recipe(s) to household ${options.householdId} ` +
     `(${created} created, ${updated} updated).`,
 )
+
+if (options.prune) {
+  // The repo is the source of truth: any recipe in this household without a
+  // matching file is stale (a rename or a deletion) and gets removed.
+  const localSlugs = new Set(loaded.map((r) => r.recipe.slug))
+  const existing = await db
+    .collection('recipes')
+    .where('householdId', '==', options.householdId)
+    .get()
+
+  const stale = existing.docs.filter((doc) => !localSlugs.has(doc.id))
+  if (stale.length === 0) {
+    console.log('Prune: nothing stale to remove.')
+  } else {
+    const pruneBatch = db.batch()
+    for (const doc of stale) pruneBatch.delete(doc.ref)
+    await pruneBatch.commit()
+    console.log(`Prune: removed ${stale.length} recipe(s) with no file — ${stale.map((d) => d.id).join(', ')}.`)
+  }
+}

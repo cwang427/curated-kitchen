@@ -1,0 +1,94 @@
+{
+  "slug": "cacio-e-pepe",
+  "title": "Cacio e Pepe (Spaghetti with Black Pepper and Pecorino Romano)",
+  "subtitle": "The classic Roman dish, made creamy with Kenji's two-pan method",
+  "description": "Toast the pepper in oil for a sweeter, rounder bite; cook the spaghetti in just enough water for a starchy sauce; then build the emulsion off high heat in a second pan so the Pecorino turns creamy instead of clumping.",
+  "source": {
+    "name": "Serious Eats",
+    "author": "J. Kenji López-Alt",
+    "url": "https://www.seriouseats.com/spaghetti-cacio-e-pepe-recipe"
+  },
+  "yield": { "amount": 2, "amountMax": 3, "unit": "servings" },
+  "times": { "prepMin": null, "cookMin": 20, "totalMin": 20, "activeMin": 20 },
+  "tags": ["pasta", "italian", "roman", "vegetarian", "quick", "weeknight"],
+  "equipment": ["Medium skillet", "Large (12-inch) skillet", "Microplane or fine grater", "Tongs"],
+  "ingredients": [
+    {
+      "id": "oil",
+      "quantity": 4,
+      "unit": "tbsp",
+      "item": "extra-virgin olive oil",
+      "alt": { "quantity": 60, "unit": "ml" },
+      "note": "divided",
+      "category": "pantry",
+      "raw": "4 tablespoons (60 ml) extra-virgin olive oil, divided"
+    },
+    {
+      "id": "pepper",
+      "quantity": 1,
+      "unit": "tsp",
+      "item": "coarsely ground black pepper",
+      "prep": "to taste, plus more for serving",
+      "category": "spices",
+      "raw": "1 teaspoon coarsely ground black pepper, to taste"
+    },
+    {
+      "id": "spaghetti",
+      "quantity": 0.5,
+      "unit": "lb",
+      "item": "spaghetti",
+      "alt": { "quantity": 225, "unit": "g" },
+      "category": "pantry",
+      "raw": "1/2 pound (225 g) spaghetti"
+    },
+    {
+      "id": "salt",
+      "item": "kosher salt",
+      "prep": "to taste",
+      "scalable": false,
+      "category": "spices",
+      "raw": "Kosher salt, to taste"
+    },
+    {
+      "id": "butter",
+      "quantity": 2,
+      "unit": "tbsp",
+      "item": "unsalted butter",
+      "alt": { "quantity": 30, "unit": "g" },
+      "category": "dairy",
+      "raw": "2 tablespoons (30 g) unsalted butter"
+    },
+    {
+      "id": "pecorino",
+      "quantity": 2,
+      "unit": "oz",
+      "item": "Pecorino Romano",
+      "prep": "very finely grated on a Microplane or the smallest holes of a box grater",
+      "alt": { "quantity": 1, "unit": "cup" },
+      "note": "plus more for serving",
+      "category": "dairy",
+      "raw": "2 ounces Pecorino Romano cheese (about 1 cup; 55 g), very finely grated on a Microplane or the smallest holes of a box grater, plus more for serving"
+    }
+  ],
+  "steps": [
+    {
+      "text": "Heat {{3 tbsp}} of the olive oil with about a teaspoon of black pepper in a medium skillet over medium-low heat until fragrant and the pepper is just barely starting to sizzle, about 1 minute. Set aside — letting the pan cool a little is fine.",
+      "uses": ["oil", "pepper"],
+      "timers": [{ "label": "Toast pepper", "seconds": 60 }]
+    },
+    {
+      "text": "Put the spaghetti in a large skillet and just cover it with water. Add a small pinch of salt and bring to a boil over high heat, prodding now and then with a fork so it doesn't clump. Cook until al dente — about a minute less than the package says. Transfer {{2-3 tbsp}} of the starchy pasta water into the oil-and-pepper skillet, stir in the butter, then use tongs to lift the spaghetti straight into it.",
+      "uses": ["spaghetti", "salt", "butter"]
+    },
+    {
+      "text": "Add the cheese and the remaining {{1 tbsp}} olive oil, and stir with a fork until the cheese melts completely. Splash in a few more tablespoons of pasta water to loosen it, reheating gently as needed, until the sauce is creamy and coats every strand. Season to taste with salt and more black pepper. Serve right away, with extra cheese and pepper at the table.",
+      "uses": ["pecorino", "oil", "salt", "pepper"]
+    }
+  ],
+  "notes": [
+    "Grate the Pecorino as finely as you can — a Microplane or the smallest box-grater holes. Coarsely grated cheese is the main cause of a clumpy, broken sauce.",
+    "The two-pan method is the trick: toast the pepper in oil in one pan, boil the pasta in the other, and build the sauce off high heat so the cheese emulsifies instead of seizing.",
+    "Cook the spaghetti in just enough water to cover it — less water means starchier water, which makes a better sauce.",
+    "It's really a snack for two or three, and tastiest straight from the skillet."
+  ]
+}

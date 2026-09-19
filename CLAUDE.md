@@ -34,7 +34,11 @@ confusion:
 - **Recipe content → on push, if configured.** Editing `recipes/*.json` runs
   `.github/workflows/sync-recipes.yml`, which writes to Firestore using the
   `FIREBASE_SERVICE_ACCOUNT` repo secret and the `KITCHEN_HOUSEHOLD_ID` repo
-  variable. Fails with a clear message if those aren't set.
+  variable. Fails with a clear message if those aren't set. CI syncs with
+  `--prune`, so the repo is authoritative: renaming or deleting a recipe file
+  removes the old Firestore document instead of leaving a duplicate (the doc id
+  is the slug). Renaming a recipe = new slug + delete old file; prune handles
+  the cleanup.
 
 ## The core bet: ingredients are structured data
 
