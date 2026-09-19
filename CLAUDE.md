@@ -135,12 +135,13 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator).
 - `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
-  `npm run test:steps` / `npm run test:draft` — pure-logic unit tests for the
-  JSON-LD converter, the grocery merge/aisle logic, the meal-plan day window +
-  plan→groceries aggregation, the cook-mode sentence splitter, and the recipe
-  editor's draft↔schema round-trip. Run after touching `src/lib/importRecipe.ts`,
-  `src/lib/grocery.ts`, `src/lib/plan.ts`, `src/lib/quantity.ts`, or
-  `src/lib/recipeDraft.ts`.
+  `npm run test:steps` / `npm run test:draft` / `npm run test:cook` — pure-logic
+  unit tests for the JSON-LD converter, the grocery merge/aisle logic, the
+  meal-plan day window + plan→groceries aggregation, the cook-mode sentence
+  splitter, the recipe editor's draft↔schema round-trip, and the "cooking now"
+  multi-dish timeline (attention/agenda merge + ordering). Run after touching
+  `src/lib/importRecipe.ts`, `src/lib/grocery.ts`, `src/lib/plan.ts`,
+  `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`, or `src/lib/cookboard.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -163,7 +164,8 @@ Done: sign-in, recipe reader + scaling, household/friend sharing by invite,
 recipe sync CI, version stamp, cook mode (full-screen steps, wake lock,
 cross-step timers, large controls, per-step mise-en-place checklist,
 scannable step bullets — authored `brief` or auto-split prose, resume an
-interrupted solo cook via `src/data/soloCook.ts` in localStorage),
+interrupted solo cook — several dishes at once — via the cook board
+(`src/data/cookBoard.ts`) in localStorage),
 pull-to-refresh, screen-name editor, recipe import (URL via CI, or paste text),
 the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
 order, realtime check-off, quick-add), the meal plan (plan recipes onto a
@@ -181,7 +183,15 @@ app-copied recipes via `origin`), and AI recipe ingestion (paste text or a photo
 stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch or edit an ingestion result
-before saving — draft↔schema round-trip validated by the same `parseRecipe`).
+before saving — draft↔schema round-trip validated by the same `parseRecipe`),
+and a **live cooking timeline** (`/cooking`, `src/routes/CookingPage.tsx`) that
+coordinates several dishes at once from the local cook board: a glanceable strip
+of each dish's running timers plus a merged, time-sorted "Up next" list of what
+needs you now (a rung timer or a dish with nothing counting down) and when each
+timer will ring — pure merge logic in `src/lib/cookboard.ts` (`buildTimeline`).
+It reads only real data (step position + `endsAt` timers), so it needs no schema
+or rules change; a back-timed "ready by 6:45" scheduler (needing per-step
+durations) is a deliberate later phase.
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the

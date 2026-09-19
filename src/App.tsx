@@ -4,6 +4,7 @@ import SignIn from './auth/SignIn'
 import RecipeListPage from './routes/RecipeListPage'
 import RecipePage from './routes/RecipePage'
 import CookPage from './routes/CookPage'
+import CookingPage from './routes/CookingPage'
 import GroceryListPage from './routes/GroceryListPage'
 import PlanPage from './routes/PlanPage'
 import AddRecipePage from './routes/AddRecipePage'
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/" element={<RecipeListPage />} />
       <Route path="/r/:slug" element={<RecipePage />} />
       <Route path="/r/:slug/cook" element={<CookPage />} />
+      <Route path="/cooking" element={<CookingPage />} />
       <Route path="/list" element={<GroceryListPage />} />
       <Route path="/plan" element={<PlanPage />} />
       <Route path="/add" element={<AddRecipePage />} />

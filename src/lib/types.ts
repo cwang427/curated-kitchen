@@ -247,6 +247,30 @@ export interface CookSession {
   active: boolean
 }
 
+/**
+ * One dish on this device's cook board — a solo (unsynced) cook in progress,
+ * kept in localStorage so it survives leaving the app and, crucially, so several
+ * can run at once. Cooking a real meal means juggling dishes: the ribs braise
+ * while you start the rice while you prep the beans. Each dish tracks where you
+ * are and its own timers (stored endsAt-first, so they keep counting down even
+ * when its cook page isn't open), and the "cooking now" timeline reads the whole
+ * board to show every dish side by side. `title` is denormalized so a banner can
+ * name it without loading the recipe. The two-phone `CookSession` is separate:
+ * that syncs one shared recipe across phones; this board is personal to a device.
+ */
+export interface CookDish {
+  slug: string
+  title: string
+  /** Serving multiplier (mirrors the reader's scale; 1 = as written). */
+  scale: number
+  /** The step you're on in this dish. */
+  stepIndex: number
+  timers: SyncTimer[]
+  /** When this dish was first added to the board. */
+  startedAt: number
+  updatedAt: number
+}
+
 export interface Household {
   id: string
   name: string

@@ -5,7 +5,7 @@ import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
 import { endCookSession, useCookSession } from '../data/cooksession'
-import { clearSoloCook, readSoloCook } from '../data/soloCook'
+import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import type { Recipe } from '../lib/types'
 
@@ -111,10 +111,8 @@ export default function RecipeListPage() {
   const [nonce, setNonce] = useState(0)
   const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce)
   const { session } = useCookSession(household?.id ?? null)
-  // A solo cook is per-device; read it once on mount.
-  const solo = useMemo(() => readSoloCook(), [])
-  const soloRecipe = solo ? recipes.find((r) => r.slug === solo.slug) : undefined
-  const [soloDismissed, setSoloDismissed] = useState(false)
+  // Solo cooks in progress on this device (the cook board).
+  const board = useCookBoard()
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
@@ -152,8 +150,8 @@ export default function RecipeListPage() {
 
       <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
-        {/* A live shared session takes priority; otherwise a solo cook you can
-            resume on this device. */}
+        {/* A live shared session takes priority; otherwise the solo cook board —
+            several dishes open the timeline, one resumes that dish directly. */}
         {session ? (
           <CookBanner
             to={`/r/${session.recipeSlug}/cook?x=${session.scale}`}
@@ -170,15 +168,18 @@ export default function RecipeListPage() {
                 : undefined
             }
           />
-        ) : soloRecipe && solo && !soloDismissed ? (
+        ) : board.dishes.length > 1 ? (
           <CookBanner
-            to={`/r/${solo.slug}/cook?x=${solo.scale}`}
+            to="/cooking"
+            label={`Cooking now — ${board.dishes.length} dishes`}
+            detail={board.dishes.map((d) => d.title).join(', ')}
+          />
+        ) : board.dishes.length === 1 ? (
+          <CookBanner
+            to={`/r/${board.dishes[0].slug}/cook?x=${board.dishes[0].scale}`}
             label="Cooking now — tap to resume"
-            detail={soloRecipe.title}
-            onDismiss={() => {
-              clearSoloCook()
-              setSoloDismissed(true)
-            }}
+            detail={board.dishes[0].title}
+            onDismiss={() => removeDish(board.dishes[0].slug)}
           />
         ) : null}
         <input

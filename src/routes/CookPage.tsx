@@ -9,9 +9,9 @@ import {
   startCookSession,
   useCookSession,
 } from '../data/cooksession'
-import { clearSoloCook, readSoloCook, writeSoloCook, type SoloCook } from '../data/soloCook'
+import { getDish, removeDish, upsertDish, useCookBoard } from '../data/cookBoard'
 import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
-import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
+import type { CookDish, CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
 /* ---------------------------------------------------------------- *
  * Cook mode
@@ -212,14 +212,14 @@ export default function CookPage() {
   const { session } = useCookSession(householdId)
 
   const scaleParam = Number(params.get('x')) || 1
-  // Solo cooking resumes from this device's saved progress (localStorage) when
-  // it's for this recipe; otherwise it starts fresh.
-  const [initialSolo] = useState<SoloCook | null>(() => {
-    const saved = readSoloCook()
-    return saved && saved.slug === slug ? saved : null
-  })
-  const [localIndex, setLocalIndex] = useState(() => initialSolo?.stepIndex ?? 0)
-  const [localTimers, setLocalTimers] = useState<SyncTimer[]>(() => initialSolo?.timers ?? [])
+  const board = useCookBoard()
+  // Solo cooking resumes from this dish's saved progress on the cook board
+  // (localStorage) when it's already there; otherwise it starts fresh.
+  const [initialDish] = useState<CookDish | null>(() => (slug ? getDish(slug) : null))
+  const [localIndex, setLocalIndex] = useState(() => initialDish?.stepIndex ?? 0)
+  const [localTimers, setLocalTimers] = useState<SyncTimer[]>(() => initialDish?.timers ?? [])
+  // The dish's original start time, preserved across every board write.
+  const startedAtRef = useRef(initialDish?.startedAt ?? Date.now())
   // Mise en place: which of a step's ingredients you've gathered/measured.
   // Kept per-phone (personal), keyed by step + ingredient so each step tracks
   // its own and your ticks survive stepping Back and forth.
@@ -232,7 +232,7 @@ export default function CookPage() {
   // A solo cook is "active" once resumed or advanced past step 1. From then on
   // every step change is saved — including stepping back to step 1 — so resume
   // always returns to the last step you were on, not the furthest you reached.
-  const startedRef = useRef(initialSolo !== null)
+  const startedRef = useRef(initialDish !== null)
 
   // Synced when a session is live for *this* recipe. The session then owns the
   // scale, current step, and timers; otherwise we cook solo from local state.
@@ -286,17 +286,25 @@ export default function CookPage() {
     prevSyncedRef.current = synced
   }, [synced])
 
-  // Persist solo progress to this device so you can leave and resume. Skipped
-  // while synced (the session doc is the source of truth there). Until this cook
-  // is active, a fresh step-0 view isn't saved — so merely opening cook mode
-  // doesn't create a resume banner or clobber another recipe's saved cook. Once
-  // active, every step is saved, including a step back to the start.
+  // Persist solo progress to this device's cook board so you can leave and
+  // resume — and so several dishes coexist. Skipped while synced (the session
+  // doc is the source of truth there). Until this cook is active, a fresh step-0
+  // view isn't saved — so merely opening cook mode doesn't add a dish or clobber
+  // another. Once active, every step is saved, including a step back to the start.
   useEffect(() => {
-    if (synced || !slug) return
+    if (synced || !slug || !recipe) return
     if (!startedRef.current && localIndex === 0 && localTimers.length === 0) return
     startedRef.current = true
-    writeSoloCook({ slug, scale: scaleParam, stepIndex: localIndex, timers: localTimers, updatedAt: Date.now() })
-  }, [synced, slug, scaleParam, localIndex, localTimers])
+    upsertDish({
+      slug,
+      title: recipe.title,
+      scale: scaleParam,
+      stepIndex: localIndex,
+      timers: localTimers,
+      startedAt: startedAtRef.current,
+      updatedAt: Date.now(),
+    })
+  }, [synced, slug, recipe, scaleParam, localIndex, localTimers])
 
   const togglePrepped = (key: string) =>
     setPrepped((prev) => {
@@ -398,8 +406,9 @@ export default function CookPage() {
   const startSync = () => {
     if (!householdId || !user) return
     unlock()
-    // Moving into a shared session; the solo resume slot no longer applies.
-    clearSoloCook()
+    // This dish moves into the shared session; drop it from the solo board (the
+    // other dishes on the board keep cooking).
+    removeDish(recipe.slug)
     void startCookSession(householdId, user.uid, {
       recipeSlug: recipe.slug,
       recipeTitle: recipe.title,
@@ -415,10 +424,10 @@ export default function CookPage() {
   }
 
   const finish = () => {
-    // Finishing ends the shared session for everyone; cooking's done. Solo,
-    // it clears this device's resume slot.
+    // Finishing ends the shared session for everyone; cooking's done. Solo, it
+    // takes just this dish off the board (any others keep cooking).
     if (synced && householdId) void endCookSession(householdId)
-    else clearSoloCook()
+    else removeDish(recipe.slug)
     navigate(`/r/${recipe.slug}`)
   }
 
@@ -426,6 +435,8 @@ export default function CookPage() {
   const isLast = index === steps.length - 1
   const activeTimerRunning = displayTimers.some((t) => t.endsAt !== null && !t.done)
   const canSync = !!householdId && (household?.memberUids.length ?? 0) > 1
+  // Other dishes cooking on this device right now — a jump to the timeline.
+  const otherCount = board.dishes.filter((d) => d.slug !== recipe.slug).length
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
@@ -501,6 +512,17 @@ export default function CookPage() {
             >
               End cooking
             </button>
+          </div>
+        )}
+
+        {otherCount > 0 && (
+          <div className="mx-auto max-w-2xl">
+            <Link
+              to="/cooking"
+              className="flex items-center justify-center gap-1.5 text-sm text-accent underline underline-offset-2"
+            >
+              <span aria-hidden="true">⧉</span> {otherCount} other {otherCount === 1 ? 'dish' : 'dishes'} cooking — timeline
+            </Link>
           </div>
         )}
 

@@ -9,7 +9,7 @@ import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
 import { useAuth } from '../auth/AuthProvider'
 import { deleteRecipe, useRecipe } from '../data/recipes'
-import { clearSoloCook, readSoloCook } from '../data/soloCook'
+import { getDish, removeDish } from '../data/cookBoard'
 import { describeFirestoreError } from '../lib/errors'
 import { formatMinutes } from '../lib/quantity'
 
@@ -30,8 +30,8 @@ export default function RecipePage() {
   const navigate = useNavigate()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
-  // A solo cook in progress on this device (read once on mount).
-  const solo = useMemo(() => readSoloCook(), [])
+  // This recipe's dish on the cook board, if a solo cook is in progress here.
+  const dish = useMemo(() => (slug ? getDish(slug) : null), [slug])
   const [scale, setScale] = useState(1)
   const [checkedIngredients, toggleIngredient] = useToggleSet()
   const [doneSteps, toggleStep] = useToggleSet()
@@ -152,10 +152,10 @@ export default function RecipePage() {
 
         <div className="mt-6 space-y-3">
           {recipe.steps.length > 0 &&
-            (solo && solo.slug === recipe.slug ? (
+            (dish ? (
               <div className="space-y-2">
                 <Link
-                  to={`/r/${recipe.slug}/cook?x=${solo.scale}`}
+                  to={`/r/${recipe.slug}/cook?x=${dish.scale}`}
                   className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
                 >
                   Resume cooking →
@@ -163,7 +163,7 @@ export default function RecipePage() {
                 <button
                   type="button"
                   onClick={() => {
-                    clearSoloCook()
+                    removeDish(recipe.slug)
                     navigate(`/r/${recipe.slug}/cook?x=${scale}`)
                   }}
                   className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
