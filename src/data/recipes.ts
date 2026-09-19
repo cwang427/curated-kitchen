@@ -220,10 +220,14 @@ export async function copyRecipeToHousehold(
     yield: recipe.yield,
     times: recipe.times,
     ingredients: recipe.ingredients,
-    // Step photos live in the source kitchen's Storage (readable only by its
-    // members/guests), so a copy can't show them — drop them rather than leave
-    // broken images. The new owner can add their own.
-    steps: recipe.steps.map((s) => ({ ...s, images: [] })),
+    // Keep step photos on the copy. The stored URLs are Firebase download links
+    // whose token grants access regardless of household, and image display
+    // isn't CORS-restricted, so they render fine in the new kitchen. They point
+    // at the source kitchen's Storage object (not a byte-for-byte duplicate), so
+    // the one caveat is that removing a photo from the *original* recipe would
+    // also blank it on the copy — a true independent duplicate would need the
+    // bucket's CORS configured so the browser can re-upload the bytes.
+    steps: recipe.steps,
     groups: recipe.groups,
     tags: recipe.tags,
     equipment: recipe.equipment,

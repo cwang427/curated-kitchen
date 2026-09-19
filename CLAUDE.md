@@ -277,8 +277,12 @@ And **per-step photos** (up to 3, `Step.images`): add them in the editor
 (`src/data/photos.ts` compresses in-browser → Firebase Storage → download URL),
 shown in the recipe reader and cook mode. Members add/replace/delete, members +
 guests view — enforced by `storage.rules` (a new security surface; enable
-Storage once + publish the rules — see Deploy tracks). Copies drop step photos
-(they live in the source kitchen's Storage).
+Storage once + publish the rules — see Deploy tracks). Copies KEEP step photos
+by carrying over the same download URLs (the token grants access cross-household
+and `<img>` isn't CORS-restricted, so they render in the new kitchen). They
+reference the source object rather than duplicating bytes, so removing a photo
+from the *original* would blank it on the copy; a true independent duplicate
+would need the bucket's CORS configured for a browser-side re-upload.
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the
