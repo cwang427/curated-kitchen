@@ -22,6 +22,7 @@ export default defineConfig({
       { find: /^.*\/data\/recipes$/, replacement: stub("recipes.tsx") },
       { find: /^.*\/data\/invites$/, replacement: stub("invites.ts") },
       { find: /^.*\/data\/household$/, replacement: stub("household.ts") },
+      { find: /^.*\/data\/grocery$/, replacement: stub("grocery.ts") },
     ],
   },
   plugins: [react(), tailwindcss()],

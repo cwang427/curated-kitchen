@@ -5,9 +5,11 @@ interface Props {
   title?: string
   /** Show a back chevron that returns to the recipe list. */
   back?: boolean
+  /** Show the grocery-list (cart) shortcut. */
+  cart?: boolean
 }
 
-export default function AppHeader({ title, back }: Props) {
+export default function AppHeader({ title, back, cart }: Props) {
   const { user, profile, household } = useAuth()
   // Email/password accounts carry no auth displayName, so prefer the profile's.
   const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
@@ -43,11 +45,32 @@ export default function AppHeader({ title, back }: Props) {
           </Link>
         </div>
 
+        <div className="flex shrink-0 items-center gap-2">
+        {cart && (
+          <Link
+            to="/list"
+            title="Grocery list"
+            aria-label="Grocery list"
+            className="grid size-9 place-items-center rounded-full border border-line text-ink-soft transition active:bg-line"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
+              <path
+                d="M4 5h2l1.5 10.5A2 2 0 0 0 9.5 17h7a2 2 0 0 0 2-1.6L20 8H7"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="10" cy="20" r="1.2" fill="currentColor" />
+              <circle cx="17" cy="20" r="1.2" fill="currentColor" />
+            </svg>
+          </Link>
+        )}
         <Link
           to="/settings"
           title="Settings"
           aria-label="Settings"
-          className="shrink-0 rounded-full border border-line"
+          className="rounded-full border border-line"
         >
           {user?.photoURL ? (
             <img
@@ -62,6 +85,7 @@ export default function AppHeader({ title, back }: Props) {
             </span>
           )}
         </Link>
+        </div>
       </div>
     </header>
   )

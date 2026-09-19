@@ -72,7 +72,7 @@ export default function RecipeListPage() {
 
   return (
     <div className="relative min-h-dvh overflow-hidden">
-      <AppHeader />
+      <AppHeader cart />
 
       <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">

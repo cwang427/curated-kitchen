@@ -156,6 +156,29 @@ export type RecipeSeed = Omit<
   'id' | 'householdId' | 'createdBy' | 'createdAt' | 'updatedAt'
 >
 
+/**
+ * One line on the shared grocery list. Lives in a subcollection so two people
+ * checking things off at once never clobber each other's writes. `canonical`
+ * is the merge key (2 onions + 1 onion → 3), `category` sets the aisle.
+ */
+export interface GroceryItem {
+  id: string
+  /** Display name, e.g. "yellow onion". */
+  name: string
+  /** Merge key shared with Ingredient.canonical. */
+  canonical: string
+  quantity: number | null
+  quantityMax: number | null
+  unit: string | null
+  category: GroceryCategory
+  checked: boolean
+  /** Free note, or which recipe(s) it came from. */
+  note: string | null
+  addedBy: string | null
+  createdAt: number | null
+  updatedAt: number | null
+}
+
 export interface Household {
   id: string
   name: string

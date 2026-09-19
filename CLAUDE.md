@@ -100,6 +100,9 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~30
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator).
+- `npm run test:import` / `npm run test:grocery` — pure-logic unit tests for
+  the JSON-LD converter and the grocery merge/aisle logic. Run after touching
+  `src/lib/importRecipe.ts` or `src/lib/grocery.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -120,7 +123,8 @@ the deploy and leaves the previous version up.
 
 Done: sign-in, recipe reader + scaling, household/friend sharing by invite,
 recipe sync CI, version stamp, cook mode (full-screen steps, wake lock,
-cross-step timers, large controls), pull-to-refresh. Next: grocery list
-(add-from-recipe, aggregation, aisle order, realtime check-off), then recipe
-import (paste a Serious Eats URL → parse JSON-LD → our schema, reviewed before
-sync), then the cook log, then two-phone cook-session sync.
+cross-step timers, large controls), pull-to-refresh, screen-name editor,
+recipe import (URL via CI, or paste text), and the shared grocery list
+(add-from-recipe, merge by canonical + unit, aisle order, realtime check-off,
+quick-add). Next: the cook log, then two-phone cook-session sync, then
+member/role management (remove a person, change member↔friend).

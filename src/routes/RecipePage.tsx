@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
+import AddToListSheet from '../components/AddToListSheet'
 import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
@@ -25,6 +26,7 @@ export default function RecipePage() {
   const [scale, setScale] = useState(1)
   const [checkedIngredients, toggleIngredient] = useToggleSet()
   const [doneSteps, toggleStep] = useToggleSet()
+  const [showAddToList, setShowAddToList] = useState(false)
 
   if (loading) {
     return (
@@ -65,7 +67,7 @@ export default function RecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title={recipe.title} back />
+      <AppHeader title={recipe.title} back cart />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         <header className="space-y-3">
@@ -120,13 +122,26 @@ export default function RecipePage() {
           <ScaleControl scale={scale} onChange={setScale} recipeYield={recipe.yield} />
         </div>
 
-        {recipe.steps.length > 0 && (
-          <Link
-            to={`/r/${recipe.slug}/cook?x=${scale}`}
-            className="mt-6 grid h-14 w-full place-items-center rounded-2xl bg-accent text-lg font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+        <div className="mt-6 flex gap-3">
+          <button
+            type="button"
+            onClick={() => setShowAddToList(true)}
+            className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
           >
-            Start cooking →
-          </Link>
+            Add to list
+          </button>
+          {recipe.steps.length > 0 && (
+            <Link
+              to={`/r/${recipe.slug}/cook?x=${scale}`}
+              className="grid h-14 flex-1 place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+            >
+              Start cooking →
+            </Link>
+          )}
+        </div>
+
+        {showAddToList && (
+          <AddToListSheet recipe={recipe} scale={scale} onClose={() => setShowAddToList(false)} />
         )}
 
         <section className="mt-6" aria-labelledby="ingredients-heading">
