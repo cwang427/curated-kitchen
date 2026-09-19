@@ -159,11 +159,6 @@ export async function joinByCode(
   return { householdId: invite.householdId, role: invite.role }
 }
 
-/** Point the user's app at a different household they already belong to. */
-export async function switchHousehold(uid: string, householdId: string): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), { defaultHouseholdId: householdId })
-}
-
 /** Build a shareable link that pre-fills the code on open. */
 export function inviteLink(code: string): string {
   const base = `${window.location.origin}${import.meta.env.BASE_URL}`

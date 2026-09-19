@@ -3,7 +3,9 @@ import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
 import { useAuth } from '../auth/AuthProvider'
 import {
+  createHousehold,
   demoteToFriend,
+  fetchHouseholds,
   fetchProfiles,
   leaveHousehold,
   promoteToMember,
@@ -11,13 +13,185 @@ import {
   removeMember,
   setDisplayName,
   setHouseholdName,
+  switchHousehold,
 } from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { describeFirestoreError } from '../lib/errors'
-import type { HouseholdRole, UserProfile } from '../lib/types'
+import type { Household, HouseholdRole, UserProfile } from '../lib/types'
 
 function displayNameFor(profile: UserProfile): string {
   return profile.displayName ?? profile.email ?? `${profile.uid.slice(0, 6)}…`
+}
+
+/** Switch between the kitchens you belong to, or start a new one. */
+function KitchenSwitcher() {
+  const { user, profile, household, refresh } = useAuth()
+  const [kitchens, setKitchens] = useState<Household[]>([])
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const ids = profile?.householdIds ?? []
+  const key = [...ids].sort().join(',')
+  const activeName = household?.name ?? ''
+
+  // Refetch when the set of kitchens changes, or the active one is renamed.
+  useEffect(() => {
+    if (!key) {
+      setKitchens([])
+      return
+    }
+    let live = true
+    fetchHouseholds(key.split(','))
+      .then((hs) => {
+        if (live) setKitchens(hs)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [key, activeName])
+
+  if (!user || !household) return null
+
+  const switchTo = async (id: string) => {
+    if (id === household.id || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await switchHousehold(user.uid, id)
+      await refresh()
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'switch kitchens'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const create = async () => {
+    const name = newName.trim()
+    if (!name || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await createHousehold(user.uid, name)
+      await refresh()
+      setCreating(false)
+      setNewName('')
+    } catch (cause) {
+      setError(describeFirestoreError(cause, 'create a kitchen'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sublabel = (k: Household): string => {
+    const owner = k.ownerUid === user.uid
+    const others = k.memberUids.length + k.friendUids.length - 1
+    if (others <= 0) return 'Just you'
+    const parts = [`${k.memberUids.length} ${k.memberUids.length === 1 ? 'member' : 'members'}`]
+    if (k.friendUids.length) {
+      parts.push(`${k.friendUids.length} ${k.friendUids.length === 1 ? 'friend' : 'friends'}`)
+    }
+    const role = owner ? 'you own' : k.memberUids.includes(user.uid) ? 'member' : 'guest'
+    return `${parts.join(', ')} · ${role}`
+  }
+  const isShared = (k: Household) => k.memberUids.length + k.friendUids.length > 1
+
+  // Active kitchen first, then the rest by name.
+  const sorted = [...kitchens].sort((a, b) =>
+    a.id === household.id ? -1 : b.id === household.id ? 1 : a.name.localeCompare(b.name),
+  )
+
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+        Your kitchens
+      </h3>
+      <ul className="space-y-2">
+        {sorted.map((k) => {
+          const active = k.id === household.id
+          return (
+            <li key={k.id}>
+              <button
+                type="button"
+                onClick={() => switchTo(k.id)}
+                disabled={active || busy}
+                className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition active:scale-[0.99] ${
+                  active ? 'border-accent bg-accent-soft' : 'border-line bg-card'
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-medium">{k.name}</span>
+                    <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-ink-faint">
+                      {isShared(k) ? 'Shared' : 'Personal'}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-xs text-ink-faint">{sublabel(k)}</span>
+                </span>
+                {active ? (
+                  <span className="shrink-0 text-sm font-semibold text-accent">Active</span>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-ink-faint" fill="none" aria-hidden="true">
+                    <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+
+      {creating ? (
+        <div className="mt-2 flex gap-2">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Kitchen name"
+            aria-label="New kitchen name"
+            maxLength={60}
+            autoCapitalize="words"
+            className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-card px-3 text-base outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={create}
+            disabled={!newName.trim() || busy}
+            className="min-h-11 shrink-0 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
+          >
+            {busy ? 'Creating…' : 'Create'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCreating(false)
+              setNewName('')
+            }}
+            className="min-h-11 shrink-0 rounded-full border border-line px-3 text-sm text-ink-soft"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="mt-2 text-sm text-accent underline underline-offset-2"
+        >
+          ＋ New kitchen
+        </button>
+      )}
+
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </section>
+  )
 }
 
 interface RowAction {
@@ -469,6 +643,8 @@ export default function SettingsPage() {
             {youAreMember ? '' : ' · you’re a friend here'}
           </p>
         </section>
+
+        <KitchenSwitcher />
 
         <PeopleList />
 

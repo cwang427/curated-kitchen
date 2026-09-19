@@ -1,4 +1,4 @@
-import type { UserProfile } from '../../src/lib/types'
+import type { Household, UserProfile } from '../../src/lib/types'
 
 const NAMES: Record<string, string> = {
   u: 'Cassidy',
@@ -31,3 +31,14 @@ export async function removeFriend(): Promise<void> {}
 export async function promoteToMember(): Promise<void> {}
 export async function demoteToFriend(): Promise<void> {}
 export async function leaveHousehold(): Promise<void> {}
+
+export async function fetchHouseholds(): Promise<Household[]> {
+  return [
+    { id: 'hh_preview', name: 'Cassidy’s Kitchen', ownerUid: 'u', memberUids: ['u', 'partner_uid'], friendUids: ['friend_uid'], inviteCode: null, createdAt: null },
+    { id: 'hh_personal', name: 'Weeknight Solo', ownerUid: 'u', memberUids: ['u'], friendUids: [], inviteCode: null, createdAt: null },
+  ]
+}
+export async function createHousehold(): Promise<string> {
+  return 'hh_new'
+}
+export async function switchHousehold(): Promise<void> {}

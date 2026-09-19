@@ -77,6 +77,15 @@ can never be removed or demoted (they must stay in `memberUids`), and ownership
 isn't transferable yet. These live in `src/data/household.ts` and the
 `households` update rule; change them together and re-run `npm run test:rules`.
 
+A user can belong to several kitchens (`UserProfile.householdIds`), with one
+**active** at a time (`defaultHouseholdId`). The Settings "Your kitchens"
+switcher (`fetchHouseholds` / `switchHousehold` / `createHousehold` in
+`src/data/household.ts`) flips between them and starts new ones; everyone gets a
+personal kitchen on first sign-in. A kitchen with only you reads as "Personal",
+otherwise "Shared" — a derived label, not a stored field. Switching just
+repoints `defaultHouseholdId`, and every screen re-subscribes to the active
+household, so no rules change was needed for it.
+
 Redemption is security-sensitive: a rule can read documents but not client
 variables or query filters, so the joiner **stages the invite code on their own
 user doc** first; the household rule then `get()`s that doc, looks up the
@@ -148,8 +157,11 @@ rolling week → one-tap "add the week to groceries"), and two-phone "cook
 together" sync (both phones follow the same step and timers via a shared
 `sessions/{householdId}` doc), and member/role management (owner removes/
 demotes members and promotes friends; either member manages guests; anyone but
-the owner can leave). Next: nothing pressing — a natural future addition is
-ownership transfer / co-owner (today the creator is the sole owner and
-ownership can't be reassigned). The cook log is intentionally skipped —
+the owner can leave), and a multi-kitchen switcher (belong to several kitchens,
+switch the active one, create/name new ones — "Personal" vs "Shared" derived
+from membership). Next: in-app recipe authoring + moving/copying recipes between
+kitchens (blocked on teaching the recipe-sync `--prune` to spare app-created
+recipes, so they aren't deleted from the CI-authoritative kitchen), then
+ownership transfer / co-owner. The cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

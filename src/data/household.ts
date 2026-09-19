@@ -1,6 +1,7 @@
 import {
   arrayRemove,
   arrayUnion,
+  collection,
   doc,
   getDoc,
   serverTimestamp,
@@ -173,6 +174,49 @@ export async function setHouseholdName(householdId: string, name: string): Promi
   const trimmed = name.trim()
   if (!trimmed) return
   await updateDoc(doc(db, 'households', householdId), { name: trimmed })
+}
+
+/**
+ * Load the households a user belongs to, for the kitchen switcher. Reading a
+ * household is allowed for its members and friends (firestore.rules); a doc that
+ * can't be read (e.g. you were removed, but your profile still lists it) is
+ * skipped rather than failing the whole list.
+ */
+export async function fetchHouseholds(ids: string[]): Promise<Household[]> {
+  const snaps = await Promise.all(
+    ids.map((id) => getDoc(doc(db, 'households', id)).catch(() => null)),
+  )
+  const out: Household[] = []
+  for (const snap of snaps) {
+    if (snap && snap.exists()) out.push(toHousehold(snap.id, snap.data()))
+  }
+  return out
+}
+
+/**
+ * Create a brand-new kitchen owned by this user — a private one, or another
+ * shared one to invite people into — and make it the active kitchen. The rules
+ * require ownerUid == uid and memberUids == [uid] at creation.
+ */
+export async function createHousehold(uid: string, name: string): Promise<string> {
+  const ref = doc(collection(db, 'households'))
+  await setDoc(ref, {
+    name: name.trim() || 'New Kitchen',
+    ownerUid: uid,
+    memberUids: [uid],
+    friendUids: [],
+    createdAt: serverTimestamp(),
+  })
+  await updateDoc(doc(db, 'users', uid), {
+    householdIds: arrayUnion(ref.id),
+    defaultHouseholdId: ref.id,
+  })
+  return ref.id
+}
+
+/** Point the app at a different kitchen the user already belongs to. */
+export async function switchHousehold(uid: string, householdId: string): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), { defaultHouseholdId: householdId })
 }
 
 /*
