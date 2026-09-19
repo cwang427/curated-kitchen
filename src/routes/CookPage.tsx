@@ -9,7 +9,7 @@ import {
   startCookSession,
   useCookSession,
 } from '../data/cooksession'
-import { clearSoloCook, readSoloCook, writeSoloCook } from '../data/soloCook'
+import { clearSoloCook, readSoloCook, writeSoloCook, type SoloCook } from '../data/soloCook'
 import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
 import type { CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
@@ -214,14 +214,12 @@ export default function CookPage() {
   const scaleParam = Number(params.get('x')) || 1
   // Solo cooking resumes from this device's saved progress (localStorage) when
   // it's for this recipe; otherwise it starts fresh.
-  const [localIndex, setLocalIndex] = useState(() => {
+  const [initialSolo] = useState<SoloCook | null>(() => {
     const saved = readSoloCook()
-    return saved && saved.slug === slug ? saved.stepIndex : 0
+    return saved && saved.slug === slug ? saved : null
   })
-  const [localTimers, setLocalTimers] = useState<SyncTimer[]>(() => {
-    const saved = readSoloCook()
-    return saved && saved.slug === slug ? saved.timers : []
-  })
+  const [localIndex, setLocalIndex] = useState(() => initialSolo?.stepIndex ?? 0)
+  const [localTimers, setLocalTimers] = useState<SyncTimer[]>(() => initialSolo?.timers ?? [])
   // Mise en place: which of a step's ingredients you've gathered/measured.
   // Kept per-phone (personal), keyed by step + ingredient so each step tracks
   // its own and your ticks survive stepping Back and forth.
@@ -231,6 +229,10 @@ export default function CookPage() {
   const { unlock, ring } = useAlarm()
   useWakeLock()
   const rungRef = useRef<Set<string>>(new Set())
+  // A solo cook is "active" once resumed or advanced past step 1. From then on
+  // every step change is saved — including stepping back to step 1 — so resume
+  // always returns to the last step you were on, not the furthest you reached.
+  const startedRef = useRef(initialSolo !== null)
 
   // Synced when a session is live for *this* recipe. The session then owns the
   // scale, current step, and timers; otherwise we cook solo from local state.
@@ -285,12 +287,14 @@ export default function CookPage() {
   }, [synced])
 
   // Persist solo progress to this device so you can leave and resume. Skipped
-  // while synced (the session doc is the source of truth there), and skipped at
-  // the very start so merely opening cook mode doesn't create a resume banner or
-  // clobber another recipe's saved cook — only real progress is saved.
+  // while synced (the session doc is the source of truth there). Until this cook
+  // is active, a fresh step-0 view isn't saved — so merely opening cook mode
+  // doesn't create a resume banner or clobber another recipe's saved cook. Once
+  // active, every step is saved, including a step back to the start.
   useEffect(() => {
     if (synced || !slug) return
-    if (localIndex === 0 && localTimers.length === 0) return
+    if (!startedRef.current && localIndex === 0 && localTimers.length === 0) return
+    startedRef.current = true
     writeSoloCook({ slug, scale: scaleParam, stepIndex: localIndex, timers: localTimers, updatedAt: Date.now() })
   }, [synced, slug, scaleParam, localIndex, localTimers])
 
@@ -465,24 +469,40 @@ export default function CookPage() {
         {synced ? (
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 rounded-xl border border-accent bg-accent-soft px-3 py-1.5 text-sm text-accent">
             <span className="flex min-w-0 items-center gap-1.5 truncate">
-              <span aria-hidden="true">⇄</span>
-              Cooking together{session!.startedByName ? ` · ${session!.startedByName} started` : ''}
+              <span aria-hidden="true">⇄</span> Cooking together
             </span>
-            <button type="button" onClick={stopSync} className="shrink-0 font-semibold underline underline-offset-2">
-              Stop
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              {/* Stop syncing but keep cooking on this phone. */}
+              <button type="button" onClick={stopSync} className="underline underline-offset-2">
+                Cook solo
+              </button>
+              {/* Terminate for everyone and leave. */}
+              <button type="button" onClick={finish} className="font-semibold underline underline-offset-2">
+                End
+              </button>
+            </div>
           </div>
-        ) : canSync ? (
-          <div className="mx-auto max-w-2xl">
+        ) : (
+          <div className="mx-auto flex max-w-2xl gap-2">
+            {canSync && (
+              <button
+                type="button"
+                onClick={startSync}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-card px-3 py-1.5 text-sm text-ink-soft transition active:bg-line"
+              >
+                <span aria-hidden="true">⇄</span> Cook together
+              </button>
+            )}
+            {/* End the cook from any step, without walking to Finish. */}
             <button
               type="button"
-              onClick={startSync}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-card px-3 py-1.5 text-sm text-ink-soft transition active:bg-line"
+              onClick={finish}
+              className={`${canSync ? 'shrink-0' : 'w-full'} rounded-xl border border-line bg-card px-4 py-1.5 text-sm text-ink-soft transition active:bg-line`}
             >
-              <span aria-hidden="true">⇄</span> Cook together on both phones
+              End cooking
             </button>
           </div>
-        ) : null}
+        )}
 
         {displayTimers.length > 0 && (
           <div className="mx-auto max-w-2xl">

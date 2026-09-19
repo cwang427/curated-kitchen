@@ -4,13 +4,24 @@ import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
-import { useCookSession } from '../data/cooksession'
-import { readSoloCook } from '../data/soloCook'
+import { endCookSession, useCookSession } from '../data/cooksession'
+import { clearSoloCook, readSoloCook } from '../data/soloCook'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import type { Recipe } from '../lib/types'
 
 /** The "cooking now" banner at the top of the list — shared session or solo. */
-function CookBanner({ to, label, detail }: { to: string; label: string; detail: string }) {
+function CookBanner({
+  to,
+  label,
+  detail,
+  onDismiss,
+}: {
+  to: string
+  label: string
+  detail: string
+  /** When set, a × ends this cook instead of opening it (shown in place of the chevron). */
+  onDismiss?: () => void
+}) {
   return (
     <Link
       to={to}
@@ -21,9 +32,26 @@ function CookBanner({ to, label, detail }: { to: string; label: string; detail: 
         <span className="block text-sm font-semibold">{label}</span>
         <span className="block truncate text-sm">{detail}</span>
       </span>
-      <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" aria-hidden="true">
-        <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      {onDismiss ? (
+        <button
+          type="button"
+          aria-label="End this cook"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onDismiss()
+          }}
+          className="grid size-9 shrink-0 place-items-center rounded-full text-accent transition active:bg-accent/10"
+        >
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      ) : (
+        <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" aria-hidden="true">
+          <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
     </Link>
   )
 }
@@ -86,6 +114,7 @@ export default function RecipeListPage() {
   // A solo cook is per-device; read it once on mount.
   const solo = useMemo(() => readSoloCook(), [])
   const soloRecipe = solo ? recipes.find((r) => r.slug === solo.slug) : undefined
+  const [soloDismissed, setSoloDismissed] = useState(false)
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
@@ -134,12 +163,22 @@ export default function RecipeListPage() {
                 ? `${session.startedByName} · ${session.recipeTitle}`
                 : session.recipeTitle
             }
+            // Only the person who started a shared cook can end it from here.
+            onDismiss={
+              session.startedBy === user?.uid && household
+                ? () => void endCookSession(household.id)
+                : undefined
+            }
           />
-        ) : soloRecipe && solo ? (
+        ) : soloRecipe && solo && !soloDismissed ? (
           <CookBanner
             to={`/r/${solo.slug}/cook?x=${solo.scale}`}
             label="Cooking now — tap to resume"
             detail={soloRecipe.title}
+            onDismiss={() => {
+              clearSoloCook()
+              setSoloDismissed(true)
+            }}
           />
         ) : null}
         <input
