@@ -49,6 +49,17 @@ export function useRecipe() {
 export async function copyRecipeToHousehold(): Promise<string> {
   return 'copied-recipe'
 }
+export function recipeLineage(recipe: Recipe): string {
+  return recipe.copiedFrom ?? recipe.slug
+}
+export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe[]> {
+  // Add ?dupe to the URL to simulate a kitchen already holding a copy of the
+  // open recipe (shows the "Already copied" flag on the copy sheet).
+  const params = new URLSearchParams(window.location.search)
+  if (!params.has('dupe')) return []
+  const slug = window.location.pathname.split('/r/')[1]?.split('/')[0] ?? 'cacio-e-pepe'
+  return [{ ...cacioRecipe, id: `${householdId}-copy`, slug: `${slug}-copy`, title: 'Cacio e Pepe', copiedFrom: slug }]
+}
 export async function deleteRecipe(): Promise<void> {}
 export async function createRecipeInHousehold(): Promise<string> {
   return 'new-recipe'

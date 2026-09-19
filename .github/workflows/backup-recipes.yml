@@ -1,0 +1,84 @@
+# Snapshot the household's recipes from Firestore back into the repo (git).
+#
+# The app is the source of truth for recipes now, so this is the SAFETY NET: a
+# versioned copy in git so a recipe is never lost to a fat-fingered delete or a
+# database mishap. It's an owner-only maintenance job — it runs in CI with the
+# repo's service-account key and your KITCHEN_HOUSEHOLD_ID, never in the app, so
+# ordinary members never see or trigger it.
+#
+# It writes to backups/recipes/*.json (separate from the frozen recipes/*.json
+# seed archive) and only ADDS/updates — it never deletes, so an empty read can't
+# wipe the archive. To restore after a disaster: run the Restore step by hand
+# (see scripts/backup-recipes.ts --restore).
+#
+# Uses the same one-time setup as before:
+#   • Secret  FIREBASE_SERVICE_ACCOUNT — the service-account JSON, pasted whole.
+#   • Variable KITCHEN_HOUSEHOLD_ID    — the household to back up.
+#
+# NOTE: GitHub only runs `schedule` from the default branch, so the weekly run
+# starts once this file is on your main/deploy branch. Until then (and any time)
+# you can run it by hand: Actions › Back up recipes › Run workflow.
+name: Back up recipes
+
+on:
+  schedule:
+    - cron: '17 9 * * 1' # Mondays, 09:17 UTC — a quiet weekly snapshot.
+  workflow_dispatch:
+
+concurrency:
+  group: backup-recipes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check setup
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          HH: ${{ vars.KITCHEN_HOUSEHOLD_ID }}
+        run: |
+          missing=
+          [ -z "$SA" ] && missing="$missing FIREBASE_SERVICE_ACCOUNT(secret)"
+          [ -z "$HH" ] && missing="$missing KITCHEN_HOUSEHOLD_ID(variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Recipe backup isn't configured. Missing:$missing"
+            echo "See README › Adding recipes for the one-time setup."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Write service-account key
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+          echo "FIREBASE_PROJECT_ID=$(node -p "require('$RUNNER_TEMP/sa.json').project_id")" >> "$GITHUB_ENV"
+
+      - name: Back up
+        run: npm run backup:recipes -- --household="${{ vars.KITCHEN_HOUSEHOLD_ID }}"
+
+      - name: Commit the snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backups/recipes
+          if git diff --cached --quiet; then
+            echo "No recipe changes since the last backup."
+            exit 0
+          fi
+          # [skip ci] so the snapshot commit doesn't trigger a rebuild/redeploy.
+          git commit -m "Back up recipes ($(date -u +%Y-%m-%d)) [skip ci]"
+          git push origin HEAD:"${GITHUB_REF_NAME}"

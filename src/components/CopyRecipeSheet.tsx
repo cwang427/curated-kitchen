@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
-import { copyRecipeToHousehold } from '../data/recipes'
+import { copyRecipeToHousehold, fetchHouseholdRecipes, recipeLineage } from '../data/recipes'
 import { fetchHouseholds } from '../data/household'
 import { describeFirestoreError } from '../lib/errors'
 import type { Household, Recipe } from '../lib/types'
@@ -23,8 +23,12 @@ export default function CopyRecipeSheet({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copiedTo, setCopiedTo] = useState<string | null>(null)
+  // Kitchens that already hold a copy of this recipe's lineage → the existing
+  // copy's title, so we can flag them and confirm before making a duplicate.
+  const [dupes, setDupes] = useState<Record<string, string>>({})
 
   const ids = useMemo(() => profile?.householdIds ?? [], [profile])
+  const lineage = recipeLineage(recipe)
   useEffect(() => {
     let live = true
     fetchHouseholds(ids)
@@ -37,6 +41,27 @@ export default function CopyRecipeSheet({
     }
   }, [ids])
 
+  // Look up which target kitchens already have this lineage.
+  useEffect(() => {
+    if (!user) return
+    let live = true
+    const targetKitchens = kitchens.filter(
+      (k) => k.memberUids.includes(user.uid) && k.id !== recipe.householdId,
+    )
+    Promise.all(
+      targetKitchens.map(async (k) => {
+        const existing = await fetchHouseholdRecipes(k.id).catch(() => [] as Recipe[])
+        const match = existing.find((r) => r.copiedFrom === lineage)
+        return match ? ([k.id, match.title] as const) : null
+      }),
+    ).then((pairs) => {
+      if (live) setDupes(Object.fromEntries(pairs.filter((p): p is readonly [string, string] => p !== null)))
+    })
+    return () => {
+      live = false
+    }
+  }, [kitchens, user, recipe.householdId, lineage])
+
   if (!user) return null
 
   // You can copy into kitchens where you're a member — never a guest — and not
@@ -47,6 +72,15 @@ export default function CopyRecipeSheet({
 
   const copy = async (k: Household) => {
     if (busy) return
+    // Already copied here? Confirm before making a second one.
+    if (
+      dupes[k.id] &&
+      !confirm(
+        `You already copied “${recipe.title}” into ${k.name} (as “${dupes[k.id]}”). Copy again anyway?`,
+      )
+    ) {
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -128,6 +162,11 @@ export default function CopyRecipeSheet({
                         {k.memberUids.length + k.friendUids.length > 1 ? 'Shared' : 'Personal'}
                       </span>
                     </span>
+                    {dupes[k.id] && (
+                      <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+                        Already copied
+                      </span>
+                    )}
                     <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-ink-faint" fill="none" aria-hidden="true">
                       <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>

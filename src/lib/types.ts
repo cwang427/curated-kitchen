@@ -157,11 +157,19 @@ export interface Recipe {
   createdAt: number | null
   updatedAt: number | null
   /**
-   * Where this recipe came from: 'repo' = synced from recipes/*.json (the
-   * repo is authoritative for these — the sync prunes them), 'app' = created or
-   * copied inside the app (never pruned). Absent on legacy docs; treat as repo.
+   * Where this recipe came from: 'repo' = seeded from recipes/*.json (the old
+   * repo sync, now retired), 'app' = created, copied, or edited inside the app.
+   * Absent on legacy docs; treat as repo. Editing any recipe in the app flips it
+   * to 'app'.
    */
   origin?: 'repo' | 'app'
+  /**
+   * For a recipe made by "copy to another kitchen": the slug of the lineage it
+   * was copied from (the root original, propagated through chains of copies).
+   * Lets the copy sheet warn "you already copied this here" instead of silently
+   * making duplicates. Null for originals and recipes authored from scratch.
+   */
+  copiedFrom?: string | null
 }
 
 /** What lives in recipes/*.json — the server fills in the rest. */

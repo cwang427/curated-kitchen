@@ -45,6 +45,19 @@ confusion:
   is wanted: reverse the direction — a scheduled Firestore→`recipes/*.json`
   snapshot that never overwrites live edits.) Editing a recipe in the app marks
   it `origin: 'app'`; deleting one is now permanent (nothing re-creates it).
+- **Recipe backup → automatic (owner-only).** `.github/workflows/backup-recipes.yml`
+  (`scripts/backup-recipes.ts`) is the safety net now that the app owns recipes:
+  it snapshots the `KITCHEN_HOUSEHOLD_ID` household's recipes from Firestore into
+  `backups/recipes/*.json` (weekly + manual) and commits them with `[skip ci]`.
+  Owner-only by construction — it runs in CI with the repo's service-account
+  secret, never in the app, so members can't reach it. It's **additive** (never
+  deletes, so an empty read can't wipe the archive; deleted recipes live on in
+  git history). Restore is manual, for disaster recovery:
+  `npm run backup:recipes -- --household=<id> --restore`. NOTE: GitHub runs the
+  weekly `schedule` only from the default branch, so it kicks in once this is on
+  main; run it by hand from the Actions tab any time. It reuses the existing
+  `FIREBASE_SERVICE_ACCOUNT` secret + `KITCHEN_HOUSEHOLD_ID` variable — no new
+  setup.
 - **Recipe import Worker → MANUAL (Cloudflare, one-time).** In-app "Add recipe"
   (paste text or a photo → Claude → our structured shape → validated by the same
   `parseRecipe` → editable preview → save as an `origin: 'app'` recipe) calls a
@@ -179,8 +192,10 @@ demotes members and promotes friends; either member manages guests; anyone but
 the owner can leave), and a multi-kitchen switcher (belong to several kitchens,
 switch the active one, create/name new ones — "Personal" vs "Shared" derived
 from membership), and cross-kitchen recipe management (copy a recipe to another
-kitchen you're a member of, delete a recipe with confirm; the sync prune spares
-app-copied recipes via `origin`), and AI recipe ingestion (paste text or a photo
+kitchen you're a member of, delete a recipe with confirm; copies remember their
+lineage via `copiedFrom` so the copy sheet flags "already copied" and confirms
+before making a duplicate — copies stay independent forks, no live propagation),
+and AI recipe ingestion (paste text or a photo
 → Claude via the `worker/` Cloudflare Worker → structured → validated by the same
 `parseRecipe` → editable preview → save as `origin: 'app'`; the JSON pipeline
 stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
@@ -199,6 +214,10 @@ timer will ring — pure merge logic in `src/lib/cookboard.ts` (`buildTimeline`)
 It reads only real data (step position + `endsAt` timers), so it needs no schema
 or rules change; a back-timed "ready by 6:45" scheduler (needing per-step
 durations) is a deliberate later phase.
+And an **owner-only recipe backup** (`.github/workflows/backup-recipes.yml` +
+`scripts/backup-recipes.ts`): a weekly/manual Firestore→`backups/recipes/*.json`
+snapshot committed to git, the safety net now that the app owns recipes (additive,
+disaster-recovery restore via `--restore`; see Deploy tracks).
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the

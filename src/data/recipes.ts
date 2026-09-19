@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -44,6 +45,7 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
     origin: data.origin === 'app' ? 'app' : data.origin === 'repo' ? 'repo' : undefined,
+    copiedFrom: typeof data.copiedFrom === 'string' ? data.copiedFrom : null,
   }
 }
 
@@ -215,11 +217,34 @@ export async function copyRecipeToHousehold(
     visibility: recipe.visibility,
     householdId: targetHouseholdId,
     origin: 'app',
+    // Remember the lineage so we can spot duplicate copies. Chains of copies all
+    // point at the same root original.
+    copiedFrom: recipe.copiedFrom ?? recipe.slug,
     createdBy: uid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
   return slug
+}
+
+/**
+ * The lineage id used to spot duplicate copies: a copy's root original, or the
+ * recipe's own slug if it isn't itself a copy.
+ */
+export function recipeLineage(recipe: Recipe): string {
+  return recipe.copiedFrom ?? recipe.slug
+}
+
+/**
+ * One-shot read of a household's recipes (not a live subscription) — used by the
+ * copy sheet to check whether a recipe's lineage is already there. Membership is
+ * enforced by the rules, same as the live listener.
+ */
+export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe[]> {
+  const snap = await getDocs(
+    query(collection(db, 'recipes'), where('householdId', '==', householdId)),
+  )
+  return snap.docs.map((d) => toRecipe(d.id, d.data()))
 }
 
 /** Delete a recipe. The rules allow this only for members of its household. */
