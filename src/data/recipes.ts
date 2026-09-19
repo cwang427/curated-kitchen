@@ -220,7 +220,10 @@ export async function copyRecipeToHousehold(
     yield: recipe.yield,
     times: recipe.times,
     ingredients: recipe.ingredients,
-    steps: recipe.steps,
+    // Step photos live in the source kitchen's Storage (readable only by its
+    // members/guests), so a copy can't show them — drop them rather than leave
+    // broken images. The new owner can add their own.
+    steps: recipe.steps.map((s) => ({ ...s, images: [] })),
     groups: recipe.groups,
     tags: recipe.tags,
     equipment: recipe.equipment,

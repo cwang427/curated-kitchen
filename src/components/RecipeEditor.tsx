@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
+import { deleteStepPhoto, uploadStepPhoto } from '../data/photos'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -93,12 +94,45 @@ export default function RecipeEditor({
   const [draft, setDraft] = useState<RecipeDraft>(() => (initial ? seedToDraft(initial) : blankDraft()))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Which step is mid-upload (its id), and any photo error to surface.
+  const [uploadingStep, setUploadingStep] = useState<string | null>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
 
   const set = (patch: Partial<RecipeDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const patchIng = (i: number, patch: Partial<DraftIngredient>) =>
     setDraft((d) => ({ ...d, ingredients: d.ingredients.map((x, k) => (k === i ? { ...x, ...patch } : x)) }))
   const patchStep = (i: number, patch: Partial<DraftStep>) =>
     setDraft((d) => ({ ...d, steps: d.steps.map((x, k) => (k === i ? { ...x, ...patch } : x)) }))
+
+  const addPhoto = async (i: number, e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // let the same file be re-picked after a remove
+    if (!file || !household) return
+    const step = draft.steps[i]
+    if (step.images.length >= 3) return
+    setPhotoError(null)
+    setUploadingStep(step.id)
+    try {
+      const url = await uploadStepPhoto(household.id, step.id, file)
+      // Re-find the step by id — its index may have shifted during the upload.
+      setDraft((d) => ({
+        ...d,
+        steps: d.steps.map((s) => (s.id === step.id ? { ...s, images: [...s.images, url] } : s)),
+      }))
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
+    } finally {
+      setUploadingStep(null)
+    }
+  }
+
+  const removePhoto = (stepId: string, url: string) => {
+    setDraft((d) => ({
+      ...d,
+      steps: d.steps.map((s) => (s.id === stepId ? { ...s, images: s.images.filter((u) => u !== url) } : s)),
+    }))
+    void deleteStepPhoto(url)
+  }
 
   if (!user || !household) return null
 
@@ -208,7 +242,7 @@ export default function RecipeEditor({
 
       <Section title="Steps">
         {draft.steps.map((step, i) => (
-          <div key={i} className="space-y-2 rounded-2xl border border-line bg-card p-3">
+          <div key={step.id} className="space-y-2 rounded-2xl border border-line bg-card p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-ink-faint">Step {i + 1}</span>
               <RowControls
@@ -232,8 +266,51 @@ export default function RecipeEditor({
                 placeholder="A short, one-action-per-line version shown while cooking."
               />
             </Labeled>
+
+            {/* Photos: up to 3 per step, shown in the reader and cook mode. */}
+            <div>
+              <span className="mb-1 block text-sm text-ink-soft">Photos — up to 3 (optional)</span>
+              <div className="flex flex-wrap gap-2">
+                {step.images.map((url) => (
+                  <div key={url} className="relative size-20 overflow-hidden rounded-xl border border-line">
+                    <img src={url} alt="" className="size-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(step.id, url)}
+                      aria-label="Remove photo"
+                      className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/60 text-white"
+                    >
+                      <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                {step.images.length < 3 && (
+                  <label
+                    className={`grid size-20 cursor-pointer place-items-center rounded-xl border border-dashed border-line text-center text-xs text-ink-soft ${
+                      uploadingStep === step.id ? 'opacity-50' : ''
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => addPhoto(i, e)}
+                      disabled={uploadingStep === step.id}
+                      className="hidden"
+                    />
+                    {uploadingStep === step.id ? 'Adding…' : '＋ Photo'}
+                  </label>
+                )}
+              </div>
+            </div>
           </div>
         ))}
+        {photoError && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {photoError}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => set({ steps: [...draft.steps, blankStep()] })}

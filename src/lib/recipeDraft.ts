@@ -35,9 +35,14 @@ export interface DraftIngredient {
 }
 
 export interface DraftStep {
+  /** Stable within the editing session; groups a step's photos and preserves
+   * identity across reorders. */
+  id: string
   text: string
   /** Concise cook-mode lines, one per line of this textarea. */
   brief: string
+  /** Photo URLs (up to 3) — edited directly (add/remove) in the editor. */
+  images: string[]
   // Passthrough.
   uses: string[]
   timers: Timer[]
@@ -73,6 +78,10 @@ export function newIngredientId(): string {
   return `new_${Date.now()}_${idCounter++}`
 }
 
+export function newStepId(): string {
+  return `step_${Date.now()}_${idCounter++}`
+}
+
 /** Parse a quantity field: decimals, fractions, and mixed numbers. null = blank/invalid. */
 export function parseAmount(input: string): number | null {
   const s = input.trim()
@@ -99,7 +108,7 @@ export function blankIngredient(): DraftIngredient {
 }
 
 export function blankStep(): DraftStep {
-  return { text: '', brief: '', uses: [], timers: [], temperature: null, group: null }
+  return { id: newStepId(), text: '', brief: '', images: [], uses: [], timers: [], temperature: null, group: null }
 }
 
 export function blankDraft(): RecipeDraft {
@@ -153,8 +162,10 @@ export function seedToDraft(seed: RecipeSeed): RecipeDraft {
       group: i.group,
     })),
     steps: seed.steps.map((s) => ({
+      id: s.id || newStepId(),
       text: s.text,
       brief: (s.brief ?? []).join('\n'),
+      images: s.images ?? [],
       uses: s.ingredientIds,
       timers: s.timers,
       temperature: s.temperature,
@@ -220,8 +231,10 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
     steps: draft.steps.map((s) => {
       const brief = lines(s.brief)
       return {
+        id: s.id,
         text: s.text.trim(),
         brief: brief.length ? brief : undefined,
+        images: s.images.length ? s.images : undefined,
         uses: s.uses.filter((u) => ids.has(u)),
         timers: s.timers,
         temperature: s.temperature ?? undefined,

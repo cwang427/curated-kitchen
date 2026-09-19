@@ -569,6 +569,25 @@ export default function CookPage() {
           </ul>
         )}
 
+        {step.images.length === 1 ? (
+          <img
+            src={step.images[0]}
+            alt=""
+            className="mt-6 max-h-80 w-full rounded-2xl border border-line object-cover"
+          />
+        ) : step.images.length > 1 ? (
+          <div className="mt-6 flex gap-3 overflow-x-auto">
+            {step.images.map((url) => (
+              <img
+                key={url}
+                src={url}
+                alt=""
+                className="h-52 w-auto shrink-0 rounded-2xl border border-line object-cover"
+              />
+            ))}
+          </div>
+        ) : null}
+
         {stepIngredients.length > 0 && (
           <div className="mt-6">
             <p className="mb-2 text-sm font-medium text-ink-faint">

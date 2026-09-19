@@ -57,6 +57,8 @@ const stepInput = z.object({
   uses: z.array(z.string().trim().min(1)).optional(),
   timers: z.array(timerInput).optional(),
   temperature: temperatureInput.nullable().optional(),
+  /** Up to 3 photo URLs (Firebase Storage) shown in the reader and cook mode. */
+  images: z.array(z.string().trim().url()).max(3).optional(),
 })
 
 export const recipeInputSchema = z.object({
@@ -260,6 +262,7 @@ export function parseRecipe(raw: unknown): ParseResult {
       ingredientIds,
       timers: entry.timers ?? [],
       temperature: entry.temperature ?? null,
+      images: entry.images ?? [],
     }
   })
 

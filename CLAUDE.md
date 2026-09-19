@@ -31,6 +31,16 @@ confusion:
   **Firebase console → Firestore Database → Rules → paste → Publish** (or
   `npm run deploy:rules` from a computer). **Whenever a change touches
   `firestore.rules`, tell the owner to re-publish, every time.**
+- **`storage.rules` → MANUAL (+ enable Storage once).** Step photos live in
+  Firebase **Storage** (`src/data/photos.ts`, path `recipe-photos/<hid>/…`).
+  Storage must be **enabled once** in the Firebase console, and `storage.rules`
+  deploys separately from the app — **Firebase console → Storage → Rules →
+  paste → Publish** (or `npm run deploy:storage`). Same as firestore.rules:
+  **whenever `storage.rules` changes, tell the owner to re-publish.** It gates
+  `recipe-photos/<householdId>/…` to that household's members (write) and
+  members + guests (read), checking membership via `firestore.get()` on the
+  household doc. Verify with `npm run test:storage-rules` (Firestore + Auth +
+  Storage emulators).
 - **Recipe content → authored in the app now (repo sync RETIRED).** Recipes are
   created, edited, copied, and deleted **inside the app** (`RecipeEditor` →
   `origin: 'app'` docs). The old repo→Firestore sync — where `recipes/*.json`
@@ -180,9 +190,12 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 
 - `npm run typecheck` — always.
 - `npm run validate:recipes` — after any recipe or schema change.
-- `npm run test:rules` — after any `firestore.rules` change. Runs ~30
+- `npm run test:rules` — after any `firestore.rules` change. Runs ~60
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator).
+- `npm run test:storage-rules` — after any `storage.rules` change. Runs the
+  step-photo allow/deny assertions against the Firestore + Auth + Storage
+  emulators (the rule's membership check is a cross-service `firestore.get()`).
 - `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
   `npm run test:steps` / `npm run test:draft` / `npm run test:cook` — pure-logic
   unit tests for the JSON-LD converter, the grocery merge/aisle logic, the
@@ -260,6 +273,12 @@ And an **owner-only recipe backup** (`.github/workflows/backup-recipes.yml` +
 `scripts/backup-recipes.ts`): a weekly/manual Firestore→`backups/recipes/*.json`
 snapshot committed to git, the safety net now that the app owns recipes (additive,
 disaster-recovery restore via `--restore`; see Deploy tracks).
+And **per-step photos** (up to 3, `Step.images`): add them in the editor
+(`src/data/photos.ts` compresses in-browser → Firebase Storage → download URL),
+shown in the recipe reader and cook mode. Members add/replace/delete, members +
+guests view — enforced by `storage.rules` (a new security surface; enable
+Storage once + publish the rules — see Deploy tracks). Copies drop step photos
+(they live in the source kitchen's Storage).
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the

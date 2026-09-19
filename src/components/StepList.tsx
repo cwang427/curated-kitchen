@@ -100,6 +100,21 @@ function StepRow({
             ))}
           </div>
         )}
+
+        {step.images.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {step.images.map((url) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer noopener">
+                <img
+                  src={url}
+                  alt=""
+                  loading="lazy"
+                  className="size-24 rounded-xl border border-line object-cover"
+                />
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </li>
   )

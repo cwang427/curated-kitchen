@@ -102,6 +102,11 @@ export interface Step {
   ingredientIds: string[]
   timers: Timer[]
   temperature: Temperature | null
+  /**
+   * Up to 3 photo URLs for this step (Firebase Storage download URLs), shown in
+   * the reader and cook mode. A visual aid, never where an instruction lives.
+   */
+  images: string[]
 }
 
 export interface RecipeSource {

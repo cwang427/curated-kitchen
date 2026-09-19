@@ -16,6 +16,14 @@ function hydrate(seedInput: unknown): Recipe {
 }
 
 const cacioRecipe = hydrate(cacio)
+// Preview step photos, so the reader / cook mode / editor render with images.
+const STEP_PHOTO =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"><rect width="100%" height="100%" fill="#e9c9a8"/><text x="50%" y="50%" font-family="sans-serif" font-size="30" fill="#8a5a2b" text-anchor="middle" dominant-baseline="middle">step photo</text></svg>',
+  )
+cacioRecipe.steps[0].images = [STEP_PHOTO, STEP_PHOTO]
+cacioRecipe.steps[1].images = [STEP_PHOTO]
 // Members-only, so the guest view hides it and Settings › Guests has something
 // to offer sharing.
 const shortRibsRecipe: Recipe = { ...hydrate(shortRibs), visibility: 'household' }

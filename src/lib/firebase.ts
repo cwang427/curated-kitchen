@@ -6,10 +6,14 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore'
+import { getStorage } from 'firebase/storage'
 
 const app = initializeApp(firebaseConfig)
 
 export const auth = getAuth(app)
+
+/** Firebase Storage — holds step photos (see src/data/photos.ts). */
+export const storage = getStorage(app)
 
 /**
  * Persistent cache means the recipe you opened at home still renders in a

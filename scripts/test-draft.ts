@@ -68,5 +68,14 @@ const fromScratch = parseRecipe({ ...draftToInput(b), slug: 'from-scratch' }).re
 eq('from-scratch title', fromScratch.title, 'Test')
 eq('from-scratch has the ingredient', fromScratch.ingredients[0].item, 'salt')
 
+console.log('step photos round-trip through the draft')
+{
+  const d = seedToDraft(seed)
+  d.steps[0].images = ['https://example.com/step.jpg']
+  const r = parseRecipe({ ...draftToInput(d), slug: 'cacio-img' }).recipe
+  eq('step image survives', r.steps[0].images, ['https://example.com/step.jpg'])
+  eq('a step with no photos normalizes to []', r.steps[1].images, [])
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)
