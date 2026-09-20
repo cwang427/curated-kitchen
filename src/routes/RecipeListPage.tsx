@@ -254,7 +254,7 @@ export default function RecipeListPage() {
             <p className="mx-auto max-w-sm text-balance text-sm text-ink-soft">
               {isMember
                 ? 'Tap the ＋ in the top bar to add your first recipe.'
-                : 'Ask a member of this kitchen to mark a recipe “Friends too” to share it with you.'}
+                : 'Ask a member of this kitchen to share a recipe with guests.'}
             </p>
           </div>
         )}

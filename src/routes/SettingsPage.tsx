@@ -93,7 +93,7 @@ function KitchenSwitcher() {
     if (others <= 0) return 'Just you'
     const parts = [`${k.memberUids.length} ${k.memberUids.length === 1 ? 'member' : 'members'}`]
     if (k.friendUids.length) {
-      parts.push(`${k.friendUids.length} ${k.friendUids.length === 1 ? 'friend' : 'friends'}`)
+      parts.push(`${k.friendUids.length} ${k.friendUids.length === 1 ? 'guest' : 'guests'}`)
     }
     const role = owner ? 'you own' : k.memberUids.includes(user.uid) ? 'member' : 'guest'
     return `${parts.join(', ')} · ${role}`
@@ -291,7 +291,7 @@ function PeopleList() {
     const badges = [
       uid === user.uid ? 'you' : null,
       uid === household.ownerUid ? 'owner' : null,
-      tag === 'friend' ? 'friend' : null,
+      tag === 'friend' ? 'guest' : null,
     ].filter(Boolean) as string[]
     const actions = actionsFor(uid, tag, name)
 
@@ -431,10 +431,13 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
   }
 
   const link = code ? inviteLink(code) : null
+  // User-facing label: a 'friend' role is shown as "guest" everywhere in the UI
+  // (the data model keeps the 'friend' role/keys — see firestore.rules).
+  const label = role === 'friend' ? 'guest' : 'member'
 
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
-      <h3 className="font-medium">Invite a {role}</h3>
+      <h3 className="font-medium">Invite a {label}</h3>
       <p className="mt-1 text-sm text-ink-soft">
         {role === 'member'
           ? 'A member shares everything in this kitchen — recipes, the grocery list, and the meal plan. You can add as many as you like.'
@@ -448,7 +451,7 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
           disabled={busy}
           className="mt-3 min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-50 dark:text-stone-900"
         >
-          {busy ? 'Creating…' : `Create ${role} invite`}
+          {busy ? 'Creating…' : `Create ${label} invite`}
         </button>
       ) : (
         <div className="mt-3 space-y-2">
@@ -474,7 +477,7 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
           </div>
           <p className="text-xs text-ink-faint">
             Send this link to the person you’re inviting. Anyone with it can join
-            as a {role} until you revoke it.
+            as a {label} until you revoke it.
           </p>
         </div>
       )}
@@ -702,8 +705,8 @@ export default function SettingsPage() {
           <h2 className="font-serif text-xl tracking-tight">{household.name}</h2>
           <p className="text-sm text-ink-soft">
             {memberCount} {memberCount === 1 ? 'member' : 'members'}
-            {friendCount > 0 && `, ${friendCount} ${friendCount === 1 ? 'friend' : 'friends'}`}
-            {youAreMember ? '' : ' · you’re a friend here'}
+            {friendCount > 0 && `, ${friendCount} ${friendCount === 1 ? 'guest' : 'guests'}`}
+            {youAreMember ? '' : ' · you’re a guest here'}
           </p>
         </section>
 

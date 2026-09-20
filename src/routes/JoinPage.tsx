@@ -104,7 +104,7 @@ export default function JoinPage() {
               <p className="font-serif text-3xl tracking-tight">{state.status === 'ready' ? state.householdName : ''}</p>
               <p className="text-sm text-ink-faint">
                 {state.status === 'ready' && state.role === 'friend'
-                  ? 'As a friend — you’ll see recipes they share with you.'
+                  ? 'As a guest — you’ll see recipes they share with you.'
                   : 'As a member — you’ll share recipes, the grocery list, and the cook log.'}
               </p>
             </div>
