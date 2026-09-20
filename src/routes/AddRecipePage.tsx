@@ -5,10 +5,11 @@ import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'
 import { importRecipeFromUrl } from '../data/urlImport'
+import { importRecipeFromText } from '../lib/importText'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import type { RecipeSeed } from '../lib/types'
 
-type Mode = 'choose' | 'link' | 'capture' | 'edit'
+type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
 
 export default function AddRecipePage() {
   const { user, household } = useAuth()
@@ -70,6 +71,19 @@ export default function AddRecipePage() {
   }
   const canReadLink = /^https?:\/\/\S+/i.test(link.trim())
 
+  // Free, on-device: parse pasted recipe text with no Worker and no AI. Runs
+  // instantly, so no network state to manage beyond a friendly error.
+  const readText = () => {
+    setError(null)
+    try {
+      const res = importRecipeFromText(text)
+      setInitial(res.seed)
+      setMode('edit')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
+    }
+  }
+
   return (
     <div className="min-h-dvh">
       <AppHeader title="Add a recipe" back />
@@ -117,6 +131,43 @@ export default function AddRecipePage() {
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
               {reading ? 'Reading…' : 'Read recipe'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('choose'); setError(null) }}
+              className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
+            >
+              Back
+            </button>
+          </div>
+        ) : mode === 'text' ? (
+          <div className="space-y-4">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Paste a recipe here — copy the whole page or just the recipe. Include its “Ingredients” and “Directions” headings so we can find them."
+              aria-label="Recipe text"
+              className="min-h-64 w-full rounded-2xl border border-line bg-card p-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+            />
+            <p className="text-sm text-ink-soft">
+              Works great for sites that block the link import: open the recipe, select all
+              (⌘/Ctrl+A) and copy, then paste here. We’ll pull out the ingredients and steps for you
+              to review — extra bits like photo captions are easy to delete before saving.
+            </p>
+
+            {error && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={readText}
+              disabled={text.trim().length === 0}
+              className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
+            >
+              Read recipe
             </button>
             <button
               type="button"
@@ -203,6 +254,18 @@ export default function AddRecipePage() {
               <span className="mt-0.5 block text-sm text-ink-soft">Type the recipe in yourself.</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => setMode('text')}
+              className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+            >
+              <span className="block font-medium">Paste text</span>
+              <span className="mt-0.5 block text-sm text-ink-soft">
+                Copy a recipe from anywhere — a website, Apple Notes, a message — and we’ll read it
+                in for you. Free, works offline.
+              </span>
+            </button>
+
             {urlImportConfigured && (
               <button
                 type="button"
@@ -229,15 +292,6 @@ export default function AddRecipePage() {
               </button>
             )}
 
-            {!urlImportConfigured && !aiImportConfigured && (
-              <div className="rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft">
-                <span className="block font-medium text-ink">Import — coming soon</span>
-                <span className="mt-0.5 block">
-                  Reading a recipe from a link (or a paste/photo) turns on once the importer is
-                  deployed. For now, start from scratch above.
-                </span>
-              </div>
-            )}
           </div>
         )}
       </main>

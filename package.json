@@ -1,7 +1,7 @@
 {
   "name": "curated-kitchen",
   "private": true,
-  "version": "0.27.0",
+  "version": "0.28.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,7 @@
     "backup:recipes": "tsx scripts/backup-recipes.ts",
     "test:rules": "npx -y firebase-tools@13 emulators:exec --only firestore,auth --project curated-kitchen-rules-test 'tsx scripts/test-rules.ts'",
     "test:import": "tsx scripts/test-import.ts",
+    "test:text": "tsx scripts/test-text-import.ts",
     "test:grocery": "tsx scripts/test-grocery.ts",
     "test:plan": "tsx scripts/test-plan.ts",
     "test:steps": "tsx scripts/test-steps.ts",

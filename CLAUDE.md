@@ -198,14 +198,17 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
   write, members + guests read).
-- `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
-  `npm run test:steps` / `npm run test:draft` / `npm run test:cook` — pure-logic
-  unit tests for the JSON-LD converter, the grocery merge/aisle logic, the
-  meal-plan day window + plan→groceries aggregation, the cook-mode sentence
-  splitter, the recipe editor's draft↔schema round-trip, and the "cooking now"
-  multi-dish timeline (attention/agenda merge + ordering). Run after touching
-  `src/lib/importRecipe.ts`, `src/lib/grocery.ts`, `src/lib/plan.ts`,
-  `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`, or `src/lib/cookboard.ts`.
+- `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
+  `npm run test:plan` / `npm run test:steps` / `npm run test:draft` /
+  `npm run test:cook` — pure-logic unit tests for the JSON-LD converter, the
+  free pasted-text importer (real full-page fixtures under
+  `scripts/fixtures/text/`), the grocery merge/aisle logic, the meal-plan day
+  window + plan→groceries aggregation, the cook-mode sentence splitter, the
+  recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
+  timeline (attention/agenda merge + ordering). Run after touching
+  `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
+  `src/lib/plan.ts`, `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`, or
+  `src/lib/cookboard.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -289,13 +292,22 @@ reference from that recipe's step; the app never deletes the `photos` doc**
 unreferenced docs just orphan, which is cheap here (a future reference-aware
 sweep could reclaim them). Each photo must fit a Firestore doc (~1 MB), so
 `compressToDataUrl` downscales + drops quality until it does.
-Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
-and/or iOS Live Text) + a rule-based text→recipe parser building on
-`parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the
-paid Claude Worker route is left dormant/optional; the free link import already
-covers sites with structured data); then a PWA share-target ("Share → Curated
-Kitchen" hands over the page text, sidestepping CORS) and ownership transfer /
-co-owner. The
+And a **free pasted-text importer** (`src/lib/importText.ts`, Add a recipe →
+**Paste text**): the cook copies a recipe — the whole page or just the recipe
+section — and a rule-based, on-device parser (no network, no AI, no cost) anchors
+on the "Ingredients"/"Directions" headings to pull out the title, times,
+ingredients, and steps, discarding nav/headnotes/photo credits/captions/reviews,
+then validates with the same `parseRecipe` → editable preview → save. Built on
+the same `parseIngredientLine` as the link importer; handles both numbered and
+paragraph steps; tuned against real full-page pastes in `npm run test:text`
+(`scripts/fixtures/text/`). This is the free fallback for the big commercial
+recipe sites (AllRecipes, Serious Eats, etc.) that block the link route's
+server-side fetch.
+Next: the **photo half** of on-device ingestion — OCR (Tesseract.js and/or iOS
+Live Text) feeding this same text parser, to pre-fill the editor from a cookbook
+photo or a screenshot (the paid Claude Worker route stays dormant/optional); then
+a PWA share-target ("Share → Curated Kitchen" hands over the page text,
+sidestepping CORS) and ownership transfer / co-owner. The
 cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.
