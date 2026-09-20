@@ -14,7 +14,7 @@
  * Add-recipe screen simply hides whichever options aren't set up yet. Paste the
  * deployed Worker URL here, commit, and push.
  */
-export const IMPORT_WORKER_URL = ''
+export const IMPORT_WORKER_URL = 'https://curated-kitchen-import.curated-kitchen.workers.dev'
 
 const base = IMPORT_WORKER_URL.replace(/\/+$/, '')
 
