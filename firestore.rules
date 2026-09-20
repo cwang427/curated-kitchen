@@ -191,6 +191,22 @@ service cloud.firestore {
       allow delete: if isMember(resource.data.householdId);
     }
 
+    // Step photos, stored as compressed data URLs on their own documents (see
+    // src/data/photos.ts). Same trust model as the recipes they belong to:
+    // members of the photo's household may add or delete them, and members OR
+    // read-only guests may read them (guests can see shared recipes, so they can
+    // see those recipes' photos). We never update a photo in place — an edit
+    // creates a new one — so there's no update rule.
+    match /photos/{photoId} {
+      allow read: if isMember(resource.data.householdId)
+        || isFriend(resource.data.householdId);
+
+      allow create: if isMember(request.resource.data.householdId)
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow delete: if isMember(resource.data.householdId);
+    }
+
     // Grocery lists and the cook log are household-only — friends never see
     // what you're buying or what you cooked last Tuesday.
     // The grocery list. Its document id IS the household id by construction, so

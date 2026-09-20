@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
-import { uploadStepPhoto } from '../data/photos'
+import { compressToDataUrl, createPhoto, photoSrc, usePhotoUrls } from '../data/photos'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -94,9 +94,12 @@ export default function RecipeEditor({
   const [draft, setDraft] = useState<RecipeDraft>(() => (initial ? seedToDraft(initial) : blankDraft()))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  // Which step is mid-upload (its id), and any photo error to surface.
+  // Which step is mid-processing (its id), and any photo error to surface.
   const [uploadingStep, setUploadingStep] = useState<string | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
+  // Resolve saved photo ids to data URLs for the thumbnails (freshly added
+  // photos are already data URLs and render straight through).
+  const photoUrls = usePhotoUrls(draft.steps.flatMap((s) => s.images))
 
   const set = (patch: Partial<RecipeDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const patchIng = (i: number, patch: Partial<DraftIngredient>) =>
@@ -107,17 +110,19 @@ export default function RecipeEditor({
   const addPhoto = async (i: number, e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = '' // let the same file be re-picked after a remove
-    if (!file || !household) return
+    if (!file) return
     const step = draft.steps[i]
     if (step.images.length >= 3) return
     setPhotoError(null)
     setUploadingStep(step.id)
     try {
-      const url = await uploadStepPhoto(household.id, step.id, file)
-      // Re-find the step by id — its index may have shifted during the upload.
+      // Compress in the browser now; the photo doc is written on save, so adding
+      // and discarding photos never leaves stray docs behind.
+      const dataUrl = await compressToDataUrl(file)
+      // Re-find the step by id — its index may have shifted during compression.
       setDraft((d) => ({
         ...d,
-        steps: d.steps.map((s) => (s.id === step.id ? { ...s, images: [...s.images, url] } : s)),
+        steps: d.steps.map((s) => (s.id === step.id ? { ...s, images: [...s.images, dataUrl] } : s)),
       }))
     } catch (cause) {
       setPhotoError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
@@ -126,15 +131,15 @@ export default function RecipeEditor({
     }
   }
 
-  const removePhoto = (stepId: string, url: string) => {
-    // Only drop the reference from this recipe — never delete the Storage file.
-    // A copied recipe shares the same file, so deleting it here would blank the
-    // photo on the original (or other copies) too. Leaving the file is the safe
-    // choice (and matches recipe deletion, which also doesn't touch Storage);
-    // unreferenced files just orphan, which is cheap for a kitchen this size.
+  const removePhoto = (stepId: string, entry: string) => {
+    // Only drop the reference from this recipe's step — we never delete the
+    // `photos` doc. It matches recipe deletion (which also leaves photos), and
+    // since copies duplicate the bytes into their own household, dropping a
+    // reference here can never blank a copy. Unsaved photos (data: URLs) were
+    // never written, so there's nothing to clean up there either.
     setDraft((d) => ({
       ...d,
-      steps: d.steps.map((s) => (s.id === stepId ? { ...s, images: s.images.filter((u) => u !== url) } : s)),
+      steps: d.steps.map((s) => (s.id === stepId ? { ...s, images: s.images.filter((u) => u !== entry) } : s)),
     }))
   }
 
@@ -144,11 +149,27 @@ export default function RecipeEditor({
     setError(null)
     setSaving(true)
     try {
+      // Persist any newly added photos (data: URLs) as `photos` docs, swapping
+      // them for their ids; already-saved ids pass through. Doing this here means
+      // the saved recipe only ever stores ids, and a photo added but never saved
+      // (Cancel) leaves no doc behind.
+      const steps = await Promise.all(
+        draft.steps.map(async (s) => {
+          if (!s.images.some((e) => e.startsWith('data:'))) return s
+          const images = await Promise.all(
+            s.images.map((e) =>
+              e.startsWith('data:') ? createPhoto(household.id, user.uid, e) : Promise.resolve(e),
+            ),
+          )
+          return { ...s, images }
+        }),
+      )
+      const persisted = { ...draft, steps }
       // Editing keeps the existing slug (the doc id / URL is stable); a new
       // recipe mints one from the title.
       const slug =
-        editingSlug ?? `${slugify(draft.title) || 'recipe'}-${Math.random().toString(36).slice(2, 7)}`
-      const { recipe } = parseRecipe({ ...draftToInput(draft), slug })
+        editingSlug ?? `${slugify(persisted.title) || 'recipe'}-${Math.random().toString(36).slice(2, 7)}`
+      const { recipe } = parseRecipe({ ...draftToInput(persisted), slug })
       const saved = editingSlug
         ? await updateRecipe(recipe)
         : await createRecipeInHousehold(recipe, household.id, user.uid)
@@ -277,7 +298,7 @@ export default function RecipeEditor({
               <div className="flex flex-wrap gap-2">
                 {step.images.map((url) => (
                   <div key={url} className="relative size-20 overflow-hidden rounded-xl border border-line">
-                    <img src={url} alt="" className="size-full object-cover" />
+                    <img src={photoSrc(url, photoUrls)} alt="" className="size-full object-cover" />
                     <button
                       type="button"
                       onClick={() => removePhoto(step.id, url)}

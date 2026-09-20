@@ -41,7 +41,12 @@ export interface DraftStep {
   text: string
   /** Concise cook-mode lines, one per line of this textarea. */
   brief: string
-  /** Photo URLs (up to 3) — edited directly (add/remove) in the editor. */
+  /**
+   * Step photos (up to 3), edited directly (add/remove) in the editor. Holds
+   * `photos` doc ids for saved photos and transient `data:` URLs for ones added
+   * this session but not yet saved; the editor turns the latter into photo docs
+   * on save. See src/data/photos.ts.
+   */
   images: string[]
   // Passthrough.
   uses: string[]

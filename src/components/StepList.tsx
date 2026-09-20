@@ -1,4 +1,5 @@
 import { formatIngredient, formatStepQuantity, parseStepText } from '../lib/quantity'
+import { photoSrc, usePhotoUrls } from '../data/photos'
 import type { Ingredient, Step } from '../lib/types'
 
 interface Props {
@@ -37,6 +38,11 @@ function StepRow({
   const used = step.ingredientIds
     .map((id) => ingredients.get(id))
     .filter((i): i is Ingredient => i !== undefined)
+
+  const photoUrls = usePhotoUrls(step.images)
+  const photos = step.images
+    .map((entry) => photoSrc(entry, photoUrls))
+    .filter((src): src is string => !!src)
 
   return (
     <li className="flex gap-3">
@@ -101,12 +107,12 @@ function StepRow({
           </div>
         )}
 
-        {step.images.length > 0 && (
+        {photos.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
-            {step.images.map((url) => (
-              <a key={url} href={url} target="_blank" rel="noreferrer noopener">
+            {photos.map((src, i) => (
+              <a key={i} href={src} target="_blank" rel="noreferrer noopener">
                 <img
-                  src={url}
+                  src={src}
                   alt=""
                   loading="lazy"
                   className="size-24 rounded-xl border border-line object-cover"

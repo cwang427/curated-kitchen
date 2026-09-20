@@ -19,6 +19,7 @@ import {
   arrayUnion,
   collection,
   connectFirestoreEmulator,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -180,6 +181,31 @@ async function main(): Promise<void> {
       ),
     ),
   )
+
+  console.log('Step photos')
+  // Photos follow the recipe trust model: members write, members + guests read.
+  const IMG = 'data:image/jpeg;base64,AAAA'
+  await expectAllow('member creates a photo in their household', () =>
+    setDoc(doc(A.db, 'photos', 'ph1'), { householdId: hhA, data: IMG, createdBy: A.uid }),
+  )
+  await expectAllow('the other member reads the photo', () => getDoc(doc(B.db, 'photos', 'ph1')))
+  await expectAllow('a guest (friend) reads the photo', () => getDoc(doc(C.db, 'photos', 'ph1')))
+  await expectDeny('a guest cannot add a photo', () =>
+    setDoc(doc(C.db, 'photos', 'ph_guest'), { householdId: hhA, data: IMG, createdBy: C.uid }),
+  )
+  await expectDeny('a member cannot forge another user as the photo creator', () =>
+    setDoc(doc(A.db, 'photos', 'ph_forge'), { householdId: hhA, data: IMG, createdBy: B.uid }),
+  )
+  await expectDeny('an outsider cannot read a photo', async () => {
+    const E = await asUser('e-photo@kitchen.local')
+    await getDoc(doc(E.db, 'photos', 'ph1'))
+  })
+  await expectDeny('an outsider cannot add a photo', async () => {
+    const E = await asUser('e-photo2@kitchen.local')
+    await setDoc(doc(E.db, 'photos', 'ph_evil'), { householdId: hhA, data: IMG, createdBy: E.uid })
+  })
+  await expectDeny('a guest cannot delete a photo', () => deleteDoc(doc(C.db, 'photos', 'ph1')))
+  await expectAllow('a member deletes a photo', () => deleteDoc(doc(A.db, 'photos', 'ph1')))
 
   console.log('Grocery list')
   // The regression: a member can read the items subcollection BEFORE the parent

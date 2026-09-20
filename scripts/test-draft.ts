@@ -70,10 +70,12 @@ eq('from-scratch has the ingredient', fromScratch.ingredients[0].item, 'salt')
 
 console.log('step photos round-trip through the draft')
 {
+  // Images are photo-document ids now (not URLs); they ride through the draft
+  // untouched, and a step with none normalizes to [].
   const d = seedToDraft(seed)
-  d.steps[0].images = ['https://example.com/step.jpg']
+  d.steps[0].images = ['photo_abc123']
   const r = parseRecipe({ ...draftToInput(d), slug: 'cacio-img' }).recipe
-  eq('step image survives', r.steps[0].images, ['https://example.com/step.jpg'])
+  eq('step image survives', r.steps[0].images, ['photo_abc123'])
   eq('a step with no photos normalizes to []', r.steps[1].images, [])
 }
 

@@ -57,8 +57,12 @@ const stepInput = z.object({
   uses: z.array(z.string().trim().min(1)).optional(),
   timers: z.array(timerInput).optional(),
   temperature: temperatureInput.nullable().optional(),
-  /** Up to 3 photo URLs (Firebase Storage) shown in the reader and cook mode. */
-  images: z.array(z.string().trim().url()).max(3).optional(),
+  /**
+   * Up to 3 step photos, shown in the reader and cook mode. Each entry is a
+   * `photos` document id (see src/data/photos.ts); a transient `data:` URL may
+   * appear only mid-edit, before the editor saves it as a photo doc.
+   */
+  images: z.array(z.string().trim().min(1)).max(3).optional(),
 })
 
 export const recipeInputSchema = z.object({

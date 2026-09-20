@@ -103,8 +103,10 @@ export interface Step {
   timers: Timer[]
   temperature: Temperature | null
   /**
-   * Up to 3 photo URLs for this step (Firebase Storage download URLs), shown in
-   * the reader and cook mode. A visual aid, never where an instruction lives.
+   * Up to 3 step photos, shown in the reader and cook mode. Each entry is a
+   * `photos` document id — the image itself is a compressed data URL stored on
+   * that doc (see src/data/photos.ts), resolved for display with usePhotoUrls.
+   * A visual aid, never where an instruction lives.
    */
   images: string[]
 }

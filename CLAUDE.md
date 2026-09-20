@@ -31,16 +31,20 @@ confusion:
   **Firebase console → Firestore Database → Rules → paste → Publish** (or
   `npm run deploy:rules` from a computer). **Whenever a change touches
   `firestore.rules`, tell the owner to re-publish, every time.**
-- **`storage.rules` → MANUAL (+ enable Storage once).** Step photos live in
-  Firebase **Storage** (`src/data/photos.ts`, path `recipe-photos/<hid>/…`).
-  Storage must be **enabled once** in the Firebase console, and `storage.rules`
-  deploys separately from the app — **Firebase console → Storage → Rules →
-  paste → Publish** (or `npm run deploy:storage`). Same as firestore.rules:
-  **whenever `storage.rules` changes, tell the owner to re-publish.** It gates
-  `recipe-photos/<householdId>/…` to that household's members (write) and
-  members + guests (read), checking membership via `firestore.get()` on the
-  household doc. Verify with `npm run test:storage-rules` (Firestore + Auth +
-  Storage emulators).
+- **Step photos → live in Firestore now (NO Storage, no billing).** Step photos
+  are compressed in-browser to JPEG data URLs and stored as documents in the
+  `photos` Firestore collection (`src/data/photos.ts`) — `Step.images` holds the
+  photo doc ids. This is the ConsoliDated approach, and it's deliberate: enabling
+  Firebase **Storage** now requires attaching a **billing account (Blaze plan)**,
+  which the owner doesn't want; Firestore stays on the free Spark plan. So there
+  is **no `storage.rules` and no Storage to enable** — the `photos` collection is
+  gated by `firestore.rules` (members write, members + guests read), and its
+  allow/deny cases are covered by `npm run test:rules` like every other
+  collection. The only manual step is the usual one: **whenever `firestore.rules`
+  changes, re-publish it** (see above). Trade-off: each photo must fit in a
+  Firestore doc (~1 MB), so `compressToDataUrl` downscales + drops quality until
+  it fits; copies duplicate the photo docs into the new kitchen, so they're fully
+  independent (removing a photo from one recipe never touches another).
 - **Recipe content → authored in the app now (repo sync RETIRED).** Recipes are
   created, edited, copied, and deleted **inside the app** (`RecipeEditor` →
   `origin: 'app'` docs). The old repo→Firestore sync — where `recipes/*.json`
@@ -190,12 +194,10 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 
 - `npm run typecheck` — always.
 - `npm run validate:recipes` — after any recipe or schema change.
-- `npm run test:rules` — after any `firestore.rules` change. Runs ~60
+- `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
-  downloads the CLI + emulator).
-- `npm run test:storage-rules` — after any `storage.rules` change. Runs the
-  step-photo allow/deny assertions against the Firestore + Auth + Storage
-  emulators (the rule's membership check is a cross-service `firestore.get()`).
+  downloads the CLI + emulator), including the `photos` collection (members
+  write, members + guests read).
 - `npm run test:import` / `npm run test:grocery` / `npm run test:plan` /
   `npm run test:steps` / `npm run test:draft` / `npm run test:cook` — pure-logic
   unit tests for the JSON-LD converter, the grocery merge/aisle logic, the
@@ -274,18 +276,19 @@ And an **owner-only recipe backup** (`.github/workflows/backup-recipes.yml` +
 snapshot committed to git, the safety net now that the app owns recipes (additive,
 disaster-recovery restore via `--restore`; see Deploy tracks).
 And **per-step photos** (up to 3, `Step.images`): add them in the editor
-(`src/data/photos.ts` compresses in-browser → Firebase Storage → download URL),
-shown in the recipe reader and cook mode. Members add/replace/delete, members +
-guests view — enforced by `storage.rules` (a new security surface; enable
-Storage once + publish the rules — see Deploy tracks). Copies KEEP step photos
-by carrying over the same download URLs (the token grants access cross-household
-and `<img>` isn't CORS-restricted, so they render in the new kitchen) — they
-reference the source object rather than duplicating bytes. Because of that
-sharing, **removing a photo only drops the reference from that recipe; the app
-never deletes the Storage file** (matching recipe deletion), so editing a copy's
-photos can't blank the original and vice-versa. The cost is orphaned files,
-which are cheap here; a true independent duplicate (so each kitchen owns its
-bytes) would need the bucket's CORS configured for a browser-side re-upload.
+(`src/data/photos.ts` compresses in-browser → JPEG data URL → a document in the
+`photos` Firestore collection; `Step.images` holds the photo doc ids), shown in
+the recipe reader and cook mode (resolved back to data URLs by `usePhotoUrls`).
+Members add/delete, members + guests view — enforced by `firestore.rules` on the
+`photos` collection (NOT Firebase Storage: enabling Storage now needs a billing
+account, which we avoid; see Deploy tracks). Copies **duplicate** the photo docs
+into the new kitchen — Firestore reads/writes aren't CORS-restricted, so the copy
+truly owns its bytes and is fully independent. **Removing a photo only drops the
+reference from that recipe's step; the app never deletes the `photos` doc**
+(matching recipe deletion), which is safe now that copies don't share bytes;
+unreferenced docs just orphan, which is cheap here (a future reference-aware
+sweep could reclaim them). Each photo must fit a Firestore doc (~1 MB), so
+`compressToDataUrl` downscales + drops quality until it does.
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the

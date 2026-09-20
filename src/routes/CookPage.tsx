@@ -10,6 +10,7 @@ import {
   useCookSession,
 } from '../data/cooksession'
 import { getDish, removeDish, upsertDish, useCookBoard } from '../data/cookBoard'
+import { photoSrc, usePhotoUrls } from '../data/photos'
 import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
 import type { CookDish, CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
@@ -29,6 +30,40 @@ import type { CookDish, CookSession, Ingredient, Step, SyncTimer } from '../lib/
 
 /** A timer with its live countdown filled in for display. */
 type DisplayTimer = SyncTimer & { done: boolean }
+
+/**
+ * Step photos in cook mode: one big image, or a horizontal strip of several.
+ * A separate component so its usePhotoUrls hook stays out of CookPage's own
+ * hook order (which has early returns before the current step is known).
+ */
+function CookStepPhotos({ ids }: { ids: string[] }) {
+  const photoUrls = usePhotoUrls(ids)
+  const photos = ids
+    .map((entry) => photoSrc(entry, photoUrls))
+    .filter((src): src is string => !!src)
+  if (photos.length === 0) return null
+  if (photos.length === 1) {
+    return (
+      <img
+        src={photos[0]}
+        alt=""
+        className="mt-6 max-h-80 w-full rounded-2xl border border-line object-cover"
+      />
+    )
+  }
+  return (
+    <div className="mt-6 flex gap-3 overflow-x-auto">
+      {photos.map((src, i) => (
+        <img
+          key={i}
+          src={src}
+          alt=""
+          className="h-52 w-auto shrink-0 rounded-2xl border border-line object-cover"
+        />
+      ))}
+    </div>
+  )
+}
 
 /** One line of step prose, with its {{ }} amounts scaled. */
 function StepLine({ line, scale }: { line: string; scale: number }) {
@@ -569,24 +604,7 @@ export default function CookPage() {
           </ul>
         )}
 
-        {step.images.length === 1 ? (
-          <img
-            src={step.images[0]}
-            alt=""
-            className="mt-6 max-h-80 w-full rounded-2xl border border-line object-cover"
-          />
-        ) : step.images.length > 1 ? (
-          <div className="mt-6 flex gap-3 overflow-x-auto">
-            {step.images.map((url) => (
-              <img
-                key={url}
-                src={url}
-                alt=""
-                className="h-52 w-auto shrink-0 rounded-2xl border border-line object-cover"
-              />
-            ))}
-          </div>
-        ) : null}
+        <CookStepPhotos ids={step.images} />
 
         {stepIngredients.length > 0 && (
           <div className="mt-6">

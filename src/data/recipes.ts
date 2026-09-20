@@ -13,6 +13,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { copyPhotoToHousehold } from './photos'
 import { SCHEMA_VERSION, type Recipe, type RecipeSeed } from '../lib/types'
 
 function toMillis(value: unknown): number | null {
@@ -210,6 +211,22 @@ export async function copyRecipeToHousehold(
   uid: string,
 ): Promise<string> {
   const slug = `${recipe.slug}-${randomSuffix()}`
+  // Duplicate each step's photos into the target household so the copy fully
+  // owns its images. Photos are Firestore docs now (not Storage objects), and
+  // Firestore reads/writes aren't CORS-restricted, so we can read the source
+  // doc and re-store its bytes under the new household — a true independent
+  // copy. Removing a photo from one recipe can therefore never blank another.
+  // A photo that can't be read is dropped from that step (best-effort), never
+  // blocking the copy.
+  const steps = await Promise.all(
+    recipe.steps.map(async (step) => {
+      if (step.images.length === 0) return step
+      const copied = await Promise.all(
+        step.images.map((id) => copyPhotoToHousehold(id, targetHouseholdId, uid)),
+      )
+      return { ...step, images: copied.filter((x): x is string => !!x) }
+    }),
+  )
   await setDoc(doc(db, 'recipes', slug), {
     schemaVersion: recipe.schemaVersion,
     slug,
@@ -220,14 +237,7 @@ export async function copyRecipeToHousehold(
     yield: recipe.yield,
     times: recipe.times,
     ingredients: recipe.ingredients,
-    // Keep step photos on the copy. The stored URLs are Firebase download links
-    // whose token grants access regardless of household, and image display
-    // isn't CORS-restricted, so they render fine in the new kitchen. They point
-    // at the source kitchen's Storage object (not a byte-for-byte duplicate), so
-    // the one caveat is that removing a photo from the *original* recipe would
-    // also blank it on the copy — a true independent duplicate would need the
-    // bucket's CORS configured so the browser can re-upload the bytes.
-    steps: recipe.steps,
+    steps,
     groups: recipe.groups,
     tags: recipe.tags,
     equipment: recipe.equipment,
