@@ -84,9 +84,12 @@ confusion:
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
-    overrides the model (default `gemini-2.5-flash`). It reads any layout
-    (blog-style pages the `/url` route can't) and photos/screenshots via
-    structured JSON output → the same `parseRecipe` → editable preview → save.
+    overrides the model (default `gemini-2.5-flash`, thinking disabled so long
+    inputs don't truncate the JSON). It reads any layout (blog-style pages the
+    `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
+    (one or several photos of the SAME recipe, read together; the legacy single
+    `{ image }` is still accepted) — via structured JSON output → the same
+    `parseRecipe` → editable preview → save.
     When AI is enabled it's the **default engine for text** (the on-device
     `importText` parser is the offline/rate-limit fallback) and the **only
     engine for photos**. A paid Anthropic Claude route (`ANTHROPIC_API_KEY`,
@@ -268,7 +271,9 @@ it or lack structured data), and AI recipe ingestion (paste text or a photo
 enabled → structured → validated by the same `parseRecipe` → editable preview →
 save as `origin: 'app'`; when enabled, the default engine for text with the
 on-device parser as the offline/rate-limit fallback, and the only engine for
-photos/screenshots; a paid Claude route stays available as an alternative), and
+photos/screenshots — several at once, since a long recipe rarely fits one phone
+screenshot, downscaled in-browser via `compressForImport` and combined into one
+recipe; a paid Claude route stays available as an alternative), and
 a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result

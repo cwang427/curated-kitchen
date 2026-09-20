@@ -5,14 +5,17 @@ import { slugify } from '../lib/importRecipe'
 import type { RecipeSeed } from '../lib/types'
 
 /**
- * Turn a pasted recipe or a photo into our structured shape, via the import
+ * Turn a pasted recipe or one-or-more photos into our structured shape, via the import
  * Worker (which holds the API key — Gemini's free tier by default). The Worker
  * returns the model's best-effort structured recipe; we then run it through the
  * SAME zod validator CI uses, so nothing malformed ever reaches the preview or
  * the database.
  */
 
-export type AiInput = { text: string } | { image: { data: string; mediaType: string } }
+export type AiPhoto = { data: string; mediaType: string }
+/** Text paste, or one-or-more photos of the SAME recipe (a long recipe often
+ * needs several phone screenshots), read together into one result. */
+export type AiInput = { text: string } | { images: AiPhoto[] }
 
 export interface AiImportResult {
   seed: RecipeSeed

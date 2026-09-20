@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'
 import { importRecipeFromUrl } from '../data/urlImport'
 import { importRecipeFromText } from '../lib/importText'
+import { compressForImport } from '../data/photos'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import type { RecipeSeed } from '../lib/types'
 
@@ -19,35 +20,59 @@ export default function AddRecipePage() {
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
   const [text, setText] = useState('')
   const [link, setLink] = useState('')
-  const [image, setImage] = useState<{ data: string; mediaType: string; name: string } | null>(null)
+  const [photos, setPhotos] = useState<{ src: string; data: string; mediaType: string }[]>([])
+  const [preparing, setPreparing] = useState(false)
   const [reading, setReading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
 
-  const onPickImage = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const url = String(reader.result)
-      setImage({ data: url.slice(url.indexOf(',') + 1), mediaType: file.type || 'image/jpeg', name: file.name })
+  // A long recipe rarely fits one phone screenshot, so allow a few, read as one.
+  const MAX_PHOTOS = 6
+
+  const onPickImages = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = '' // let the same file be re-picked, and re-fire onChange
+    if (files.length === 0) return
+    setError(null)
+    setPreparing(true)
+    try {
+      const room = MAX_PHOTOS - photos.length
+      if (room <= 0) {
+        setError(`You can add up to ${MAX_PHOTOS} photos.`)
+        return
+      }
+      const added = await Promise.all(
+        files.slice(0, room).map(async (file) => {
+          // Downscale in-browser: keeps small text legible while keeping the
+          // combined request light enough to send several at once.
+          const src = await compressForImport(file)
+          return { src, data: src.slice(src.indexOf(',') + 1), mediaType: 'image/jpeg' }
+        }),
+      )
+      setPhotos((prev) => [...prev, ...added])
+      if (files.length > room) setError(`Added the first ${room} — max is ${MAX_PHOTOS} photos.`)
+    } catch {
+      setError('Couldn’t read one of those photos. Try another.')
+    } finally {
+      setPreparing(false)
     }
-    reader.readAsDataURL(file)
   }
 
-  // Photo / screenshot → AI (Gemini vision). No on-device fallback for images.
+  const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, n) => n !== i))
+
+  // Photo(s) / screenshot(s) → AI (Gemini vision). No on-device fallback for images.
   const readPhoto = async () => {
-    if (!image) return
+    if (photos.length === 0) return
     setError(null)
     setReading(true)
     try {
-      const res = await importRecipeViaAI({ image: { data: image.data, mediaType: image.mediaType } })
+      const res = await importRecipeViaAI({ images: photos.map((p) => ({ data: p.data, mediaType: p.mediaType })) })
       setInitial(res.seed)
       setMode('edit')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Couldn’t read that photo.')
+      setError(cause instanceof Error ? cause.message : 'Couldn’t read those photos.')
     } finally {
       setReading(false)
     }
@@ -189,22 +214,45 @@ export default function AddRecipePage() {
           </div>
         ) : mode === 'capture' ? (
           <div className="space-y-4">
-            <label className="grid min-h-40 cursor-pointer place-items-center rounded-2xl border border-dashed border-line bg-card p-6 text-center text-sm text-ink-soft">
-              <input type="file" accept="image/*" capture="environment" onChange={onPickImage} className="hidden" />
-              {image ? (
-                <span>
-                  <span className="font-medium text-ink">{image.name}</span>
-                  <span className="mt-1 block text-xs">Tap to choose a different photo</span>
-                </span>
-              ) : (
-                <span>
-                  Tap to take a photo or choose one
-                  <span className="mt-1 block text-xs">a cookbook page, a recipe card, a screenshot</span>
-                </span>
-              )}
-            </label>
+            {photos.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {photos.map((p, i) => (
+                  <div key={i} className="relative">
+                    <img src={p.src} alt={`Recipe photo ${i + 1}`} className="h-28 w-full rounded-xl border border-line object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      aria-label={`Remove photo ${i + 1}`}
+                      className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-base leading-none text-white"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {photos.length < MAX_PHOTOS && (
+              <label className="grid min-h-32 cursor-pointer place-items-center rounded-2xl border border-dashed border-line bg-card p-6 text-center text-sm text-ink-soft">
+                <input type="file" accept="image/*" multiple onChange={onPickImages} className="hidden" />
+                {preparing ? (
+                  <span>Adding…</span>
+                ) : photos.length > 0 ? (
+                  <span>
+                    Add another photo
+                    <span className="mt-1 block text-xs">{photos.length} of {MAX_PHOTOS} added</span>
+                  </span>
+                ) : (
+                  <span>
+                    Tap to take photos or choose screenshots
+                    <span className="mt-1 block text-xs">add several of one recipe — we read them together</span>
+                  </span>
+                )}
+              </label>
+            )}
             <p className="text-sm text-ink-soft">
-              Snap or choose a photo of a recipe and we’ll read it in for you to review before saving.
+              A long recipe rarely fits one screenshot — add each part (in order) and we’ll combine
+              them into one recipe for you to review before saving.
             </p>
 
             {error && (
@@ -216,10 +264,10 @@ export default function AddRecipePage() {
             <button
               type="button"
               onClick={readPhoto}
-              disabled={!image || reading}
+              disabled={photos.length === 0 || reading || preparing}
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
-              {reading ? 'Reading…' : 'Read recipe'}
+              {reading ? 'Reading…' : photos.length > 1 ? `Read recipe (${photos.length} photos)` : 'Read recipe'}
             </button>
             <button
               type="button"

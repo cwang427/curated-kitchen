@@ -3,8 +3,9 @@
  *
  * A tiny Cloudflare Worker that holds the Anthropic API key (which must NEVER
  * live in the app, since the app is public) and turns a pasted recipe or a photo
- * into our structured recipe shape. The app POSTs { text } or { image } here
- * with the caller's Firebase ID token; the Worker verifies that token (so only
+ * into our structured recipe shape. The app POSTs { text } or { images } (one or
+ * more photos of the same recipe) here with the caller's Firebase ID token; the
+ * legacy single { image } is still accepted. The Worker verifies that token (so only
  * signed-in household members can spend your key), calls Claude with a strict
  * tool that mirrors our recipe schema, and returns the structured JSON. The app
  * then validates it with the same zod schema CI uses before anything is saved.
@@ -324,18 +325,27 @@ async function handleUrlImport(
 
 /* ---- AI import: pasted text / a photo → structured recipe ---- */
 
-type AiInput = { text?: string; image?: { data: string; mediaType: string } }
+type AiPhoto = { data: string; mediaType: string }
+type AiInput = { text?: string; images: AiPhoto[] }
+
+/** The instruction that rides alongside any attached photos. Several photos are
+ * treated as parts of ONE recipe (a long recipe needs several phone screenshots). */
+function imagePrompt(input: AiInput): string {
+  if (input.text) return `Convert this recipe:\n\n${input.text}`
+  if (input.images.length > 1) {
+    return 'Convert the recipe in the attached images. They are multiple screenshots or pages of the SAME recipe, in order — combine them into one recipe, without duplicating any part shown in more than one image.'
+  }
+  return 'Convert the recipe in the attached image.'
+}
 
 /** Google Gemini (free tier). Uses structured JSON output matching our recipe
  * shape; the app's zod schema is still the real validator. Reads images too. */
 async function handleGemini(input: AiInput, env: Env, origin: string): Promise<Response> {
   const parts: unknown[] = []
-  if (input.image) {
-    parts.push({ inline_data: { mime_type: input.image.mediaType, data: input.image.data } })
+  for (const img of input.images) {
+    parts.push({ inline_data: { mime_type: img.mediaType, data: img.data } })
   }
-  parts.push({
-    text: input.text ? `Convert this recipe:\n\n${input.text}` : 'Convert the recipe in the attached image.',
-  })
+  parts.push({ text: imagePrompt(input) })
 
   // Flash reads images and is generous on the free tier; override with the
   // GEMINI_MODEL var (e.g. a -lite model for more headroom, or a newer one).
@@ -354,6 +364,13 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
             temperature: 0,
             responseMimeType: 'application/json',
             responseSchema: RECIPE_TOOL.input_schema,
+            // Room for a full recipe's JSON even from a long article / several
+            // photos, so the answer isn't cut off mid-object.
+            maxOutputTokens: 8192,
+            // 2.5 Flash "thinks" by default, which spends the output budget and
+            // can truncate structured JSON on long inputs. We don't need it for
+            // deterministic extraction, so turn it off.
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       },
@@ -372,14 +389,23 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   }
 
   const data = (await res.json().catch(() => ({}))) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>
+    promptFeedback?: { blockReason?: string }
   }
+  const finishReason = data.candidates?.[0]?.finishReason
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
   let recipe: { not_a_recipe?: boolean }
   try {
     recipe = JSON.parse(text)
   } catch {
-    return json({ error: 'The AI didn’t return a readable recipe.' }, 502, origin)
+    // finishReason (MAX_TOKENS, SAFETY, …) / blockReason names the real cause,
+    // which is otherwise invisible when the client falls back to its parser.
+    const why = finishReason || data.promptFeedback?.blockReason || 'no output'
+    const msg =
+      finishReason === 'MAX_TOKENS'
+        ? 'That recipe was too long to read in one go — try fewer photos or just the recipe section.'
+        : 'The AI didn’t return a readable recipe.'
+    return json({ error: msg, detail: `finishReason=${why}` }, 502, origin)
   }
   if (recipe.not_a_recipe) {
     return json({ error: 'That didn’t look like a recipe.' }, 422, origin)
@@ -391,16 +417,13 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
  * structured output. Used only when no Gemini key is set. */
 async function handleClaude(input: AiInput, env: Env, origin: string): Promise<Response> {
   const content: unknown[] = []
-  if (input.image) {
+  for (const img of input.images) {
     content.push({
       type: 'image',
-      source: { type: 'base64', media_type: input.image.mediaType, data: input.image.data },
+      source: { type: 'base64', media_type: img.mediaType, data: img.data },
     })
   }
-  content.push({
-    type: 'text',
-    text: input.text ? `Convert this recipe:\n\n${input.text}` : 'Convert the recipe in the attached image.',
-  })
+  content.push({ type: 'text', text: imagePrompt(input) })
 
   let anthropic: Response
   try {
@@ -459,7 +482,12 @@ export default {
     const uid = await verifyFirebaseToken(idToken, env.FIREBASE_PROJECT_ID)
     if (!uid) return json({ error: 'Not signed in.' }, 401, origin)
 
-    let body: { text?: string; image?: { data: string; mediaType: string }; url?: string }
+    let body: {
+      text?: string
+      image?: AiPhoto // legacy single-photo shape; kept for old app builds
+      images?: AiPhoto[]
+      url?: string
+    }
     try {
       body = await request.json()
     } catch {
@@ -471,13 +499,15 @@ export default {
       return handleUrlImport(body, origin)
     }
 
-    // AI route: turn pasted text / a photo into a structured recipe. Prefer the
-    // free Gemini route; fall back to the (paid, optional) Claude route if only
-    // that key is set.
-    const input = body
-    if (!input.text && !input.image) {
+    // AI route: turn pasted text / one-or-more photos into a structured recipe.
+    // Accept the current `images` array and the legacy single `image`. Prefer
+    // the free Gemini route; fall back to the (paid, optional) Claude route if
+    // only that key is set.
+    const images = body.images ?? (body.image ? [body.image] : [])
+    if (!body.text && images.length === 0) {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }
+    const input: AiInput = { text: body.text, images }
     if (env.GEMINI_API_KEY) return handleGemini(input, env, origin)
     if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
     return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)

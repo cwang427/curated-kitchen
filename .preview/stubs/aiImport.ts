@@ -6,10 +6,11 @@ export interface AiImportResult {
   seed: RecipeSeed
   warnings: string[]
 }
-export type AiInput = { text: string } | { image: { data: string; mediaType: string } }
+export type AiPhoto = { data: string; mediaType: string }
+export type AiInput = { text: string } | { images: AiPhoto[] }
 
 /** Preview: return a real parsed recipe after a short "reading" delay. */
-export async function importRecipeViaAI(): Promise<AiImportResult> {
+export async function importRecipeViaAI(_input?: AiInput): Promise<AiImportResult> {
   await new Promise((r) => setTimeout(r, 400))
   const { recipe, warnings } = parseRecipe(cacio)
   return { seed: recipe, warnings }

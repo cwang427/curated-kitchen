@@ -104,6 +104,24 @@ export async function compressToDataUrl(file: File): Promise<string> {
   }
 }
 
+/**
+ * Downscale a photo for AI import (not for storage). Big enough that small
+ * recipe text stays legible to the model, but re-encoded so several screenshots
+ * can be sent in one request without a huge payload. Unlike compressToDataUrl
+ * this isn't chasing the ~1 MB Firestore budget — nothing is stored — so it
+ * keeps more resolution. Returns a JPEG data URL.
+ */
+const IMPORT_MAX_EDGE = 1600 // longest side, px — keeps fine print readable
+const IMPORT_QUALITY = 0.85
+export async function compressForImport(file: File): Promise<string> {
+  const source = await loadSource(file)
+  try {
+    return encodeAt(source, IMPORT_MAX_EDGE, IMPORT_QUALITY)
+  } finally {
+    source.release()
+  }
+}
+
 /** Store a compressed photo for a household; returns the new photo document id. */
 export async function createPhoto(
   householdId: string,
