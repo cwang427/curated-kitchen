@@ -118,7 +118,11 @@ const RECIPE_TOOL = {
           required: ['text'],
         },
       },
-      tags: { type: 'array', items: { type: 'string' } },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'A few short lowercase browsing labels — cuisine, course, or main method (e.g. "italian", "weeknight", "one-pan") — only when clearly applicable.',
+      },
       equipment: {
         type: 'array',
         items: { type: 'string' },
@@ -145,6 +149,7 @@ Rules:
 - For EVERY step, also fill "brief": a scannable cook-mode version of that same step, one action per line (an array of short lines). Reuse the same {{ }} tokens for scalable amounts. This is a condensed restatement of the step's own text — keep the full prose in "text"; never let an instruction appear only in "brief".
 - Fill "equipment" with the notable tools the recipe uses (skillet, food processor, pressure cooker, etc.) when it names or clearly requires them. Don't invent specifics the recipe doesn't imply.
 - Fill "notes" with any tips, make-ahead, storage, or variation asides the source includes (e.g. a "Recipe Tip" or "Notes" section). Don't invent notes that aren't there.
+- Fill the top-level metadata whenever the source shows it: title, subtitle, description (the headnote), source.name (the site or publication), source.author (the byline), source.url (only if a URL actually appears in the text), yield, and prep/cook/total times. Add a few "tags" (cuisine/course/method) when clearly applicable. Leave any field blank rather than guessing.
 - If the input clearly isn't a recipe, call save_recipe with not_a_recipe true and empty ingredients/steps.`
 
 function corsHeaders(origin: string): Record<string, string> {
