@@ -394,7 +394,15 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   }
   const finishReason = data.candidates?.[0]?.finishReason
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
-  let recipe: { not_a_recipe?: boolean }
+  let recipe: {
+    not_a_recipe?: boolean
+    title?: string
+    source?: { name?: string; author?: string }
+    notes?: unknown[]
+    equipment?: unknown[]
+    tags?: unknown[]
+    steps?: Array<{ brief?: unknown[] }>
+  }
   try {
     recipe = JSON.parse(text)
   } catch {
@@ -410,6 +418,25 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   if (recipe.not_a_recipe) {
     return json({ error: 'That didn’t look like a recipe.' }, 422, origin)
   }
+  // Diagnostic: shows in `wrangler tail` which fields the model actually filled,
+  // so we can tell a model gap from a client/UI one. It's your own recipe data.
+  const len = (a?: unknown[]) => (Array.isArray(a) ? a.length : 0)
+  console.log(
+    'gemini import ok ' +
+      JSON.stringify({
+        model,
+        finishReason,
+        title: recipe.title ?? null,
+        sourceName: recipe.source?.name ?? null,
+        author: recipe.source?.author ?? null,
+        notes: len(recipe.notes),
+        equipment: len(recipe.equipment),
+        tags: len(recipe.tags),
+        briefSteps: Array.isArray(recipe.steps)
+          ? recipe.steps.filter((s) => len(s.brief) > 0).length
+          : 0,
+      }),
+  )
   return json({ recipe }, 200, origin)
 }
 
