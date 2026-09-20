@@ -39,8 +39,9 @@ function StepRow({
     .map((id) => ingredients.get(id))
     .filter((i): i is Ingredient => i !== undefined)
 
-  const photoUrls = usePhotoUrls(step.images)
-  const photos = step.images
+  const stepImages = step.images ?? []
+  const photoUrls = usePhotoUrls(stepImages)
+  const photos = stepImages
     .map((entry) => photoSrc(entry, photoUrls))
     .filter((src): src is string => !!src)
 

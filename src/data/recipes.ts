@@ -35,7 +35,13 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     yield: data.yield ?? { amount: 1, amountMax: null, unit: 'servings' },
     times: data.times ?? { prepMin: null, cookMin: null, totalMin: null, activeMin: null },
     ingredients: data.ingredients ?? [],
-    steps: data.steps ?? [],
+    // Recipes saved before per-step photos have steps with no `images` field;
+    // the reader and cook mode iterate it, so coerce it to [] here — this is the
+    // one boundary where raw Firestore data becomes a typed Recipe.
+    steps: (data.steps ?? []).map((step: DocumentData) => ({
+      ...step,
+      images: Array.isArray(step?.images) ? step.images : [],
+    })),
     groups: data.groups ?? [],
     tags: data.tags ?? [],
     equipment: data.equipment ?? [],

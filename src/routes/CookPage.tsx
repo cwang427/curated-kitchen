@@ -37,8 +37,9 @@ type DisplayTimer = SyncTimer & { done: boolean }
  * hook order (which has early returns before the current step is known).
  */
 function CookStepPhotos({ ids }: { ids: string[] }) {
-  const photoUrls = usePhotoUrls(ids)
-  const photos = ids
+  const list = ids ?? []
+  const photoUrls = usePhotoUrls(list)
+  const photos = list
     .map((entry) => photoSrc(entry, photoUrls))
     .filter((src): src is string => !!src)
   if (photos.length === 0) return null

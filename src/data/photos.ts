@@ -168,14 +168,17 @@ export function photoSrc(entry: string, map: Record<string, string>): string | u
 export function usePhotoUrls(ids: string[]): Record<string, string> {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const cache = useRef<Record<string, string>>({})
+  // Tolerate a nullish argument (a legacy step with no images) rather than
+  // throwing mid-render.
+  const list = ids ?? []
   // Only re-run when the actual set of ids changes, not on every render.
-  const key = JSON.stringify(ids)
+  const key = JSON.stringify(list)
 
   useEffect(() => {
     let alive = true
     const resolved: Record<string, string> = {}
     const missing: string[] = []
-    for (const id of ids) {
+    for (const id of list) {
       if (!id) continue
       if (id.startsWith('data:')) resolved[id] = id
       else if (cache.current[id]) resolved[id] = cache.current[id]
