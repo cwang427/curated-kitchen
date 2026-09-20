@@ -6,9 +6,10 @@ import type { RecipeSeed } from '../lib/types'
 
 /**
  * Turn a pasted recipe or a photo into our structured shape, via the import
- * Worker (which holds the API key). The Worker returns Claude's best-effort
- * structured recipe; we then run it through the SAME zod validator CI uses, so
- * nothing malformed ever reaches the preview or the database.
+ * Worker (which holds the API key — Gemini's free tier by default). The Worker
+ * returns the model's best-effort structured recipe; we then run it through the
+ * SAME zod validator CI uses, so nothing malformed ever reaches the preview or
+ * the database.
  */
 
 export type AiInput = { text: string } | { image: { data: string; mediaType: string } }

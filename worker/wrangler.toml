@@ -3,10 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 # Non-secret config. The free /url (paste-a-link) route needs only these vars.
-# The Anthropic key (for the optional paid text/photo route) is a secret set
-# separately — see README.
+# The AI key (for the smart text/photo route) is a secret set separately —
+# see README.
 [vars]
 FIREBASE_PROJECT_ID = "curated-kitchen"
 ALLOWED_ORIGIN = "https://cwang427.github.io"
-# Optional: the Claude model to use. Sonnet 5 is the default in code.
+# Optional: the Gemini model to use. gemini-2.5-flash is the default in code.
+# GEMINI_MODEL = "gemini-2.5-flash"
+# Optional (paid alternative): the Claude model, used only if no GEMINI_API_KEY.
 # ANTHROPIC_MODEL = "claude-sonnet-5"

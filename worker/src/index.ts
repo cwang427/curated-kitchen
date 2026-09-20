@@ -13,13 +13,17 @@
  */
 
 interface Env {
-  // Only needed for the (optional, paid) AI route. The free /url route works
-  // without it, so it's optional — deploy with just FIREBASE_PROJECT_ID for
-  // URL import alone.
-  ANTHROPIC_API_KEY?: string
   FIREBASE_PROJECT_ID: string
-  ANTHROPIC_MODEL?: string
   ALLOWED_ORIGIN?: string
+  // AI import (paste text / a photo). The free /url route needs none of these.
+  // Preferred: Google Gemini's FREE tier — set GEMINI_API_KEY (a secret) and the
+  // AI route uses Gemini. GEMINI_MODEL overrides the default model.
+  GEMINI_API_KEY?: string
+  GEMINI_MODEL?: string
+  // Optional, paid alternative: Anthropic Claude. Used only if GEMINI_API_KEY is
+  // not set. Kept so the paid route stays available if ever wanted.
+  ANTHROPIC_API_KEY?: string
+  ANTHROPIC_MODEL?: string
 }
 
 const GROCERY_CATEGORIES = [
@@ -302,6 +306,125 @@ async function handleUrlImport(
   return json({ jsonld, url: target.toString() }, 200, origin)
 }
 
+/* ---- AI import: pasted text / a photo → structured recipe ---- */
+
+type AiInput = { text?: string; image?: { data: string; mediaType: string } }
+
+/** Google Gemini (free tier). Uses structured JSON output matching our recipe
+ * shape; the app's zod schema is still the real validator. Reads images too. */
+async function handleGemini(input: AiInput, env: Env, origin: string): Promise<Response> {
+  const parts: unknown[] = []
+  if (input.image) {
+    parts.push({ inline_data: { mime_type: input.image.mediaType, data: input.image.data } })
+  }
+  parts.push({
+    text: input.text ? `Convert this recipe:\n\n${input.text}` : 'Convert the recipe in the attached image.',
+  })
+
+  // Flash reads images and is generous on the free tier; override with the
+  // GEMINI_MODEL var (e.g. a -lite model for more headroom, or a newer one).
+  const model = env.GEMINI_MODEL || 'gemini-2.5-flash'
+  let res: Response
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          contents: [{ role: 'user', parts }],
+          generationConfig: {
+            temperature: 0,
+            responseMimeType: 'application/json',
+            responseSchema: RECIPE_TOOL.input_schema,
+          },
+        }),
+      },
+    )
+  } catch {
+    return json({ error: 'Could not reach the AI service.' }, 502, origin)
+  }
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    const msg =
+      res.status === 429
+        ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
+        : `AI service error (${res.status}).`
+    return json({ error: msg, detail }, 502, origin)
+  }
+
+  const data = (await res.json().catch(() => ({}))) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  }
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
+  let recipe: { not_a_recipe?: boolean }
+  try {
+    recipe = JSON.parse(text)
+  } catch {
+    return json({ error: 'The AI didn’t return a readable recipe.' }, 502, origin)
+  }
+  if (recipe.not_a_recipe) {
+    return json({ error: 'That didn’t look like a recipe.' }, 422, origin)
+  }
+  return json({ recipe }, 200, origin)
+}
+
+/** Anthropic Claude (optional, paid). Forces the save_recipe tool for
+ * structured output. Used only when no Gemini key is set. */
+async function handleClaude(input: AiInput, env: Env, origin: string): Promise<Response> {
+  const content: unknown[] = []
+  if (input.image) {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: input.image.mediaType, data: input.image.data },
+    })
+  }
+  content.push({
+    type: 'text',
+    text: input.text ? `Convert this recipe:\n\n${input.text}` : 'Convert the recipe in the attached image.',
+  })
+
+  let anthropic: Response
+  try {
+    anthropic = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY as string,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+        max_tokens: 4096,
+        system: SYSTEM,
+        tools: [RECIPE_TOOL],
+        tool_choice: { type: 'tool', name: 'save_recipe' },
+        messages: [{ role: 'user', content }],
+      }),
+    })
+  } catch {
+    return json({ error: 'Could not reach the AI service.' }, 502, origin)
+  }
+
+  if (!anthropic.ok) {
+    const detail = await anthropic.text().catch(() => '')
+    return json({ error: `AI service error (${anthropic.status}).`, detail }, 502, origin)
+  }
+
+  const data = (await anthropic.json()) as { content?: Array<{ type: string; name?: string; input?: unknown }> }
+  const toolUse = data.content?.find((b) => b.type === 'tool_use' && b.name === 'save_recipe')
+  if (!toolUse?.input) {
+    return json({ error: 'The AI didn’t return a recipe.' }, 502, origin)
+  }
+  const recipe = toolUse.input as { not_a_recipe?: boolean }
+  if (recipe.not_a_recipe) {
+    return json({ error: 'That didn’t look like a recipe.' }, 422, origin)
+  }
+  return json({ recipe }, 200, origin)
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
@@ -332,70 +455,15 @@ export default {
       return handleUrlImport(body, origin)
     }
 
-    // Paid route: Claude turns pasted text / a photo into a recipe.
-    if (!env.ANTHROPIC_API_KEY) {
-      return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)
-    }
+    // AI route: turn pasted text / a photo into a structured recipe. Prefer the
+    // free Gemini route; fall back to the (paid, optional) Claude route if only
+    // that key is set.
     const input = body
     if (!input.text && !input.image) {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }
-
-    const content: unknown[] = []
-    if (input.image) {
-      content.push({
-        type: 'image',
-        source: { type: 'base64', media_type: input.image.mediaType, data: input.image.data },
-      })
-    }
-    content.push({
-      type: 'text',
-      text: input.text
-        ? `Convert this recipe:\n\n${input.text}`
-        : 'Convert the recipe in the attached image.',
-    })
-
-    let anthropic: Response
-    try {
-      anthropic = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          // Sonnet 5 is a good, cheap fit; override with the ANTHROPIC_MODEL var.
-          model: env.ANTHROPIC_MODEL || 'claude-sonnet-5',
-          max_tokens: 4096,
-          system: SYSTEM,
-          tools: [RECIPE_TOOL],
-          // Force the tool so we always get structured output (Sonnet 5 / Opus 5
-          // support forced tool_choice; if you switch to Fable 5.1, use
-          // output_config structured outputs instead — see README).
-          tool_choice: { type: 'tool', name: 'save_recipe' },
-          messages: [{ role: 'user', content }],
-        }),
-      })
-    } catch {
-      return json({ error: 'Could not reach the AI service.' }, 502, origin)
-    }
-
-    if (!anthropic.ok) {
-      const detail = await anthropic.text().catch(() => '')
-      return json({ error: `AI service error (${anthropic.status}).`, detail }, 502, origin)
-    }
-
-    const data = (await anthropic.json()) as { content?: Array<{ type: string; name?: string; input?: unknown }> }
-    const toolUse = data.content?.find((b) => b.type === 'tool_use' && b.name === 'save_recipe')
-    if (!toolUse?.input) {
-      return json({ error: 'The AI didn’t return a recipe.' }, 502, origin)
-    }
-    const recipe = toolUse.input as { not_a_recipe?: boolean }
-    if (recipe.not_a_recipe) {
-      return json({ error: 'That didn’t look like a recipe.' }, 422, origin)
-    }
-
-    return json({ recipe }, 200, origin)
+    if (env.GEMINI_API_KEY) return handleGemini(input, env, origin)
+    if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
+    return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)
   },
 }

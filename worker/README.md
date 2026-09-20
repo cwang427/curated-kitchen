@@ -6,9 +6,12 @@ and you can use just the first:
 - **`/url` — paste a link (FREE).** The app can't fetch another website directly
   (browsers block that — CORS), so the Worker fetches the page for you and reads
   the schema.org recipe data most cooking sites embed. **No API key, no cost.**
-- **root — paste text or a photo (PAID, optional).** Sends the text/photo to
-  Claude to structure it. This needs an Anthropic key, billed to you (~1–3¢ a
-  recipe). Off in the app until you enable it (below).
+- **root — paste text or a photo (FREE with Gemini).** Sends the text/photo to
+  Google's Gemini to structure it. This reads *any* layout (blog-style pages that
+  the link route can't) and photos/screenshots. It uses Gemini's **free tier**
+  (an AI Studio key with **no billing**), plenty for a household's occasional
+  imports. Off in the app until you enable it (below). *(A paid Anthropic Claude
+  route is also supported as an alternative — see the end.)*
 
 Either way the Worker exists so secrets/keys never live in the public app, and it
 checks that every caller is a signed-in member of your kitchen. Set up **once**;
@@ -18,8 +21,9 @@ runs on Cloudflare's free plan.
 - A free **Cloudflare** account — https://dash.cloudflare.com/sign-up
 - Your **Firebase project ID** — Firebase console → Project settings → *Project ID*
   (also the `projectId` in `src/lib/firebaseConfig.ts`).
-- *(Only for the paid AI route)* an **Anthropic API key** —
-  https://console.anthropic.com → *API Keys* → *Create Key*.
+- *(For the AI text/photo route)* a **free Gemini API key** — https://aistudio.google.com/apikey
+  → *Create API key*. Sign in with a Google account; you do **not** need to add
+  a billing account for the free tier.
 
 ## Deploy (about 10 minutes) — free URL import
 
@@ -47,22 +51,32 @@ From a computer with Node installed, in this `worker/` folder:
    (`IMPORT_WORKER_URL`), commit, and push. The app redeploys automatically
    (~2 min), and **"Paste a link"** turns on in Add a recipe.
 
-## Optional: turn on the paid AI route (paste text / a photo)
+## Turn on the AI route (paste text / a photo) — free with Gemini
 
-Only if you want the Claude-powered text/photo import too:
+This is what makes text pastes work on *any* site and reads photos/screenshots:
 
-1. **Add your Anthropic key as a secret** (never goes in a file):
+1. **Add your Gemini key as a secret** (never goes in a file):
    ```
-   wrangler secret put ANTHROPIC_API_KEY
+   wrangler secret put GEMINI_API_KEY
    ```
-   then `wrangler deploy` again.
+   Paste the AI Studio key at the prompt, then `wrangler deploy` again.
 2. In `src/lib/aiConfig.ts`, set `AI_IMPORT_ENABLED = true`, commit, and push.
-   "Paste text or a photo" then appears alongside "Paste a link".
+   In Add a recipe, "Paste text" then uses Gemini (falling back to the on-device
+   reader if the free limit is hit), and **"Scan a photo"** appears.
 
 ## Choosing the model
-The default is **Claude Sonnet 5** (a good, cheap fit). To use a different one,
-add `ANTHROPIC_MODEL = "claude-haiku-4-5"` (cheapest) or `"claude-opus-5"`
-(best) under `[vars]` in `wrangler.toml` and `wrangler deploy` again.
+The default is **gemini-2.5-flash** (reads images, generous free tier). To use a
+different one — e.g. a `-lite` model for more headroom, or a newer release —
+add `GEMINI_MODEL = "gemini-2.5-flash-lite"` under `[vars]` in `wrangler.toml`
+and `wrangler deploy` again. Free-tier limits are per-model and per-account and
+change over time; see https://aistudio.google.com/docs/rate-limits.
+
+## Optional: use paid Anthropic Claude instead
+If you'd rather use Claude (paid, ~1–3¢ a recipe): set `ANTHROPIC_API_KEY`
+instead of `GEMINI_API_KEY` (`wrangler secret put ANTHROPIC_API_KEY`) and don't
+set a Gemini key — the Worker uses Claude only when no Gemini key is present.
+The default Claude model is **Sonnet 5**; override with
+`ANTHROPIC_MODEL = "claude-haiku-4-5"` (cheapest) or `"claude-opus-5"` (best).
 If you pick a Fable-family model later, forced `tool_choice` isn't supported
 there — switch the request to structured outputs (`output_config.format`); ping
 me and I'll make that change.

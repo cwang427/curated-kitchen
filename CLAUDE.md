@@ -81,9 +81,17 @@ confusion:
     `parseRecipe` → editable preview → save as `origin: 'app'`. **No API key** —
     reading structured data is deterministic. Fragile per-site (bot walls / no
     JSON-LD), so it degrades to paste/photo; that's expected.
-  - **root (PAID, optional) — paste text or a photo → Claude.** Needs the
-    Anthropic key (a Worker secret; never in the public app). Off in the app
-    until `AI_IMPORT_ENABLED = true`.
+  - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
+    Gemini's **free tier** (an AI Studio key with no billing) by default —
+    `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
+    overrides the model (default `gemini-2.5-flash`). It reads any layout
+    (blog-style pages the `/url` route can't) and photos/screenshots via
+    structured JSON output → the same `parseRecipe` → editable preview → save.
+    When AI is enabled it's the **default engine for text** (the on-device
+    `importText` parser is the offline/rate-limit fallback) and the **only
+    engine for photos**. A paid Anthropic Claude route (`ANTHROPIC_API_KEY`,
+    forced `save_recipe` tool) is kept as an alternative — the Worker uses it
+    only when no Gemini key is set. Off in the app until `AI_IMPORT_ENABLED = true`.
 
   Deploy once (`worker/README.md`); URL import needs only `FIREBASE_PROJECT_ID`.
   Put the Worker URL in `src/lib/aiConfig.ts` (`IMPORT_WORKER_URL`; not secret,
@@ -256,9 +264,12 @@ the `worker/` `/url` route fetches the page → `recipeFromJsonLd` reads its
 schema.org JSON-LD → validated by the same `parseRecipe` → editable preview →
 save as `origin: 'app'`; free/no-key, degrades to paste/photo on sites that block
 it or lack structured data), and AI recipe ingestion (paste text or a photo
-→ Claude via the same Worker's paid route, off unless enabled → structured →
-validated by the same `parseRecipe` → editable preview → save as `origin: 'app'`;
-the JSON pipeline stays as a power-user path), and a full in-app recipe editor (`RecipeEditor` +
+→ AI via the same Worker — Google Gemini's **free** tier by default, off unless
+enabled → structured → validated by the same `parseRecipe` → editable preview →
+save as `origin: 'app'`; when enabled, the default engine for text with the
+on-device parser as the offline/rate-limit fallback, and the only engine for
+photos/screenshots; a paid Claude route stays available as an alternative), and
+a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result
 before saving, or **edit an existing recipe in place** at `/r/:slug/edit`
@@ -303,11 +314,10 @@ paragraph steps; tuned against real full-page pastes in `npm run test:text`
 (`scripts/fixtures/text/`). This is the free fallback for the big commercial
 recipe sites (AllRecipes, Serious Eats, etc.) that block the link route's
 server-side fetch.
-Next: the **photo half** of on-device ingestion — OCR (Tesseract.js and/or iOS
-Live Text) feeding this same text parser, to pre-fill the editor from a cookbook
-photo or a screenshot (the paid Claude Worker route stays dormant/optional); then
-a PWA share-target ("Share → Curated Kitchen" hands over the page text,
-sidestepping CORS) and ownership transfer / co-owner. The
-cook log is intentionally skipped —
+Photos/screenshots are now handled by the free Gemini vision route (above), so
+the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
+fully-offline photo path is ever wanted. Next: a PWA share-target
+("Share → Curated Kitchen" hands over the page text, sidestepping CORS) and
+ownership transfer / co-owner. The cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

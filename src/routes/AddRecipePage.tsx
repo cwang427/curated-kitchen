@@ -17,7 +17,6 @@ export default function AddRecipePage() {
 
   const [mode, setMode] = useState<Mode>('choose')
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
-  const [tab, setTab] = useState<'text' | 'photo'>('text')
   const [text, setText] = useState('')
   const [link, setLink] = useState('')
   const [image, setImage] = useState<{ data: string; mediaType: string; name: string } | null>(null)
@@ -38,23 +37,21 @@ export default function AddRecipePage() {
     reader.readAsDataURL(file)
   }
 
-  const read = async () => {
+  // Photo / screenshot → AI (Gemini vision). No on-device fallback for images.
+  const readPhoto = async () => {
+    if (!image) return
     setError(null)
     setReading(true)
     try {
-      const input =
-        tab === 'photo' && image ? { image: { data: image.data, mediaType: image.mediaType } } : { text }
-      const res = await importRecipeViaAI(input)
+      const res = await importRecipeViaAI({ image: { data: image.data, mediaType: image.mediaType } })
       setInitial(res.seed)
       setMode('edit')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
+      setError(cause instanceof Error ? cause.message : 'Couldn’t read that photo.')
     } finally {
       setReading(false)
     }
   }
-
-  const canRead = tab === 'photo' ? !!image : text.trim().length > 0
 
   const readLink = async () => {
     setError(null)
@@ -71,16 +68,29 @@ export default function AddRecipePage() {
   }
   const canReadLink = /^https?:\/\/\S+/i.test(link.trim())
 
-  // Free, on-device: parse pasted recipe text with no Worker and no AI. Runs
-  // instantly, so no network state to manage beyond a friendly error.
-  const readText = () => {
+  // Text paste. When AI is set up it's the default engine (handles any layout);
+  // the free on-device parser is the safety net for when it's offline or rate-
+  // limited. Without AI configured, the on-device parser handles it alone.
+  const readText = async () => {
     setError(null)
+    setReading(true)
     try {
-      const res = importRecipeFromText(text)
-      setInitial(res.seed)
+      let seed: RecipeSeed
+      if (aiImportConfigured) {
+        try {
+          seed = (await importRecipeViaAI({ text })).seed
+        } catch {
+          seed = importRecipeFromText(text).seed
+        }
+      } else {
+        seed = importRecipeFromText(text).seed
+      }
+      setInitial(seed)
       setMode('edit')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
+    } finally {
+      setReading(false)
     }
   }
 
@@ -145,14 +155,14 @@ export default function AddRecipePage() {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Paste a recipe here — copy the whole page or just the recipe. Include its “Ingredients” and “Directions” headings so we can find them."
+              placeholder="Paste a recipe here — copy the whole page or just the recipe section. From a website, Apple Notes, a message, anywhere."
               aria-label="Recipe text"
               className="min-h-64 w-full rounded-2xl border border-line bg-card p-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
             <p className="text-sm text-ink-soft">
               Works great for sites that block the link import: open the recipe, select all
               (⌘/Ctrl+A) and copy, then paste here. We’ll pull out the ingredients and steps for you
-              to review — extra bits like photo captions are easy to delete before saving.
+              to review — extra bits are easy to delete before saving.
             </p>
 
             {error && (
@@ -164,10 +174,10 @@ export default function AddRecipePage() {
             <button
               type="button"
               onClick={readText}
-              disabled={text.trim().length === 0}
+              disabled={text.trim().length === 0 || reading}
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
-              Read recipe
+              {reading ? 'Reading…' : 'Read recipe'}
             </button>
             <button
               type="button"
@@ -179,46 +189,23 @@ export default function AddRecipePage() {
           </div>
         ) : mode === 'capture' ? (
           <div className="space-y-4">
-            <div className="flex gap-2">
-              {(['text', 'photo'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTab(t)}
-                  aria-pressed={tab === t}
-                  className={`min-h-11 flex-1 rounded-xl border text-sm font-medium transition ${
-                    tab === t ? 'border-accent bg-accent text-white dark:text-stone-900' : 'border-line bg-card text-ink-soft'
-                  }`}
-                >
-                  {t === 'text' ? 'Paste text' : 'Photo'}
-                </button>
-              ))}
-            </div>
-
-            {tab === 'text' ? (
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Paste a recipe from anywhere — Apple Notes, a website, a message…"
-                aria-label="Recipe text"
-                className="min-h-64 w-full rounded-2xl border border-line bg-card p-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
-              />
-            ) : (
-              <label className="grid min-h-40 cursor-pointer place-items-center rounded-2xl border border-dashed border-line bg-card p-6 text-center text-sm text-ink-soft">
-                <input type="file" accept="image/*" capture="environment" onChange={onPickImage} className="hidden" />
-                {image ? (
-                  <span>
-                    <span className="font-medium text-ink">{image.name}</span>
-                    <span className="mt-1 block text-xs">Tap to choose a different photo</span>
-                  </span>
-                ) : (
-                  <span>
-                    Tap to take a photo or choose one
-                    <span className="mt-1 block text-xs">a cookbook page, a card, a screenshot</span>
-                  </span>
-                )}
-              </label>
-            )}
+            <label className="grid min-h-40 cursor-pointer place-items-center rounded-2xl border border-dashed border-line bg-card p-6 text-center text-sm text-ink-soft">
+              <input type="file" accept="image/*" capture="environment" onChange={onPickImage} className="hidden" />
+              {image ? (
+                <span>
+                  <span className="font-medium text-ink">{image.name}</span>
+                  <span className="mt-1 block text-xs">Tap to choose a different photo</span>
+                </span>
+              ) : (
+                <span>
+                  Tap to take a photo or choose one
+                  <span className="mt-1 block text-xs">a cookbook page, a recipe card, a screenshot</span>
+                </span>
+              )}
+            </label>
+            <p className="text-sm text-ink-soft">
+              Snap or choose a photo of a recipe and we’ll read it in for you to review before saving.
+            </p>
 
             {error && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -228,8 +215,8 @@ export default function AddRecipePage() {
 
             <button
               type="button"
-              onClick={read}
-              disabled={!canRead || reading}
+              onClick={readPhoto}
+              disabled={!image || reading}
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
               {reading ? 'Reading…' : 'Read recipe'}
@@ -257,6 +244,19 @@ export default function AddRecipePage() {
               </span>
             </button>
 
+            {aiImportConfigured && (
+              <button
+                type="button"
+                onClick={() => setMode('capture')}
+                className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+              >
+                <span className="block font-medium">Scan a photo</span>
+                <span className="mt-0.5 block text-sm text-ink-soft">
+                  Snap a cookbook page, a recipe card, or a screenshot and we’ll read it in for you.
+                </span>
+              </button>
+            )}
+
             {urlImportConfigured && (
               <button
                 type="button"
@@ -266,19 +266,6 @@ export default function AddRecipePage() {
                 <span className="block font-medium">Paste a link</span>
                 <span className="mt-0.5 block text-sm text-ink-soft">
                   Read a recipe straight from most cooking sites, then review before saving.
-                </span>
-              </button>
-            )}
-
-            {aiImportConfigured && (
-              <button
-                type="button"
-                onClick={() => setMode('capture')}
-                className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
-              >
-                <span className="block font-medium">Paste text or a photo</span>
-                <span className="mt-0.5 block text-sm text-ink-soft">
-                  Read it in automatically, then review and edit before saving.
                 </span>
               </button>
             )}
