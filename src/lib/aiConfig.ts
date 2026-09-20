@@ -30,6 +30,6 @@ export const urlImportConfigured = URL_IMPORT_URL.length > 0
  * "not set up". When on, it's the default engine for text pastes (the on-device
  * parser stays the offline/rate-limit fallback) and the only engine for photos.
  */
-export const AI_IMPORT_ENABLED = false
+export const AI_IMPORT_ENABLED = true
 export const AI_IMPORT_URL = base
 export const aiImportConfigured = AI_IMPORT_ENABLED && AI_IMPORT_URL.length > 0
