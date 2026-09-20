@@ -279,10 +279,13 @@ shown in the recipe reader and cook mode. Members add/replace/delete, members +
 guests view — enforced by `storage.rules` (a new security surface; enable
 Storage once + publish the rules — see Deploy tracks). Copies KEEP step photos
 by carrying over the same download URLs (the token grants access cross-household
-and `<img>` isn't CORS-restricted, so they render in the new kitchen). They
-reference the source object rather than duplicating bytes, so removing a photo
-from the *original* would blank it on the copy; a true independent duplicate
-would need the bucket's CORS configured for a browser-side re-upload.
+and `<img>` isn't CORS-restricted, so they render in the new kitchen) — they
+reference the source object rather than duplicating bytes. Because of that
+sharing, **removing a photo only drops the reference from that recipe; the app
+never deletes the Storage file** (matching recipe deletion), so editing a copy's
+photos can't blank the original and vice-versa. The cost is orphaned files,
+which are cheap here; a true independent duplicate (so each kitchen owns its
+bytes) would need the bucket's CORS configured for a browser-side re-upload.
 Next: an **on-device ingestion engine** (free, no paid API) — OCR (Tesseract.js
 and/or iOS Live Text) + a rule-based text→recipe parser building on
 `parseIngredientLine`, to pre-fill the editor from pasted text or a photo (the

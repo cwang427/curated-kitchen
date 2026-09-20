@@ -1,4 +1,4 @@
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { storage } from '../lib/firebase'
 
 /**
@@ -83,15 +83,8 @@ export async function uploadStepPhoto(
   return getDownloadURL(objectRef)
 }
 
-/**
- * Delete a step photo by its download URL. Best-effort: a failure (already
- * gone, or a URL from another kitchen we can't touch) is swallowed so removing
- * it from the recipe still succeeds.
- */
-export async function deleteStepPhoto(url: string): Promise<void> {
-  try {
-    await deleteObject(ref(storage, url))
-  } catch {
-    // Ignore — the reference is dropped from the recipe regardless.
-  }
-}
+// Note: removing a photo from a recipe only drops the reference — we never
+// delete the Storage file from the client, because a copied recipe shares the
+// same file and deleting it would blank the photo on the original too. Orphaned
+// files are cheap here; a future server-side, reference-aware job could sweep
+// them if it's ever worth it.

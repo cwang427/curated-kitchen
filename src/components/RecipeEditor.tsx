@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
-import { deleteStepPhoto, uploadStepPhoto } from '../data/photos'
+import { uploadStepPhoto } from '../data/photos'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -127,11 +127,15 @@ export default function RecipeEditor({
   }
 
   const removePhoto = (stepId: string, url: string) => {
+    // Only drop the reference from this recipe — never delete the Storage file.
+    // A copied recipe shares the same file, so deleting it here would blank the
+    // photo on the original (or other copies) too. Leaving the file is the safe
+    // choice (and matches recipe deletion, which also doesn't touch Storage);
+    // unreferenced files just orphan, which is cheap for a kitchen this size.
     setDraft((d) => ({
       ...d,
       steps: d.steps.map((s) => (s.id === stepId ? { ...s, images: s.images.filter((u) => u !== url) } : s)),
     }))
-    void deleteStepPhoto(url)
   }
 
   if (!user || !household) return null
