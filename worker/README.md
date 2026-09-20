@@ -64,6 +64,20 @@ This is what makes text pastes work on *any* site and reads photos/screenshots:
    In Add a recipe, "Paste text" then uses Gemini (falling back to the on-device
    reader if the free limit is hit), and **"Scan a photo"** appears.
 
+## Updating the Worker later (IMPORTANT)
+`wrangler deploy` ships the code **on your computer**, not from GitHub. So when
+the Worker code changes, first pull the update to your computer, *then* deploy:
+```
+git checkout <working branch>   # the branch the app is deploying from
+git pull
+cd worker
+npx wrangler deploy
+```
+If you skip the pull, you'll just re-upload the old version and the change won't
+take effect (the app itself is different — it always deploys the latest from
+GitHub automatically). To confirm you have the update, `git log --oneline -3`
+should show the recent commits before you deploy.
+
 ## Choosing the model
 The default is **gemini-2.5-flash** (reads images, generous free tier). To use a
 different one — e.g. a `-lite` model for more headroom, or a newer release —

@@ -103,6 +103,15 @@ confusion:
   private/loopback hosts (basic SSRF). No `firestore.rules` change. `worker/` is
   outside the app's tsc build; `wrangler` builds it.
 
+  **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
+  which CI always builds from the pushed branch). So after ANY commit that
+  changes `worker/`, tell the owner to update their computer's copy *before*
+  `wrangler deploy` — `git checkout <working branch> && git pull`, then
+  `cd worker && npx wrangler deploy` — otherwise a stale local copy silently
+  redeploys the old behavior and it looks like the change "didn't work." When a
+  Worker-code change is what shipped, this pull-then-deploy is the manual step to
+  spell out, every time.
+
 ## The core bet: ingredients are structured data
 
 Everything good falls out of the `Ingredient` shape in `src/lib/types.ts`
