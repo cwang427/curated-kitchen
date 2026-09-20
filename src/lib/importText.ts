@@ -25,7 +25,7 @@ const INGREDIENTS_HEADER = /^ingredients\b/i
 const STEPS_HEADER = /^(directions|instructions|method|preparation|steps)\b/i
 // Headers that end a section (and, for a multi-recipe paste, start the next one).
 const SECTION_END =
-  /^(special equipment|equipment|notes?|nutrition|make[- ]?ahead|storage|read more|related|explore more|reviews?|featured tweaks|community guidelines|you'?ll (also )?need|watch|video)\b/i
+  /^(special equipment|equipment|notes?|nutrition|make[- ]?ahead|storage|read more|related|explore more|reviews?|featured tweaks|community guidelines|you'?ll (also )?need|watch|video|recipe tip|cook'?s? note|from the editor|editor'?s? note|why you'?ll love|most[- ]?saved|you'?ll also love|did you make|i made|ask the community|tips?)\b/i
 
 function isHeader(line: string, re: RegExp): boolean {
   return re.test(line) && line.length <= 30 && !/[.!?]$/.test(line)
@@ -37,10 +37,21 @@ function isCredit(line: string): boolean {
   return line.length < 90 && /^[A-Z][\w.'’&-]*(?: [A-Z][\w.'’&-]*)* \/ /.test(line)
 }
 
-/** A photo caption, not an instruction. */
+/** A photo caption or image credit, not an instruction. */
 function isCaption(line: string): boolean {
   if (/^(photo|collage)\b/i.test(line)) return true
   if (/^\d+\s+(image|photo|sheet|bowl|collage|pan)s?\b/i.test(line)) return true
+  // Food-photo alt text ("close up view of …", "A bowl of …", "Overhead …").
+  if (
+    /^(close[- ]?up|closeup|overhead|top[- ]?down|high[- ]?angle|low[- ]?angle|side view|three[- ]quarter|a (bowl|plate|skillet|dish|pan|platter|serving|glass|jar|slice|forkful|spoonful))\b/i.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  // An ALL-CAPS credit/label line, e.g. "DOTDASH MEREDITH FOOD STUDIOS".
+  const letters = line.replace(/[^A-Za-z]/g, '')
+  if (letters.length >= 4 && /\s/.test(line) && line === line.toUpperCase()) return true
   // A descriptive, passive sentence ("A bowl full of … is transferred …",
   // "The cooker has been depressurized …") — real steps are imperative and don't
   // open with an article.
@@ -52,7 +63,7 @@ function isCaption(line: string): boolean {
 
 /** Boilerplate lines that are never part of the recipe itself. */
 const JUNK =
-  /^(save|rate|rated|print|share|skip to content|newsletters?|sweepstakes|follow us|advertisement|get the app|jump to.*|keep screen awake|in this recipe|show full nutrition label|cancel|submit|my rating|my review|serious eats|never lose a recipe.*|save your favorites.*|save our recipes.*|cook this recipe.*|by\b.*|updated on.*|published on.*|reviews?|\d+ reviews?)$/i
+  /^(save|rate|rated|print|share|add photo|cook mode.*|skip to content|newsletters?|sweepstakes|follow us|advertisement|get the app|jump to.*|keep screen awake|in this recipe|show full nutrition label|cancel|submit|my rating|my review|serious eats|allrecipes|smitten kitchen|never lose a recipe.*|save your favorites.*|save our recipes.*|cook this recipe.*|original recipe.*|by\b.*|updated on.*|published on.*|reviews?|\d+ reviews?|\d+ photos?|[½¼¾\d/]+x)$/i
 
 function looksJunkForTitle(line: string): boolean {
   if (!line) return true
@@ -164,9 +175,19 @@ function extractSteps(block: string[]): { steps: string[]; captionSeen: boolean 
   return { steps: steps.filter((s) => s.length >= 12 && /\s/.test(s)), captionSeen }
 }
 
+/** The message shown (and, once the AI fallback ships, the trigger for it). */
+const CANT_READ =
+  'Couldn’t automatically read that layout. Try copying just the recipe (including its ' +
+  '“Ingredients” and “Directions” headings), or use Start from scratch.'
+
 /** Extract the loose authoring object from pasted text (before validation). */
 export function recipeFromText(raw: string): ImportResult {
-  const lines = raw.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trim())
+  const lines = raw
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    // Flatten markdown links to their text ("[Kenji](url)" → "Kenji"): blogs are
+    // full of them, and they'd otherwise pollute ingredient/step lines.
+    .map((l) => l.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim())
   const warnings: string[] = []
 
   const ingredientsStart = lines.findIndex((l) => isHeader(l, INGREDIENTS_HEADER))
@@ -175,11 +196,11 @@ export function recipeFromText(raw: string): ImportResult {
       ? lines.findIndex((l, i) => i > ingredientsStart && isHeader(l, STEPS_HEADER))
       : -1
 
+  // We only trust the parse when the recipe's spine — an "Ingredients" heading
+  // followed by a "Directions" heading — is present in order. Blog-style pages
+  // without those headings (and screenshots) are left to the AI fallback.
   if (ingredientsStart < 0 || stepsStart < 0) {
-    throw new Error(
-      'Couldn’t find the recipe in that text. Copy the part that includes the ' +
-        '“Ingredients” and “Directions” headings and paste it again.',
-    )
+    throw new Error(CANT_READ)
   }
 
   // Ingredients: between the two headers, minus bullets, blanks, and sub-headers.
@@ -198,11 +219,9 @@ export function recipeFromText(raw: string): ImportResult {
   if (stepsEnd < 0) stepsEnd = lines.length
   const { steps: stepTexts, captionSeen } = extractSteps(lines.slice(stepsStart + 1, stepsEnd))
 
-  if (ingredientLines.length === 0) {
-    throw new Error('No ingredients found under the “Ingredients” heading in that text.')
-  }
-  if (stepTexts.length === 0) {
-    throw new Error('No steps found under the “Directions” heading in that text.')
+  // Require a plausible list, not a lone stray "Ingredients" word in prose.
+  if (ingredientLines.length < 2 || stepTexts.length === 0) {
+    throw new Error(CANT_READ)
   }
 
   // Ingredients → authoring entries (same shape the link importer produces).
@@ -243,7 +262,7 @@ export function recipeFromText(raw: string): ImportResult {
   warnings.push(
     'Steps were imported as plain text — add {{ }} tokens for amounts that should scale, and any step timers, by hand.',
   )
-  if (captionSeen || steps.length > 0) {
+  if (captionSeen) {
     warnings.push('Review the steps — a photo caption may have slipped in; delete any line that isn’t an instruction.')
   }
 

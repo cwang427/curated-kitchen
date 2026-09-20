@@ -247,15 +247,6 @@ export default function AddRecipePage() {
           <div className="space-y-4">
             <button
               type="button"
-              onClick={() => { setInitial(null); setMode('edit') }}
-              className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
-            >
-              <span className="block font-medium">Start from scratch</span>
-              <span className="mt-0.5 block text-sm text-ink-soft">Type the recipe in yourself.</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setMode('text')}
               className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
             >
@@ -292,6 +283,15 @@ export default function AddRecipePage() {
               </button>
             )}
 
+            {/* Manual entry is the last resort, below the import options. */}
+            <button
+              type="button"
+              onClick={() => { setInitial(null); setMode('edit') }}
+              className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+            >
+              <span className="block font-medium">Start from scratch</span>
+              <span className="mt-0.5 block text-sm text-ink-soft">Type the recipe in yourself.</span>
+            </button>
           </div>
         )}
       </main>
