@@ -119,8 +119,16 @@ const RECIPE_TOOL = {
         },
       },
       tags: { type: 'array', items: { type: 'string' } },
-      equipment: { type: 'array', items: { type: 'string' } },
-      notes: { type: 'array', items: { type: 'string' } },
+      equipment: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Notable tools the recipe calls for, e.g. "12-inch skillet", "food processor", "Dutch oven". Only what the recipe names or clearly requires; omit if nothing stands out.',
+      },
+      notes: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Tips / make-ahead / storage / variation asides from the source (e.g. a "Recipe Tip" or "Notes" section), one per entry. Only what the source actually says.',
+      },
       not_a_recipe: { type: 'boolean', description: 'Set true if the input is not actually a recipe.' },
     },
     required: ['title', 'ingredients', 'steps'],
@@ -134,6 +142,9 @@ Rules:
 - A parenthetical second measurement ("340 g bucatini (12 oz)") goes in "alt" so it scales too.
 - Every ingredient needs a "category" (supermarket aisle) from the allowed list.
 - In step text, wrap amounts that should scale with servings in {{ }} (e.g. "Add {{2 tbsp}} of the butter"). Leave times and temperatures as plain text. Put oven temps in the step's temperature field as well.
+- For EVERY step, also fill "brief": a scannable cook-mode version of that same step, one action per line (an array of short lines). Reuse the same {{ }} tokens for scalable amounts. This is a condensed restatement of the step's own text — keep the full prose in "text"; never let an instruction appear only in "brief".
+- Fill "equipment" with the notable tools the recipe uses (skillet, food processor, pressure cooker, etc.) when it names or clearly requires them. Don't invent specifics the recipe doesn't imply.
+- Fill "notes" with any tips, make-ahead, storage, or variation asides the source includes (e.g. a "Recipe Tip" or "Notes" section). Don't invent notes that aren't there.
 - If the input clearly isn't a recipe, call save_recipe with not_a_recipe true and empty ingredients/steps.`
 
 function corsHeaders(origin: string): Record<string, string> {
