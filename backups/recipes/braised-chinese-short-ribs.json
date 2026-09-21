@@ -1,0 +1,534 @@
+{
+  "createdAt": 1789775562862,
+  "createdBy": null,
+  "description": "A Chinese-style braise of soy, orange, and five-spice — savory and warm, not too sweet or spicy. Nothing here is time-critical, so it's an easy one to cook together; the prep and braise can be done ahead, and the ribs reheat beautifully.",
+  "equipment": [
+    "Dutch oven",
+    "Slow cooker (optional)",
+    "Fine-mesh strainer",
+    "Fat separator (optional)"
+  ],
+  "groups": [],
+  "images": [],
+  "ingredients": [
+    {
+      "alt": {
+        "quantity": 2.25,
+        "unit": "kg"
+      },
+      "canonical": "bone_in_english_cut_beef_short_ribs",
+      "category": "meat",
+      "group": null,
+      "id": "short_ribs",
+      "item": "bone-in English-cut beef short ribs",
+      "itemPlural": null,
+      "note": "English cut — see notes",
+      "optional": false,
+      "prep": null,
+      "quantity": 5,
+      "quantityMax": null,
+      "raw": "5 pounds (2.25 kg) beef short ribs (see note)",
+      "scalable": true,
+      "unit": "lb"
+    },
+    {
+      "alt": null,
+      "canonical": "kosher_salt_and_freshly_ground_black_pepper",
+      "category": "spices",
+      "group": null,
+      "id": "salt_pepper",
+      "item": "kosher salt and freshly ground black pepper",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": "for seasoning",
+      "quantity": null,
+      "quantityMax": null,
+      "raw": "Kosher salt and freshly ground black pepper",
+      "scalable": false,
+      "unit": null
+    },
+    {
+      "alt": {
+        "quantity": 30,
+        "unit": "ml"
+      },
+      "canonical": "neutral_oil",
+      "category": "pantry",
+      "group": null,
+      "id": "oil",
+      "item": "neutral oil",
+      "itemPlural": null,
+      "note": "such as vegetable or canola",
+      "optional": false,
+      "prep": null,
+      "quantity": 2,
+      "quantityMax": null,
+      "raw": "2 tablespoons (30 ml) neutral oil, such as vegetable or canola",
+      "scalable": true,
+      "unit": "tbsp"
+    },
+    {
+      "alt": {
+        "quantity": 1.5,
+        "unit": "cup"
+      },
+      "canonical": "large_yellow_onion",
+      "category": "produce",
+      "group": null,
+      "id": "onion",
+      "item": "large yellow onion",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": "chopped",
+      "quantity": 1,
+      "quantityMax": null,
+      "raw": "1 large yellow onion, chopped (about 1 1/2 cups)",
+      "scalable": true,
+      "unit": null
+    },
+    {
+      "alt": null,
+      "canonical": "fresh_ginger",
+      "category": "produce",
+      "group": null,
+      "id": "ginger",
+      "item": "fresh ginger",
+      "itemPlural": null,
+      "note": "from a large knob",
+      "optional": false,
+      "prep": "peeled and grated",
+      "quantity": 3,
+      "quantityMax": null,
+      "raw": "3 tablespoons peeled and grated fresh ginger (from about one 3-inch knob)",
+      "scalable": true,
+      "unit": "tbsp"
+    },
+    {
+      "alt": null,
+      "canonical": "garlic",
+      "category": "produce",
+      "group": null,
+      "id": "garlic",
+      "item": "garlic",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": "roughly chopped",
+      "quantity": 6,
+      "quantityMax": null,
+      "raw": "6 large cloves garlic, roughly chopped",
+      "scalable": true,
+      "unit": "clove"
+    },
+    {
+      "alt": {
+        "quantity": 12,
+        "unit": "g"
+      },
+      "canonical": "chinese_five_spice_powder",
+      "category": "spices",
+      "group": null,
+      "id": "five_spice",
+      "item": "Chinese five-spice powder",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": null,
+      "quantity": 1,
+      "quantityMax": null,
+      "raw": "1 tablespoon (12 g) Chinese five-spice powder",
+      "scalable": true,
+      "unit": "tbsp"
+    },
+    {
+      "alt": null,
+      "canonical": "orange",
+      "category": "produce",
+      "group": null,
+      "id": "orange_zest",
+      "item": "orange",
+      "itemPlural": null,
+      "note": "divided",
+      "optional": false,
+      "prep": "for zest — one in wide strips, one finely grated",
+      "quantity": 2,
+      "quantityMax": null,
+      "raw": "Zest of 2 oranges, one in wide strips, one finely grated, divided",
+      "scalable": true,
+      "unit": null
+    },
+    {
+      "alt": {
+        "quantity": 120,
+        "unit": "ml"
+      },
+      "canonical": "orange",
+      "category": "produce",
+      "group": null,
+      "id": "orange_juice",
+      "item": "fresh orange juice",
+      "itemPlural": null,
+      "note": "divided",
+      "optional": false,
+      "prep": null,
+      "quantity": 0.5,
+      "quantityMax": null,
+      "raw": "1/2 cup (120 ml) fresh juice from about 2 medium oranges, divided",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 120,
+        "unit": "ml"
+      },
+      "canonical": "shaoxing_rice_wine",
+      "category": "alcohol",
+      "group": null,
+      "id": "shaoxing",
+      "item": "Shaoxing rice wine",
+      "itemPlural": null,
+      "note": "or dry sherry",
+      "optional": false,
+      "prep": null,
+      "quantity": 0.5,
+      "quantityMax": null,
+      "raw": "1/2 cup (120 ml) Shaoxing rice wine (or dry sherry)",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 240,
+        "unit": "ml"
+      },
+      "canonical": "low_sodium_soy_sauce",
+      "category": "condiments",
+      "group": null,
+      "id": "soy_sauce",
+      "item": "low-sodium soy sauce",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": null,
+      "quantity": 1,
+      "quantityMax": null,
+      "raw": "1 cup (240 ml) low-sodium soy sauce",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 60,
+        "unit": "ml"
+      },
+      "canonical": "unseasoned_rice_wine_vinegar",
+      "category": "condiments",
+      "group": null,
+      "id": "rice_vinegar",
+      "item": "unseasoned rice wine vinegar",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": null,
+      "quantity": 0.25,
+      "quantityMax": null,
+      "raw": "1/4 cup (60 ml) unseasoned rice wine vinegar",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 120,
+        "unit": "ml"
+      },
+      "canonical": "honey",
+      "category": "condiments",
+      "group": null,
+      "id": "honey",
+      "item": "honey",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": null,
+      "quantity": 0.5,
+      "quantityMax": null,
+      "raw": "1/2 cup (120 ml) honey",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 30,
+        "unit": "ml"
+      },
+      "canonical": "sambal_chili_paste",
+      "category": "condiments",
+      "group": null,
+      "id": "chili_paste",
+      "item": "sambal chili paste",
+      "itemPlural": null,
+      "note": "or Chinese chili-garlic sauce",
+      "optional": false,
+      "prep": null,
+      "quantity": 2,
+      "quantityMax": null,
+      "raw": "2 tablespoons (30 ml) sambal chili paste or Chinese chili-garlic sauce",
+      "scalable": true,
+      "unit": "tbsp"
+    },
+    {
+      "alt": {
+        "quantity": 60,
+        "unit": "ml"
+      },
+      "canonical": "hoisin_sauce",
+      "category": "condiments",
+      "group": null,
+      "id": "hoisin",
+      "item": "hoisin sauce",
+      "itemPlural": null,
+      "note": null,
+      "optional": false,
+      "prep": null,
+      "quantity": 0.25,
+      "quantityMax": null,
+      "raw": "1/4 cup (60 ml) hoisin sauce",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 830,
+        "unit": "ml"
+      },
+      "canonical": "low_sodium_chicken_stock",
+      "category": "pantry",
+      "group": null,
+      "id": "chicken_stock",
+      "item": "low-sodium chicken stock",
+      "itemPlural": null,
+      "note": "or water, plus more as needed",
+      "optional": false,
+      "prep": null,
+      "quantity": 3.5,
+      "quantityMax": null,
+      "raw": "3 1/2 cups (830 ml) homemade or store-bought low-sodium chicken stock or water, plus more as needed",
+      "scalable": true,
+      "unit": "cup"
+    },
+    {
+      "alt": {
+        "quantity": 18,
+        "unit": "g"
+      },
+      "canonical": "cornstarch",
+      "category": "baking",
+      "group": null,
+      "id": "cornstarch",
+      "item": "cornstarch",
+      "itemPlural": null,
+      "note": "whisked with an equal amount of cold water into a slurry",
+      "optional": false,
+      "prep": null,
+      "quantity": 1.5,
+      "quantityMax": null,
+      "raw": "1 1/2 tablespoons (18 g) cornstarch mixed with 1 1/2 tablespoons (20 ml) cold water",
+      "scalable": true,
+      "unit": "tbsp"
+    },
+    {
+      "alt": null,
+      "canonical": "scallion",
+      "category": "produce",
+      "group": null,
+      "id": "scallions",
+      "item": "scallion",
+      "itemPlural": null,
+      "note": "for garnish",
+      "optional": false,
+      "prep": "white and light green parts only, thinly sliced",
+      "quantity": 3,
+      "quantityMax": null,
+      "raw": "3 scallions, white and light green parts only, thinly sliced, for garnish",
+      "scalable": true,
+      "unit": null
+    }
+  ],
+  "notes": [
+    "Buy the English cut of short ribs — one large bone per piece. Avoid flanken-cut (thin, cross-cut, several bones per piece).",
+    "Make-ahead: nothing is time-critical and the ribs reheat well, so you can brown and braise ahead, then finish the sauce later.",
+    "Leftovers: pull the meat off the bones, shred it, toss with the sauce, and fold into tacos with cabbage and pickled onions."
+  ],
+  "origin": "repo",
+  "schemaVersion": 1,
+  "slug": "braised-chinese-short-ribs",
+  "source": {
+    "author": "Emily and Matt Clifton",
+    "book": null,
+    "name": "Serious Eats",
+    "note": null,
+    "url": "https://www.seriouseats.com/braised-beef-short-ribs-honey-soy-orange-recipe"
+  },
+  "steps": [
+    {
+      "brief": [],
+      "group": null,
+      "id": "step_1",
+      "ingredientIds": [],
+      "temperature": {
+        "mode": "oven",
+        "unit": "F",
+        "value": 350
+      },
+      "text": "Preheat the oven to 350°F (180°C) — or plug in a slow cooker.",
+      "timers": []
+    },
+    {
+      "brief": [
+        "Pat the ribs dry; season lightly with salt, generously with pepper.",
+        "Heat the oil in a Dutch oven over medium-high until shimmering.",
+        "Sear the ribs in a single layer, in batches, browning well on all sides; move to a plate.",
+        "Pour off all but about 2 tbsp of the fat."
+      ],
+      "group": null,
+      "id": "step_2",
+      "ingredientIds": [
+        "short_ribs",
+        "salt_pepper",
+        "oil"
+      ],
+      "temperature": null,
+      "text": "Pat the short ribs dry. Season both sides lightly with salt and more generously with black pepper. Heat the oil in a Dutch oven over medium-high heat until shimmering, then add the ribs in a single layer — work in batches so you sear rather than steam them. Brown well on all sides, transfer to a plate, and pour off all but about 2 tablespoons of the fat.",
+      "timers": []
+    },
+    {
+      "brief": [],
+      "group": null,
+      "id": "step_3",
+      "ingredientIds": [
+        "onion",
+        "ginger",
+        "garlic",
+        "five_spice"
+      ],
+      "temperature": null,
+      "text": "Add the onion, ginger, garlic, and five-spice powder. Cook over medium-high heat, stirring, until the onions soften and everything is fragrant, about 4 minutes.",
+      "timers": [
+        {
+          "label": "Sauté aromatics",
+          "seconds": 240
+        }
+      ]
+    },
+    {
+      "brief": [
+        "Add the orange zest strips and {{0.25 cup}} orange juice, plus the Shaoxing wine, soy sauce, rice vinegar, honey, chili paste, hoisin, and stock; stir.",
+        "Return the ribs and any juices to the pot (or move everything to a slow cooker)."
+      ],
+      "group": null,
+      "id": "step_4",
+      "ingredientIds": [
+        "orange_zest",
+        "orange_juice",
+        "shaoxing",
+        "soy_sauce",
+        "rice_vinegar",
+        "honey",
+        "chili_paste",
+        "hoisin",
+        "chicken_stock",
+        "short_ribs"
+      ],
+      "temperature": null,
+      "text": "Add the wide strips of orange zest and {{0.25 cup}} of the orange juice, along with the Shaoxing wine, soy sauce, rice vinegar, honey, chili paste, hoisin, and stock. Stir to combine, then return the ribs and any accumulated juices to the pot. (Or transfer everything to a slow cooker.)",
+      "timers": []
+    },
+    {
+      "brief": [],
+      "group": null,
+      "id": "step_5",
+      "ingredientIds": [],
+      "temperature": null,
+      "text": "Slow cooker: cover and cook on high until the meat is tender and frees easily from the bones, 6 to 8 hours.",
+      "timers": []
+    },
+    {
+      "brief": [],
+      "group": null,
+      "id": "step_6",
+      "ingredientIds": [
+        "short_ribs",
+        "chicken_stock"
+      ],
+      "temperature": null,
+      "text": "Dutch oven: bring to a boil, cover, and transfer to the oven. Braise until the ribs are tender, about 3 hours, checking now and then and adding stock or water if it looks dry. Take the lid off for the last 20 minutes. The meat should be very tender but not completely falling apart.",
+      "timers": [
+        {
+          "label": "Braise",
+          "seconds": 10800
+        },
+        {
+          "label": "Lid off (final stretch)",
+          "seconds": 1200
+        }
+      ]
+    },
+    {
+      "brief": [
+        "Lift out the ribs and keep warm. Strain the liquid, spoon off the fat, and return the sauce to the pot; discard the solids.",
+        "Stir in the remaining {{0.25 cup}} orange juice; you want about {{3 cup}} of sauce — simmer to reduce if you have more.",
+        "Whisk in just enough cornstarch slurry to lightly thicken, a tablespoon at a time."
+      ],
+      "group": null,
+      "id": "step_7",
+      "ingredientIds": [
+        "short_ribs",
+        "orange_juice",
+        "cornstarch"
+      ],
+      "temperature": null,
+      "text": "Lift out the ribs and keep them warm. Strain the braising liquid, then separate or spoon off the fat and return the defatted sauce to the pot; discard the solids. Stir in the remaining {{0.25 cup}} orange juice. You want about {{3 cup}} of sauce — if you have more, simmer to reduce. Whisk in just enough of the cornstarch slurry to lightly thicken it, a tablespoon at a time; you may not need it all.",
+      "timers": []
+    },
+    {
+      "brief": [],
+      "group": null,
+      "id": "step_8",
+      "ingredientIds": [
+        "short_ribs",
+        "scallions",
+        "orange_zest"
+      ],
+      "temperature": null,
+      "text": "Return the ribs to the sauce and coat them well. Scatter with the sliced scallions and the finely grated orange zest, and serve over mashed potatoes or polenta.",
+      "timers": []
+    }
+  ],
+  "subtitle": "Tender, saucy short ribs with warm five-spice and a bright citrus lift",
+  "tags": [
+    "beef",
+    "short-ribs",
+    "braise",
+    "chinese",
+    "make-ahead",
+    "dinner-party",
+    "dutch-oven",
+    "slow-cooker"
+  ],
+  "times": {
+    "activeMin": null,
+    "cookMin": 180,
+    "prepMin": 45,
+    "totalMin": 225
+  },
+  "title": "Braised Chinese-Style Short Ribs with Soy, Orange, and Five-Spice",
+  "visibility": "friends",
+  "yield": {
+    "amount": 4,
+    "amountMax": 6,
+    "unit": "servings"
+  }
+}
