@@ -351,8 +351,12 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // versions over time (a stale id 404s with "no longer available to new
   // users"), so keep this current and override with the GEMINI_MODEL var when a
   // newer one ships — no code change needed.
-  const model = env.GEMINI_MODEL || 'gemini-3.6-flash'
-  console.log(`gemini start model=${model} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
+  // Try the flagship first, then a lighter model that usually has more free-tier
+  // headroom when the flagship is briefly overloaded (503). If the operator
+  // pinned GEMINI_MODEL, respect only that (no surprise fallback).
+  const primaryModel = env.GEMINI_MODEL || 'gemini-3.6-flash'
+  const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.6-flash-lite']
+  console.log(`gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
   const reqBody = JSON.stringify({
     systemInstruction: { parts: [{ text: SYSTEM }] },
     contents: [{ role: 'user', parts }],
@@ -370,44 +374,61 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     },
   })
 
-  // A fresh/popular model returns 503 UNAVAILABLE ("high demand") in brief
-  // spikes; those clear in a second or two, so retry a couple of times with a
-  // short backoff before giving up. (Not 429 — that's a real rate limit.)
+  // 503 UNAVAILABLE ("high demand") is a transient spike — retry a model once
+  // with a short backoff, then move on to the next model. A fallback model that
+  // doesn't exist (404) is skipped too. Anything else (ok, 400, 429, …) we use
+  // or surface as-is. (429 is a real rate limit, not retried.)
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-  let res: Response
-  for (let attempt = 1; ; attempt++) {
-    try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
-          body: reqBody,
-        },
-      )
-    } catch (e) {
-      console.log(`gemini fetch failed (attempt ${attempt}): ${String(e)}`)
-      if (attempt >= 3) return json({ error: 'Could not reach the AI service.' }, 502, origin)
-      await sleep(attempt * 800)
-      continue
+  let res: Response | null = null
+  let model = primaryModel
+  for (const m of models) {
+    let overloaded = false
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let r: Response
+      try {
+        r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+            body: reqBody,
+          },
+        )
+      } catch (e) {
+        console.log(`gemini fetch failed model=${m} attempt=${attempt}: ${String(e)}`)
+        if (attempt < 2) await sleep(800)
+        continue
+      }
+      if (r.status === 503) {
+        overloaded = true
+        console.log(`gemini 503 model=${m} attempt=${attempt}`)
+        if (attempt < 2) await sleep(attempt * 800) // 0.8s
+        continue
+      }
+      if (m !== primaryModel && r.status === 404) {
+        console.log(`gemini fallback ${m} not available (404)`)
+        break // treat a missing fallback as "skip", not a surfaced error
+      }
+      res = r
+      model = m
+      break
     }
-    if (res.status === 503 && attempt < 3) {
-      console.log(`gemini 503 (attempt ${attempt}); retrying`)
-      await sleep(attempt * 800) // 0.8s, then 1.6s
-      continue
-    }
-    break
+    if (res) break
+    if (overloaded) console.log(`gemini model=${m} still overloaded; trying next`)
+  }
+
+  if (!res) {
+    console.log('gemini all models unavailable')
+    return json({ error: 'Gemini is busy right now — please try again in a moment.' }, 502, origin)
   }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
-    console.log(`gemini http ${res.status}: ${detail.slice(0, 800)}`)
+    console.log(`gemini http ${res.status} model=${model}: ${detail.slice(0, 800)}`)
     const msg =
       res.status === 429
         ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
-        : res.status === 503
-          ? 'Gemini is briefly overloaded — please try again in a moment.'
-          : `AI service error (${res.status}).`
+        : `AI service error (${res.status}).`
     return json({ error: msg, detail }, 502, origin)
   }
 
