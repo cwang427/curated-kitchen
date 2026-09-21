@@ -350,6 +350,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // Flash reads images and is generous on the free tier; override with the
   // GEMINI_MODEL var (e.g. a -lite model for more headroom, or a newer one).
   const model = env.GEMINI_MODEL || 'gemini-2.5-flash'
+  console.log(`gemini start model=${model} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
   let res: Response
   try {
     res = await fetch(
@@ -375,12 +376,14 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
         }),
       },
     )
-  } catch {
+  } catch (e) {
+    console.log('gemini fetch failed: ' + String(e))
     return json({ error: 'Could not reach the AI service.' }, 502, origin)
   }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
+    console.log(`gemini http ${res.status}: ${detail.slice(0, 800)}`)
     const msg =
       res.status === 429
         ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
@@ -409,6 +412,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     // finishReason (MAX_TOKENS, SAFETY, …) / blockReason names the real cause,
     // which is otherwise invisible when the client falls back to its parser.
     const why = finishReason || data.promptFeedback?.blockReason || 'no output'
+    console.log(`gemini unreadable: finishReason=${why} textLen=${text.length}`)
     const msg =
       finishReason === 'MAX_TOKENS'
         ? 'That recipe was too long to read in one go — try fewer photos or just the recipe section.'
