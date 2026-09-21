@@ -8,7 +8,8 @@ import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
 import { useAuth } from '../auth/AuthProvider'
-import { deleteRecipe, useRecipe } from '../data/recipes'
+import HeartIcon from '../components/HeartIcon'
+import { deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
 import { getDish, removeDish } from '../data/cookBoard'
 import { describeFirestoreError } from '../lib/errors'
 import { formatMinutes } from '../lib/quantity'
@@ -96,13 +97,34 @@ export default function RecipePage() {
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         <header className="space-y-3">
-          <div>
-            <h1 className="font-serif text-3xl leading-tight tracking-tight">
-              {recipe.title}
-            </h1>
-            {recipe.subtitle && (
-              <p className="mt-1 text-ink-soft">{recipe.subtitle}</p>
-            )}
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-serif text-3xl leading-tight tracking-tight">
+                {recipe.title}
+              </h1>
+              {recipe.subtitle && (
+                <p className="mt-1 text-ink-soft">{recipe.subtitle}</p>
+              )}
+            </div>
+            {/* Favorite ("pin") — kitchen-wide. Members toggle; guests just see
+                it when it's set. */}
+            {isMember ? (
+              <button
+                type="button"
+                aria-pressed={recipe.favorite}
+                aria-label={recipe.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                onClick={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
+                className={`-m-1 grid size-11 shrink-0 place-items-center rounded-full transition active:scale-90 ${
+                  recipe.favorite ? 'text-accent' : 'text-ink-faint'
+                }`}
+              >
+                <HeartIcon filled={recipe.favorite} className="size-7" />
+              </button>
+            ) : recipe.favorite ? (
+              <span aria-label="Favorite" className="grid size-11 shrink-0 place-items-center text-accent">
+                <HeartIcon filled className="size-7" />
+              </span>
+            ) : null}
           </div>
 
           {attribution && (

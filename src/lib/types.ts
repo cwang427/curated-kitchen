@@ -169,6 +169,14 @@ export interface Recipe {
 
   householdId: string | null
   visibility: Visibility
+  /**
+   * A kitchen-wide favorite ("pin"). Shared: any member toggles it, guests see
+   * it but can't change it (same as editing). Favorites sort to the top of the
+   * recipe list and can be filtered to on their own. Absent on legacy docs =
+   * not a favorite. Toggled on its own (never through the editor), so it's
+   * excluded from RecipeSeed and a recipe edit leaves it untouched.
+   */
+  favorite: boolean
   createdBy: string | null
   createdAt: number | null
   updatedAt: number | null
@@ -188,10 +196,11 @@ export interface Recipe {
   copiedFrom?: string | null
 }
 
-/** What lives in recipes/*.json — the server fills in the rest. */
+/** What lives in recipes/*.json — the server fills in the rest. `favorite` is
+ * toggled on its own, not authored/edited, so it's not part of a seed either. */
 export type RecipeSeed = Omit<
   Recipe,
-  'id' | 'householdId' | 'createdBy' | 'createdAt' | 'updatedAt'
+  'id' | 'householdId' | 'createdBy' | 'createdAt' | 'updatedAt' | 'favorite'
 >
 
 /**

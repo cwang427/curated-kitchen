@@ -9,6 +9,7 @@ function hydrate(seedInput: unknown): Recipe {
     ...seed,
     id: seed.slug,
     householdId: 'hh_preview',
+    favorite: false,
     createdBy: 'u',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -41,14 +42,20 @@ const roast: Recipe = {
   yield: { amount: 4, amountMax: null, unit: 'servings' },
   // Shared with guests, so the ?asfriend preview has something to show.
   visibility: 'friends',
+  // A favorite, so the list pins it to the top and the heart shows filled.
+  favorite: true,
 }
 
 const ALL = [cacioRecipe, shortRibsRecipe, roast]
 
 export { useRecipeSearch, collectTags } from '../../src/data/recipes.ts'
+export async function setRecipeFavorite(): Promise<void> {}
 
 export function useRecipes(_householdId?: string | null, _nonce?: number, friendsOnly = false) {
-  const recipes = friendsOnly ? ALL.filter((r) => r.visibility === 'friends') : ALL
+  const recipes = (friendsOnly ? ALL.filter((r) => r.visibility === 'friends') : ALL)
+    // Mirror the real listener: favorites pinned to the top, then by title.
+    .slice()
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.title.localeCompare(b.title))
   return { recipes, loading: false, error: null }
 }
 

@@ -336,6 +336,16 @@ paragraph steps; tuned against real full-page pastes in `npm run test:text`
 (`scripts/fixtures/text/`). This is the free fallback for the big commercial
 recipe sites (AllRecipes, Serious Eats, etc.) that block the link route's
 server-side fetch.
+And **kitchen-wide favorites** (`Recipe.favorite`, a shared boolean): a heart
+button on each recipe card and on the reader (members toggle via
+`setRecipeFavorite` — a member merge-update of just `favorite`+`updatedAt`, no
+rules change; guests see a filled heart but can't toggle, same as editing).
+Favorites **pin to the top** of the recipe list (the `useRecipes` sort keys on
+`favorite` then title) and a heart **filter toggle** by the search box shows only
+them. `favorite` is deliberately excluded from `RecipeSeed`, so it's toggled on
+its own and a recipe edit/copy never carries or clobbers it (a copy starts
+un-favorited). Shared `HeartIcon` component; `test:rules` unchanged since the
+existing member-updates-recipe rule already covers it.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. Next: a PWA share-target

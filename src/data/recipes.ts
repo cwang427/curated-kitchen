@@ -49,6 +49,7 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     images: data.images ?? [],
     householdId: data.householdId ?? null,
     visibility: data.visibility ?? 'friends',
+    favorite: data.favorite === true,
     createdBy: data.createdBy ?? null,
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
@@ -106,7 +107,10 @@ export function useRecipes(householdId: string | null, nonce = 0, friendsOnly = 
         setRecipes(
           snapshot.docs
             .map((d) => toRecipe(d.id, d.data()))
-            .sort((a, b) => a.title.localeCompare(b.title)),
+            // Favorites pin to the top; ties (and everything else) by title.
+            .sort(
+              (a, b) => Number(b.favorite) - Number(a.favorite) || a.title.localeCompare(b.title),
+            ),
         )
         setError(null)
         setLoading(false)
@@ -285,6 +289,21 @@ export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe
 /** Delete a recipe. The rules allow this only for members of its household. */
 export async function deleteRecipe(slug: string): Promise<void> {
   await deleteDoc(doc(db, 'recipes', slug))
+}
+
+/**
+ * Toggle a recipe's kitchen-wide favorite ("pin"). A member merge-update that
+ * touches only `favorite` (and updatedAt), so the rules allow it and nothing
+ * else on the doc changes. Guests can't call this (the rules deny their write);
+ * the UI hides the button for them. Not marked origin 'app' — favoriting isn't
+ * authoring.
+ */
+export async function setRecipeFavorite(slug: string, favorite: boolean): Promise<void> {
+  await setDoc(
+    doc(db, 'recipes', slug),
+    { favorite, updatedAt: serverTimestamp() },
+    { merge: true },
+  )
 }
 
 /**

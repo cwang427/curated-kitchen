@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
-import { collectTags, useRecipeSearch, useRecipes } from '../data/recipes'
+import { collectTags, setRecipeFavorite, useRecipeSearch, useRecipes } from '../data/recipes'
 import { endCookSession, useCookSession } from '../data/cooksession'
 import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
+import HeartIcon from '../components/HeartIcon'
 import type { Recipe } from '../lib/types'
 
 /** The "cooking now" banner at the top of the list — shared session or solo. */
@@ -67,7 +68,16 @@ const TIME_BUCKETS: Array<{ label: string; max: number | null }> = [
   { label: '≤1 hr', max: 60 },
 ]
 
-function RecipeCard({ recipe }: { recipe: Recipe }) {
+function RecipeCard({
+  recipe,
+  canFavorite,
+  onToggleFavorite,
+}: {
+  recipe: Recipe
+  /** Members can toggle; guests only see a filled heart when it's a favorite. */
+  canFavorite: boolean
+  onToggleFavorite: () => void
+}) {
   const time = formatMinutes(recipe.times.activeMin ?? recipe.times.totalMin)
   const servings =
     recipe.yield.amountMax
@@ -79,7 +89,32 @@ function RecipeCard({ recipe }: { recipe: Recipe }) {
       to={`/r/${recipe.slug}`}
       className="block rounded-2xl border border-line bg-card p-4 shadow-sm transition active:scale-[0.99]"
     >
-      <h2 className="font-serif text-lg leading-snug tracking-tight">{recipe.title}</h2>
+      <div className="flex items-start gap-2">
+        <h2 className="min-w-0 flex-1 font-serif text-lg leading-snug tracking-tight">
+          {recipe.title}
+        </h2>
+        {canFavorite ? (
+          <button
+            type="button"
+            aria-pressed={recipe.favorite}
+            aria-label={recipe.favorite ? `Unfavorite ${recipe.title}` : `Favorite ${recipe.title}`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onToggleFavorite()
+            }}
+            className={`-m-1 grid size-9 shrink-0 place-items-center rounded-full transition active:scale-90 ${
+              recipe.favorite ? 'text-accent' : 'text-ink-faint'
+            }`}
+          >
+            <HeartIcon filled={recipe.favorite} />
+          </button>
+        ) : recipe.favorite ? (
+          <span aria-label="Favorite" className="grid size-9 shrink-0 place-items-center text-accent">
+            <HeartIcon filled />
+          </span>
+        ) : null}
+      </div>
       {recipe.subtitle && (
         <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{recipe.subtitle}</p>
       )}
@@ -119,21 +154,23 @@ export default function RecipeListPage() {
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   const tags = collectTags(recipes)
   const searched = useRecipeSearch(recipes, term, activeTags)
   // A time filter excludes recipes whose total time is unknown — we can't
   // claim they're under the limit.
-  const results = useMemo(
-    () =>
+  const results = useMemo(() => {
+    let list =
       maxTime === null
         ? searched
         : searched.filter((r) => {
             const total = effectiveTotalMinutes(r.times)
             return total !== null && total <= maxTime
-          }),
-    [searched, maxTime],
-  )
+          })
+    if (favoritesOnly) list = list.filter((r) => r.favorite)
+    return list
+  }, [searched, maxTime, favoritesOnly])
 
   const toggleTag = (tag: string) =>
     setActiveTags((current) =>
@@ -185,14 +222,30 @@ export default function RecipeListPage() {
             onDismiss={() => removeDish(board.dishes[0].slug)}
           />
         ) : null}
-        <input
-          type="search"
-          value={term}
-          onChange={(event) => setTerm(event.target.value)}
-          placeholder="Search recipes, ingredients, sources…"
-          aria-label="Search recipes"
-          className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
-        />
+        <div className="flex gap-2">
+          <input
+            type="search"
+            value={term}
+            onChange={(event) => setTerm(event.target.value)}
+            placeholder="Search recipes, ingredients, sources…"
+            aria-label="Search recipes"
+            className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={() => setFavoritesOnly((v) => !v)}
+            aria-pressed={favoritesOnly}
+            aria-label={favoritesOnly ? 'Showing favorites only — show all recipes' : 'Show favorites only'}
+            title={favoritesOnly ? 'Showing favorites' : 'Show favorites only'}
+            className={`grid min-h-12 w-12 shrink-0 place-items-center rounded-xl border transition active:scale-95 ${
+              favoritesOnly
+                ? 'border-accent bg-accent text-white dark:text-stone-900'
+                : 'border-line bg-card text-ink-soft'
+            }`}
+          >
+            <HeartIcon filled={favoritesOnly} />
+          </button>
+        </div>
 
         <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
           {TIME_BUCKETS.map((bucket) => {
@@ -265,7 +318,12 @@ export default function RecipeListPage() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {results.map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
+            <RecipeCard
+              key={recipe.id}
+              recipe={recipe}
+              canFavorite={isMember}
+              onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
+            />
           ))}
         </div>
       </main>
