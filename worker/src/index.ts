@@ -359,64 +359,64 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   const primaryModel = env.GEMINI_MODEL || 'gemini-3.5-flash'
   const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.5-flash-lite']
   console.log(`gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
-  const reqBody = JSON.stringify({
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    contents: [{ role: 'user', parts }],
-    generationConfig: {
+  // Structured JSON output. We deliberately do NOT send thinkingConfig — some
+  // models (notably the -lite tier) reject it with 400 INVALID_ARGUMENT — and we
+  // give generous output room so a long recipe's JSON isn't cut off. The app's
+  // zod schema is the real validator, so if a model rejects our responseSchema
+  // (400) we retry it once WITHOUT the schema (plain JSON, guided by the prompt).
+  const buildBody = (useSchema: boolean): string => {
+    const generationConfig: Record<string, unknown> = {
       temperature: 0,
       responseMimeType: 'application/json',
-      responseSchema: RECIPE_TOOL.input_schema,
-      // Room for a full recipe's JSON even from a long article / several
-      // photos, so the answer isn't cut off mid-object.
-      maxOutputTokens: 8192,
-      // Flash "thinks" by default, which spends the output budget and can
-      // truncate structured JSON on long inputs. We don't need it for
-      // deterministic extraction, so turn it off.
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  })
+      maxOutputTokens: 16384,
+    }
+    if (useSchema) generationConfig.responseSchema = RECIPE_TOOL.input_schema
+    return JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig,
+    })
+  }
+  const call = async (m: string, useSchema: boolean): Promise<Response | null> => {
+    try {
+      return await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+          body: buildBody(useSchema),
+        },
+      )
+    } catch (e) {
+      console.log(`gemini fetch failed model=${m}: ${String(e)}`)
+      return null
+    }
+  }
 
-  // 503 UNAVAILABLE ("high demand") is a transient spike — retry a model once
-  // with a short backoff, then move on to the next model. A fallback model that
-  // doesn't exist (404) is skipped too. Anything else (ok, 400, 429, …) we use
-  // or surface as-is. (429 is a real rate limit, not retried.)
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  // Try each model in turn: 503 (overloaded) or 404 (missing fallback) → skip to
+  // the next; a 400 → retry that model once without the schema, then use/surface.
   let res: Response | null = null
   let model = primaryModel
   for (const m of models) {
-    let overloaded = false
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      let r: Response
-      try {
-        r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
-            body: reqBody,
-          },
-        )
-      } catch (e) {
-        console.log(`gemini fetch failed model=${m} attempt=${attempt}: ${String(e)}`)
-        if (attempt < 2) await sleep(800)
-        continue
-      }
-      if (r.status === 503) {
-        overloaded = true
-        console.log(`gemini 503 model=${m} attempt=${attempt}`)
-        if (attempt < 2) await sleep(attempt * 800) // 0.8s
-        continue
-      }
-      if (m !== primaryModel && r.status === 404) {
-        console.log(`gemini fallback ${m} not available (404)`)
-        break // treat a missing fallback as "skip", not a surfaced error
-      }
-      res = r
-      model = m
-      break
+    let r = await call(m, true)
+    if (!r) continue // network failure; try the next model
+    if (r.status === 503) {
+      console.log(`gemini 503 model=${m}; trying next`)
+      continue
     }
-    if (res) break
-    if (overloaded) console.log(`gemini model=${m} still overloaded; trying next`)
+    if (m !== primaryModel && r.status === 404) {
+      console.log(`gemini fallback ${m} not available (404)`)
+      continue
+    }
+    if (r.status === 400) {
+      const detail = await r.text().catch(() => '')
+      console.log(`gemini 400 model=${m}: ${detail.slice(0, 300)} — retrying without schema`)
+      const r2 = await call(m, false)
+      if (r2) r = r2
+    }
+    res = r
+    model = m
+    break
   }
 
   if (!res) {
@@ -430,7 +430,9 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     const msg =
       res.status === 429
         ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
-        : `AI service error (${res.status}).`
+        : res.status === 503
+          ? 'Gemini is briefly overloaded — please try again in a moment.'
+          : `AI service error (${res.status}).`
     return json({ error: msg, detail }, 502, origin)
   }
 

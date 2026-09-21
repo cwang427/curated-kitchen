@@ -27,6 +27,44 @@ function formatBuildTime(iso: string): string {
 
 export default function VersionInfo() {
   const [check, setCheck] = useState<Check>({ status: 'checking' })
+  const [applying, setApplying] = useState(false)
+
+  // A plain reload isn't enough for a PWA: a freshly deployed service worker
+  // has to install and take control first, otherwise the reload just re-serves
+  // the old cached app (hence the old "press twice" behavior). So trigger the
+  // worker update and reload only once the new one is in control — with a
+  // timeout fallback so the button always does something.
+  const applyUpdate = useCallback(async () => {
+    setApplying(true)
+    let reloaded = false
+    const reload = () => {
+      if (reloaded) return
+      reloaded = true
+      window.location.reload()
+    }
+    try {
+      if (!('serviceWorker' in navigator)) return reload()
+      const reg = await navigator.serviceWorker.getRegistration()
+      if (!reg) return reload()
+      // The new worker taking control is the real signal it's safe to reload.
+      navigator.serviceWorker.addEventListener('controllerchange', reload, { once: true })
+      // Nudge a worker that's already waiting, fetch the latest, then nudge
+      // whatever that turned up. (autoUpdate workers skip-waiting on their own;
+      // the message is harmless if unhandled.)
+      reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
+      await reg.update()
+      reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
+      reg.installing?.addEventListener('statechange', (e) => {
+        const sw = e.target as ServiceWorker
+        if (sw.state === 'installed') reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
+      })
+      // If nothing new actually installs, controllerchange won't fire — reload
+      // anyway after a moment so the button never feels dead.
+      setTimeout(reload, 3500)
+    } catch {
+      reload()
+    }
+  }, [])
 
   const runCheck = useCallback(async () => {
     setCheck({ status: 'checking' })
@@ -77,10 +115,11 @@ export default function VersionInfo() {
         {check.status === 'update' && (
           <button
             type="button"
-            onClick={() => window.location.reload()}
-            className="min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] dark:text-stone-900"
+            onClick={applyUpdate}
+            disabled={applying}
+            className="min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-60 dark:text-stone-900"
           >
-            Update available — reload
+            {applying ? 'Updating…' : 'Update available — reload'}
           </button>
         )}
 
