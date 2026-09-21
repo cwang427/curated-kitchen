@@ -8,7 +8,8 @@ compatibility_date = "2024-11-01"
 [vars]
 FIREBASE_PROJECT_ID = "curated-kitchen"
 ALLOWED_ORIGIN = "https://cwang427.github.io"
-# Optional: the Gemini model to use. gemini-2.5-flash is the default in code.
-# GEMINI_MODEL = "gemini-2.5-flash"
+# Optional: the Gemini model to use. gemini-3.6-flash is the default in code.
+# Set this if Google retires that id (the Worker will 404) or a newer one ships.
+# GEMINI_MODEL = "gemini-3.6-flash"
 # Optional (paid alternative): the Claude model, used only if no GEMINI_API_KEY.
 # ANTHROPIC_MODEL = "claude-sonnet-5"

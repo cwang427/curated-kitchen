@@ -84,8 +84,9 @@ confusion:
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
-    overrides the model (default `gemini-2.5-flash`, thinking disabled so long
-    inputs don't truncate the JSON). It reads any layout (blog-style pages the
+    overrides the model (default `gemini-3.6-flash`, thinking disabled so long
+    inputs don't truncate the JSON — bump the default when Google retires an id,
+    which shows up as a 404 "no longer available to new users"). It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
     (one or several photos of the SAME recipe, read together; the legacy single
     `{ image }` is still accepted) — via structured JSON output → the same

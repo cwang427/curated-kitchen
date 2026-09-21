@@ -347,9 +347,11 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   }
   parts.push({ text: imagePrompt(input) })
 
-  // Flash reads images and is generous on the free tier; override with the
-  // GEMINI_MODEL var (e.g. a -lite model for more headroom, or a newer one).
-  const model = env.GEMINI_MODEL || 'gemini-2.5-flash'
+  // Flash reads images and is generous on the free tier. Google retires model
+  // versions over time (a stale id 404s with "no longer available to new
+  // users"), so keep this current and override with the GEMINI_MODEL var when a
+  // newer one ships — no code change needed.
+  const model = env.GEMINI_MODEL || 'gemini-3.6-flash'
   console.log(`gemini start model=${model} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
   let res: Response
   try {
