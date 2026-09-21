@@ -351,11 +351,13 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // versions over time (a stale id 404s with "no longer available to new
   // users"), so keep this current and override with the GEMINI_MODEL var when a
   // newer one ships — no code change needed.
-  // Try the flagship first, then a lighter model that usually has more free-tier
-  // headroom when the flagship is briefly overloaded (503). If the operator
-  // pinned GEMINI_MODEL, respect only that (no surprise fallback).
-  const primaryModel = env.GEMINI_MODEL || 'gemini-3.6-flash'
-  const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.6-flash-lite']
+  // Default to a free, responsive model, then fall back to its lighter sibling
+  // if that's briefly overloaded (503). We deliberately do NOT lead with the
+  // newest flagship (gemini-3.6-flash) — it's popular enough to throw sustained
+  // 503s, which just wastes time before falling back. Pin GEMINI_MODEL to force
+  // a single model (e.g. gemini-3.6-flash once it settles) with no fallback.
+  const primaryModel = env.GEMINI_MODEL || 'gemini-3.5-flash'
+  const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.5-flash-lite']
   console.log(`gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
   const reqBody = JSON.stringify({
     systemInstruction: { parts: [{ text: SYSTEM }] },

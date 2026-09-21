@@ -79,13 +79,16 @@ GitHub automatically). To confirm you have the update, `git log --oneline -3`
 should show the recent commits before you deploy.
 
 ## Choosing the model
-The default is **gemini-3.6-flash** (reads images, generous free tier). Google
-retires older model ids over time — if the Worker starts returning a 404 saying
-the model "is no longer available," that's the signal to bump it: add
-`GEMINI_MODEL = "gemini-<newer>-flash"` under `[vars]` in `wrangler.toml` and
-`wrangler deploy` again (no code change needed). You can also point it at a
-`-lite` model for more free headroom. Free-tier limits are per-model and
-per-account and change over time; see https://aistudio.google.com/docs/rate-limits.
+The default is **gemini-3.5-flash** (free, reads images), with an automatic
+fallback to **gemini-3.5-flash-lite** when the primary is briefly overloaded
+(a 503 "high demand" spike). We don't lead with the newest flagship
+(gemini-3.6-flash) because, while it's free too, it's popular enough to throw
+sustained 503s. To force a single model with no fallback — e.g. to try
+gemini-3.6-flash once it's calmed down — add `GEMINI_MODEL = "gemini-3.6-flash"`
+under `[vars]` in `wrangler.toml` and `wrangler deploy` again (no code change).
+If the Worker ever 404s with "no longer available," that model id was retired —
+bump it the same way. Free-tier model availability and limits change over time;
+see https://aistudio.google.com/docs/rate-limits.
 
 ## Optional: use paid Anthropic Claude instead
 If you'd rather use Claude (paid, ~1–3¢ a recipe): set `ANTHROPIC_API_KEY`

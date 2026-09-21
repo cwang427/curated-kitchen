@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
@@ -23,7 +23,19 @@ export default function AddRecipePage() {
   const [photos, setPhotos] = useState<{ src: string; data: string; mediaType: string }[]>([])
   const [preparing, setPreparing] = useState(false)
   const [reading, setReading] = useState(false)
+  const [readSeconds, setReadSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
+
+  // The AI read is a single call with no progress events, so we can't show a
+  // real percentage — but a spinner plus an elapsed counter makes clear it's
+  // working (a long paste can take several seconds).
+  useEffect(() => {
+    if (!reading) return
+    setReadSeconds(0)
+    const started = Date.now()
+    const id = setInterval(() => setReadSeconds(Math.round((Date.now() - started) / 1000)), 500)
+    return () => clearInterval(id)
+  }, [reading])
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
@@ -196,6 +208,8 @@ export default function AddRecipePage() {
               </p>
             )}
 
+            {reading && <ReadingIndicator seconds={readSeconds} />}
+
             <button
               type="button"
               onClick={readText}
@@ -260,6 +274,8 @@ export default function AddRecipePage() {
                 {error}
               </p>
             )}
+
+            {reading && <ReadingIndicator seconds={readSeconds} />}
 
             <button
               type="button"
@@ -330,6 +346,28 @@ export default function AddRecipePage() {
           </div>
         )}
       </main>
+    </div>
+  )
+}
+
+/** Indeterminate progress for an AI read: a spinner plus an elapsed counter, so
+ * a multi-second wait doesn't feel frozen. After a while it reassures rather
+ * than worries. */
+function ReadingIndicator({ seconds }: { seconds: number }) {
+  return (
+    <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-2xl border border-line bg-card p-4">
+      <span
+        aria-hidden
+        className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-line border-t-accent"
+      />
+      <div className="text-sm">
+        <p className="font-medium text-ink">Reading your recipe…{seconds >= 3 ? ` (${seconds}s)` : ''}</p>
+        <p className="text-ink-soft">
+          {seconds >= 12
+            ? 'Still going — a long recipe can take a little while. Hang tight.'
+            : 'This usually takes a few seconds.'}
+        </p>
+      </div>
     </div>
   )
 }
