@@ -116,8 +116,17 @@ export default function AddRecipePage() {
       if (aiImportConfigured) {
         try {
           seed = (await importRecipeViaAI({ text })).seed
-        } catch {
-          seed = importRecipeFromText(text).seed
+        } catch (aiErr) {
+          // AI is the primary engine here; the on-device parser only reads text
+          // with clear "Ingredients"/"Directions" headings. If it can't read
+          // this either, show the AI's problem (usually "busy — try again")
+          // rather than the parser's "add headings" note — the AI should have
+          // handled it, and telling the cook to add headings is misleading.
+          try {
+            seed = importRecipeFromText(text).seed
+          } catch {
+            throw aiErr
+          }
         }
       } else {
         seed = importRecipeFromText(text).seed
