@@ -312,6 +312,20 @@ timer will ring — pure merge logic in `src/lib/cookboard.ts` (`buildTimeline`)
 It reads only real data (step position + `endsAt` timers), so it needs no schema
 or rules change; a back-timed "ready by 6:45" scheduler (needing per-step
 durations) is a deliberate later phase.
+And **in-recipe multitasking** (cook mode's "Meanwhile", `src/routes/CookPage.tsx`):
+when a timer you started belongs to a step you've moved on from, it shows in a
+**Meanwhile band** above the current step — named by its step ("Meanwhile · Step
+3"), counting down, tap to jump back; when it rings the band turns into a
+prominent "← Back to step N" (and still beeps). Timers already persisted across
+steps (they're dish-level, keyed by `source = "<stepId>:<label>"`); this just
+partitions them into current-step (full-control tray) vs. away (the bands, via
+`stepIndexForSource`), and adds a footer **work-ahead nudge** shown while the
+current step is cooking ("This is cooking — work ahead"). Pure cook-mode UI over
+existing timer state — no schema/rules change, works solo and in a cook-together
+session. Phase 2 (later): Gemini tags hands-off steps (simmer/bake/rest) +
+realistic durations so the nudge only appears on genuine waits and can suggest
+which upcoming steps are safe to start; a keyword heuristic backfills recipes
+imported before the tag.
 And an **owner-only recipe backup** (`.github/workflows/backup-recipes.yml` +
 `scripts/backup-recipes.ts`): a weekly/manual Firestore→`backups/recipes/*.json`
 snapshot committed to git, the safety net now that the app owns recipes (additive,

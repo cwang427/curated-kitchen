@@ -238,6 +238,67 @@ function TimerTray({
   )
 }
 
+/** A running timer whose step isn't the one you're looking at — background work. */
+type AwayTimer = DisplayTimer & { stepIndex: number; blurb: string }
+
+/** A short, human label for a step: its first cook-mode line (or first sentence
+ * of the prose), with {{ }} amount markers stripped — enough to say "which step". */
+function stepBlurb(step: Step): string {
+  const first =
+    step.brief && step.brief.length > 0 ? step.brief[0] : splitStepText(step.text)[0] ?? step.text
+  return first.replace(/\{\{\s*|\s*\}\}/g, '').trim()
+}
+
+/**
+ * "Meanwhile" band — a timer running for a step you've moved on from, so it stays
+ * visible and one tap jumps you back. Tap anywhere to check on that step; when it
+ * rings the band turns into a prominent "← Back to step N". This is the whole of
+ * intra-recipe multitasking: focus stays on one step, background timers surface
+ * here instead of being forgotten.
+ */
+function MeanwhileBand({ timer, onJump }: { timer: AwayTimer; onJump: () => void }) {
+  const n = timer.stepIndex + 1
+  if (timer.done) {
+    return (
+      <button
+        type="button"
+        onClick={onJump}
+        className="flex w-full animate-pulse items-center gap-3 rounded-xl border border-accent bg-accent-soft px-3 py-2 text-left"
+      >
+        <span className="size-2.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] font-bold uppercase tracking-wide text-accent">
+            Time’s up · Step {n}
+          </span>
+          <span className="block truncate text-sm font-medium">{timer.blurb}</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-accent px-3 py-1.5 text-sm font-semibold text-white dark:text-stone-900">
+          ← Back to {n}
+        </span>
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onJump}
+      className="flex w-full items-center gap-3 rounded-xl border border-accent/40 bg-card px-3 py-2 text-left"
+    >
+      <span className="size-2.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-bold uppercase tracking-wide text-accent">
+          Meanwhile · Step {n}
+        </span>
+        <span className="block truncate text-sm text-ink-soft">{timer.blurb}</span>
+      </span>
+      <span className="shrink-0 font-mono text-xl font-semibold tabular-nums">{clock(timer.remaining)}</span>
+      <svg viewBox="0 0 24 24" className="size-4 shrink-0 text-accent" fill="none" aria-hidden="true">
+        <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
+
 export default function CookPage() {
   const { slug } = useParams<{ slug: string }>()
   const [params] = useSearchParams()
@@ -381,6 +442,23 @@ export default function CookPage() {
     const remaining = running ? Math.max(0, Math.round((timer.endsAt! - now) / 1000)) : timer.remaining
     return { ...timer, remaining, done: running && remaining <= 0 }
   })
+
+  // A timer's step is encoded in its source ("<stepId>:<label>"). Split timers
+  // into those for the step you're viewing (full controls, in the tray) and
+  // those for a step you've moved on from (the "Meanwhile" bands). An orphan
+  // whose step can't be found just stays in the tray.
+  const stepIndexForSource = (source: string) => steps.findIndex((s) => source.startsWith(`${s.id}:`))
+  const currentTimers: DisplayTimer[] = []
+  const awayTimers: AwayTimer[] = []
+  for (const t of displayTimers) {
+    const si = stepIndexForSource(t.source)
+    if (si === -1 || si === index) currentTimers.push(t)
+    else awayTimers.push({ ...t, stepIndex: si, blurb: stepBlurb(steps[si]) })
+  }
+  // Rung ones first (they need you), then soonest to ring.
+  awayTimers.sort((a, b) => Number(b.done) - Number(a.done) || a.remaining - b.remaining)
+  // The current step is actively cooking — offer to work ahead while it runs.
+  const currentStepCooking = currentTimers.some((t) => t.endsAt !== null && !t.done)
 
   // Route a timer change to the session (synced) or local state (solo). A no-op
   // update (same reference) is skipped so we don't write for nothing.
@@ -565,10 +643,18 @@ export default function CookPage() {
           </div>
         )}
 
-        {displayTimers.length > 0 && (
+        {awayTimers.length > 0 && (
+          <div className="mx-auto max-w-2xl space-y-2">
+            {awayTimers.map((t) => (
+              <MeanwhileBand key={t.id} timer={t} onJump={() => goToStep(t.stepIndex)} />
+            ))}
+          </div>
+        )}
+
+        {currentTimers.length > 0 && (
           <div className="mx-auto max-w-2xl">
             <TimerTray
-              timers={displayTimers}
+              timers={currentTimers}
               onToggle={toggleTimer}
               onReset={resetTimer}
               onDismiss={dismissTimer}
@@ -670,10 +756,30 @@ export default function CookPage() {
             })}
           </div>
         )}
+
       </main>
 
-      {/* Bottom: big navigation */}
-      <div className="pad-safe-bottom sticky bottom-0 border-t border-line bg-paper/95 px-4 pt-3 backdrop-blur">
+      {/* Bottom: work-ahead nudge (when this step is cooking) + big navigation */}
+      <div className="pad-safe-bottom sticky bottom-0 space-y-3 border-t border-line bg-paper/95 px-4 pt-3 backdrop-blur">
+        {/* Once the current step is cooking, invite moving on — its timer keeps
+            running in the Meanwhile band and calls you back when it rings, so
+            nothing's forgotten. Kept here so it's always visible, not buried
+            below a long step. */}
+        {currentStepCooking && !isLast && (
+          <button
+            type="button"
+            onClick={() => goToStep(index + 1)}
+            className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-2xl border border-accent/30 bg-accent-soft px-4 py-2.5 text-left transition active:scale-[0.99]"
+          >
+            <span className="text-lg" aria-hidden="true">🍲</span>
+            <span className="flex-1 text-sm leading-snug text-accent">
+              <span className="font-semibold">This is cooking.</span> Work ahead — it keeps counting up top and calls you back when it’s done.
+            </span>
+            <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-accent" fill="none" aria-hidden="true">
+              <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         <div className="mx-auto flex max-w-2xl gap-3">
           <button
             type="button"
