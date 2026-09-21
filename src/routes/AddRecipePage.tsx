@@ -321,15 +321,22 @@ export default function AddRecipePage() {
               </button>
             )}
 
+            {/* Disabled for now: most sites block the Worker's server-side fetch,
+                so this route is unreliable. Left visible (greyed) so it's easy to
+                turn back on later — flip `disabled` and restore the onClick. */}
             {urlImportConfigured && (
               <button
                 type="button"
-                onClick={() => setMode('link')}
-                className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+                disabled
+                aria-disabled="true"
+                className="w-full cursor-not-allowed rounded-2xl border border-line bg-card p-4 text-left opacity-55"
               >
-                <span className="block font-medium">Paste a link</span>
+                <span className="block font-medium">
+                  Paste a link{' '}
+                  <span className="font-normal text-ink-faint">(not working right now)</span>
+                </span>
                 <span className="mt-0.5 block text-sm text-ink-soft">
-                  Read a recipe straight from most cooking sites, then review before saving.
+                  Too many sites block automatic reading — use Paste text or Scan a photo instead.
                 </span>
               </button>
             )}

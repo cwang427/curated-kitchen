@@ -154,23 +154,21 @@ export default function RecipeListPage() {
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   const tags = collectTags(recipes)
   const searched = useRecipeSearch(recipes, term, activeTags)
   // A time filter excludes recipes whose total time is unknown — we can't
   // claim they're under the limit.
-  const results = useMemo(() => {
-    let list =
+  const results = useMemo(
+    () =>
       maxTime === null
         ? searched
         : searched.filter((r) => {
             const total = effectiveTotalMinutes(r.times)
             return total !== null && total <= maxTime
-          })
-    if (favoritesOnly) list = list.filter((r) => r.favorite)
-    return list
-  }, [searched, maxTime, favoritesOnly])
+          }),
+    [searched, maxTime],
+  )
 
   const toggleTag = (tag: string) =>
     setActiveTags((current) =>
@@ -222,30 +220,14 @@ export default function RecipeListPage() {
             onDismiss={() => removeDish(board.dishes[0].slug)}
           />
         ) : null}
-        <div className="flex gap-2">
-          <input
-            type="search"
-            value={term}
-            onChange={(event) => setTerm(event.target.value)}
-            placeholder="Search recipes, ingredients, sources…"
-            aria-label="Search recipes"
-            className="min-h-12 min-w-0 flex-1 rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
-          />
-          <button
-            type="button"
-            onClick={() => setFavoritesOnly((v) => !v)}
-            aria-pressed={favoritesOnly}
-            aria-label={favoritesOnly ? 'Showing favorites only — show all recipes' : 'Show favorites only'}
-            title={favoritesOnly ? 'Showing favorites' : 'Show favorites only'}
-            className={`grid min-h-12 w-12 shrink-0 place-items-center rounded-xl border transition active:scale-95 ${
-              favoritesOnly
-                ? 'border-accent bg-accent text-white dark:text-stone-900'
-                : 'border-line bg-card text-ink-soft'
-            }`}
-          >
-            <HeartIcon filled={favoritesOnly} />
-          </button>
-        </div>
+        <input
+          type="search"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder="Search recipes, ingredients, sources…"
+          aria-label="Search recipes"
+          className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+        />
 
         <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
           {TIME_BUCKETS.map((bucket) => {

@@ -80,7 +80,12 @@ confusion:
     same pure `recipeFromJsonLd` (`src/lib/importRecipe.ts`) and validates with
     `parseRecipe` → editable preview → save as `origin: 'app'`. **No API key** —
     reading structured data is deterministic. Fragile per-site (bot walls / no
-    JSON-LD), so it degrades to paste/photo; that's expected.
+    JSON-LD), so it degrades to paste/photo; that's expected. **Currently the
+    "Paste a link" option is disabled (greyed) in the Add-recipe chooser** —
+    too many sites block the server-side fetch to be worth it, and text/photo
+    import cover it. The route and its `link` mode still work; to re-enable, drop
+    `disabled` and restore the `onClick={() => setMode('link')}` on that button in
+    `src/routes/AddRecipePage.tsx`.
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
@@ -341,8 +346,9 @@ button on each recipe card and on the reader (members toggle via
 `setRecipeFavorite` — a member merge-update of just `favorite`+`updatedAt`, no
 rules change; guests see a filled heart but can't toggle, same as editing).
 Favorites **pin to the top** of the recipe list (the `useRecipes` sort keys on
-`favorite` then title) and a heart **filter toggle** by the search box shows only
-them. `favorite` is deliberately excluded from `RecipeSeed`, so it's toggled on
+`favorite` then title). (A "favorites only" filter was tried and removed —
+redundant once they pin to the top.) `favorite` is deliberately excluded from
+`RecipeSeed`, so it's toggled on
 its own and a recipe edit/copy never carries or clobbers it (a copy starts
 un-favorited). Shared `HeartIcon` component; `test:rules` unchanged since the
 existing member-updates-recipe rule already covers it.
