@@ -11,6 +11,15 @@ on:
       - main
       # Remove this once main is the default branch and work merges into it.
       - claude/clever-hawking-xe57hp
+    # Don't rebuild/redeploy the app for pushes that can't change it — the
+    # Cloudflare Worker, docs, and committed recipe backups. Otherwise every such
+    # push restamps version.json and the app shows a phantom "update available"
+    # that reloads to the same version. A push that also touches app code still
+    # deploys (paths-ignore only skips when EVERY changed file matches).
+    paths-ignore:
+      - 'worker/**'
+      - '**.md'
+      - 'backups/**'
   workflow_dispatch:
 
 permissions:
