@@ -353,34 +353,50 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // newer one ships — no code change needed.
   const model = env.GEMINI_MODEL || 'gemini-3.6-flash'
   console.log(`gemini start model=${model} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
+  const reqBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM }] },
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseSchema: RECIPE_TOOL.input_schema,
+      // Room for a full recipe's JSON even from a long article / several
+      // photos, so the answer isn't cut off mid-object.
+      maxOutputTokens: 8192,
+      // Flash "thinks" by default, which spends the output budget and can
+      // truncate structured JSON on long inputs. We don't need it for
+      // deterministic extraction, so turn it off.
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  })
+
+  // A fresh/popular model returns 503 UNAVAILABLE ("high demand") in brief
+  // spikes; those clear in a second or two, so retry a couple of times with a
+  // short backoff before giving up. (Not 429 — that's a real rate limit.)
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
   let res: Response
-  try {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM }] },
-          contents: [{ role: 'user', parts }],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: 'application/json',
-            responseSchema: RECIPE_TOOL.input_schema,
-            // Room for a full recipe's JSON even from a long article / several
-            // photos, so the answer isn't cut off mid-object.
-            maxOutputTokens: 8192,
-            // 2.5 Flash "thinks" by default, which spends the output budget and
-            // can truncate structured JSON on long inputs. We don't need it for
-            // deterministic extraction, so turn it off.
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
-      },
-    )
-  } catch (e) {
-    console.log('gemini fetch failed: ' + String(e))
-    return json({ error: 'Could not reach the AI service.' }, 502, origin)
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+          body: reqBody,
+        },
+      )
+    } catch (e) {
+      console.log(`gemini fetch failed (attempt ${attempt}): ${String(e)}`)
+      if (attempt >= 3) return json({ error: 'Could not reach the AI service.' }, 502, origin)
+      await sleep(attempt * 800)
+      continue
+    }
+    if (res.status === 503 && attempt < 3) {
+      console.log(`gemini 503 (attempt ${attempt}); retrying`)
+      await sleep(attempt * 800) // 0.8s, then 1.6s
+      continue
+    }
+    break
   }
 
   if (!res.ok) {
@@ -389,7 +405,9 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     const msg =
       res.status === 429
         ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
-        : `AI service error (${res.status}).`
+        : res.status === 503
+          ? 'Gemini is briefly overloaded — please try again in a moment.'
+          : `AI service error (${res.status}).`
     return json({ error: msg, detail }, 502, origin)
   }
 
