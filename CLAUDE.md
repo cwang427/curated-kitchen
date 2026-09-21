@@ -84,13 +84,16 @@ confusion:
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
-    overrides the model (default `gemini-3.5-flash`, thinking disabled so long
-    inputs don't truncate the JSON — bump it when Google retires an id, which
-    shows up as a 404 "no longer available"). On a 503 "high demand" spike it
-    retries briefly, then auto-falls back to `gemini-3.5-flash-lite`; pinning
-    `GEMINI_MODEL` forces one model with no fallback. We deliberately do NOT
-    default to the newest flagship (`gemini-3.6-flash`) — it's free too but
-    popular enough to throw sustained 503s; pin it once it settles if wanted. It reads any layout (blog-style pages the
+    overrides the model. Default is `gemini-3.5-flash-lite` with a fallback to
+    `gemini-3.5-flash`: on the free tier the fuller flash models are heavily
+    contended (sustained 503s, and sometimes they hang until a Cloudflare 524),
+    while `-lite` reliably has capacity and is plenty for structured extraction.
+    Each model call has a 30s abort so a hung model doesn't stall the request;
+    any 5xx (503/524/…) or a 404 skips to the next model, and a 400 retries that
+    model once without the responseSchema (the app's zod schema is the real
+    validator). No `thinkingConfig` — the `-lite` tier 400s on it. Pinning
+    `GEMINI_MODEL` forces one model with no fallback (e.g. `gemini-3.6-flash`
+    once it settles). A retired id shows up as a 404 "no longer available." It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
     (one or several photos of the SAME recipe, read together; the legacy single
     `{ image }` is still accepted) — via structured JSON output → the same

@@ -347,17 +347,14 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   }
   parts.push({ text: imagePrompt(input) })
 
-  // Flash reads images and is generous on the free tier. Google retires model
-  // versions over time (a stale id 404s with "no longer available to new
-  // users"), so keep this current and override with the GEMINI_MODEL var when a
-  // newer one ships — no code change needed.
-  // Default to a free, responsive model, then fall back to its lighter sibling
-  // if that's briefly overloaded (503). We deliberately do NOT lead with the
-  // newest flagship (gemini-3.6-flash) — it's popular enough to throw sustained
-  // 503s, which just wastes time before falling back. Pin GEMINI_MODEL to force
-  // a single model (e.g. gemini-3.6-flash once it settles) with no fallback.
-  const primaryModel = env.GEMINI_MODEL || 'gemini-3.5-flash'
-  const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.5-flash-lite']
+  // Lead with the lighter model: on the free tier the fuller flash models are
+  // heavily contended (sustained 503s, and sometimes they just hang until a
+  // Cloudflare 524 timeout), while -lite reliably has capacity and is plenty for
+  // structured extraction. Fall back to the fuller flash if -lite is ever down.
+  // Pin GEMINI_MODEL to force a single model (e.g. gemini-3.6-flash) with no
+  // fallback. A retired id shows up as a 404 "no longer available."
+  const primaryModel = env.GEMINI_MODEL || 'gemini-3.5-flash-lite'
+  const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.5-flash']
   console.log(`gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
   // Structured JSON output. We deliberately do NOT send thinkingConfig — some
   // models (notably the -lite tier) reject it with 400 INVALID_ARGUMENT — and we
@@ -377,7 +374,11 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
       generationConfig,
     })
   }
+  // Abort a model that hangs so we move on instead of waiting for a ~100s
+  // Cloudflare 524. A healthy call finishes in a few seconds; 30s is generous.
   const call = async (m: string, useSchema: boolean): Promise<Response | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
     try {
       return await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
@@ -385,23 +386,27 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
           body: buildBody(useSchema),
+          signal: controller.signal,
         },
       )
     } catch (e) {
-      console.log(`gemini fetch failed model=${m}: ${String(e)}`)
+      console.log(`gemini fetch failed/timeout model=${m}: ${String(e)}`)
       return null
+    } finally {
+      clearTimeout(timer)
     }
   }
 
-  // Try each model in turn: 503 (overloaded) or 404 (missing fallback) → skip to
-  // the next; a 400 → retry that model once without the schema, then use/surface.
+  // Try each model in turn. A 5xx (503 overloaded, 524 timeout, 500/502…) or a
+  // missing fallback (404) → skip to the next model; a 400 → retry that model
+  // once without the schema, then use/surface whatever we got.
   let res: Response | null = null
   let model = primaryModel
   for (const m of models) {
     let r = await call(m, true)
-    if (!r) continue // network failure; try the next model
-    if (r.status === 503) {
-      console.log(`gemini 503 model=${m}; trying next`)
+    if (!r) continue // network failure / timeout; try the next model
+    if (r.status >= 500) {
+      console.log(`gemini ${r.status} model=${m}; trying next`)
       continue
     }
     if (m !== primaryModel && r.status === 404) {
@@ -430,9 +435,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     const msg =
       res.status === 429
         ? 'The free AI limit was reached for now — try again shortly, or paste the recipe text.'
-        : res.status === 503
-          ? 'Gemini is briefly overloaded — please try again in a moment.'
-          : `AI service error (${res.status}).`
+        : `AI service error (${res.status}).`
     return json({ error: msg, detail }, 502, origin)
   }
 

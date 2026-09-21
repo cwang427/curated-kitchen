@@ -8,9 +8,9 @@ compatibility_date = "2024-11-01"
 [vars]
 FIREBASE_PROJECT_ID = "curated-kitchen"
 ALLOWED_ORIGIN = "https://cwang427.github.io"
-# Optional: pin the Gemini model. Default in code is gemini-3.5-flash, with an
-# automatic fallback to gemini-3.5-flash-lite on overload. Setting this forces a
-# single model (no fallback) — e.g. to try gemini-3.6-flash once it's less busy.
+# Optional: pin the Gemini model. Default in code is gemini-3.5-flash-lite, with
+# an automatic fallback to gemini-3.5-flash. Setting this forces a single model
+# (no fallback) — e.g. to try gemini-3.6-flash once the free tier is less busy.
 # GEMINI_MODEL = "gemini-3.6-flash"
 # Optional (paid alternative): the Claude model, used only if no GEMINI_API_KEY.
 # ANTHROPIC_MODEL = "claude-sonnet-5"

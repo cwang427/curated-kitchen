@@ -79,15 +79,15 @@ GitHub automatically). To confirm you have the update, `git log --oneline -3`
 should show the recent commits before you deploy.
 
 ## Choosing the model
-The default is **gemini-3.5-flash** (free, reads images), with an automatic
-fallback to **gemini-3.5-flash-lite** when the primary is briefly overloaded
-(a 503 "high demand" spike). We don't lead with the newest flagship
-(gemini-3.6-flash) because, while it's free too, it's popular enough to throw
-sustained 503s. To force a single model with no fallback — e.g. to try
-gemini-3.6-flash once it's calmed down — add `GEMINI_MODEL = "gemini-3.6-flash"`
-under `[vars]` in `wrangler.toml` and `wrangler deploy` again (no code change).
-If the Worker ever 404s with "no longer available," that model id was retired —
-bump it the same way. Free-tier model availability and limits change over time;
+The default is **gemini-3.5-flash-lite** (free, reads images), with an automatic
+fallback to **gemini-3.5-flash**. On the free tier the fuller flash models are
+heavily contended — they throw sustained 503s and sometimes just hang — while
+`-lite` reliably answers and is plenty for reading a recipe. To force a single
+model with no fallback — e.g. to try the flagship `gemini-3.6-flash` once the
+free tier is less busy — add `GEMINI_MODEL = "gemini-3.6-flash"` under `[vars]`
+in `wrangler.toml` and `wrangler deploy` again (no code change). If the Worker
+ever 404s with "no longer available," that model id was retired — bump it the
+same way. Free-tier model availability and limits change over time;
 see https://aistudio.google.com/docs/rate-limits.
 
 ## Optional: use paid Anthropic Claude instead
