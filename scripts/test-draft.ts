@@ -79,5 +79,16 @@ console.log('step photos round-trip through the draft')
   eq('a step with no photos normalizes to []', r.steps[1].images, [])
 }
 
+console.log("\nhandsOff tag rides through the draft (editing mustn't drop it)")
+{
+  // The AI import's hands-off tag is passthrough on the draft, so an in-app edit
+  // preserves it; an absent tag stays absent.
+  const d = seedToDraft(seed)
+  d.steps[0].handsOff = true
+  const r = parseRecipe({ ...draftToInput(d), slug: 'cacio-hands' }).recipe
+  eq('handsOff:true survives the round trip', r.steps[0].handsOff, true)
+  eq('an untagged step stays untagged', r.steps[1].handsOff, undefined)
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

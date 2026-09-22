@@ -103,6 +103,14 @@ export interface Step {
   timers: Timer[]
   temperature: Temperature | null
   /**
+   * Whether this step is a mostly-unattended wait the cook can step away from
+   * (simmer, bake, rest, marinate…) vs. one that needs active attention (stir
+   * constantly, a quick action). Set by AI import; absent on older/hand-authored
+   * recipes, where cook mode falls back to a keyword heuristic. Additive and
+   * optional — no migration; only drives cook mode's "work ahead" nudge.
+   */
+  handsOff?: boolean
+  /**
    * Up to 3 step photos, shown in the reader and cook mode. Each entry is a
    * `photos` document id — the image itself is a compressed data URL stored on
    * that doc (see src/data/photos.ts), resolved for display with usePhotoUrls.

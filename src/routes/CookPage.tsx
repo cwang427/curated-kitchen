@@ -249,6 +249,22 @@ function stepBlurb(step: Step): string {
   return first.replace(/\{\{\s*|\s*\}\}/g, '').trim()
 }
 
+/** Phrases that mean "stay here" — a step that needs the cook's constant hands. */
+const HANDS_ON =
+  /\b(constantly|continuously|keep (stirring|whisking|moving)|do(?:n['’]?t| not) (?:walk away|leave|stop)|watch(?:ing)? (?:closely|carefully)|stirring (?:constantly|continuously|often)|whisk(?:ing)? (?:constantly|continuously)|without (?:stirring|walking away))\b/i
+
+/**
+ * Is this step a mostly-unattended wait the cook can step away from? Prefer the
+ * AI import's `handsOff` tag; for recipes imported before it (tag absent), fall
+ * back to prose — treat a step as a wait unless it demands constant attention.
+ * Only gates the "work ahead" nudge, which already requires a running timer.
+ */
+function stepIsHandsOff(step: Step): boolean {
+  if (typeof step.handsOff === 'boolean') return step.handsOff
+  const text = [step.text, ...(step.brief ?? [])].join(' ')
+  return !HANDS_ON.test(text)
+}
+
 /**
  * "Meanwhile" band — a timer running for a step you've moved on from, so it stays
  * visible and one tap jumps you back. Tap anywhere to check on that step; when it
@@ -765,7 +781,7 @@ export default function CookPage() {
             running in the Meanwhile band and calls you back when it rings, so
             nothing's forgotten. Kept here so it's always visible, not buried
             below a long step. */}
-        {currentStepCooking && !isLast && (
+        {currentStepCooking && stepIsHandsOff(step) && !isLast && (
           <button
             type="button"
             onClick={() => goToStep(index + 1)}

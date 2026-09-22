@@ -53,6 +53,8 @@ export interface DraftStep {
   timers: Timer[]
   temperature: Temperature | null
   group: string | null
+  /** Hands-off wait vs. needs-attention; null = unknown. Set by AI import. */
+  handsOff: boolean | null
 }
 
 export interface RecipeDraft {
@@ -113,7 +115,7 @@ export function blankIngredient(): DraftIngredient {
 }
 
 export function blankStep(): DraftStep {
-  return { id: newStepId(), text: '', brief: '', images: [], uses: [], timers: [], temperature: null, group: null }
+  return { id: newStepId(), text: '', brief: '', images: [], uses: [], timers: [], temperature: null, group: null, handsOff: null }
 }
 
 export function blankDraft(): RecipeDraft {
@@ -175,6 +177,7 @@ export function seedToDraft(seed: RecipeSeed): RecipeDraft {
       timers: s.timers,
       temperature: s.temperature,
       group: s.group,
+      handsOff: s.handsOff ?? null,
     })),
   }
 }
@@ -244,6 +247,7 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
         timers: s.timers,
         temperature: s.temperature ?? undefined,
         group: s.group ?? undefined,
+        handsOff: s.handsOff ?? undefined,
       }
     }),
     groups: draft.groups,

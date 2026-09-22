@@ -320,12 +320,16 @@ prominent "← Back to step N" (and still beeps). Timers already persisted acros
 steps (they're dish-level, keyed by `source = "<stepId>:<label>"`); this just
 partitions them into current-step (full-control tray) vs. away (the bands, via
 `stepIndexForSource`), and adds a footer **work-ahead nudge** shown while the
-current step is cooking ("This is cooking — work ahead"). Pure cook-mode UI over
-existing timer state — no schema/rules change, works solo and in a cook-together
-session. Phase 2 (later): Gemini tags hands-off steps (simmer/bake/rest) +
-realistic durations so the nudge only appears on genuine waits and can suggest
-which upcoming steps are safe to start; a keyword heuristic backfills recipes
-imported before the tag.
+current step is cooking ("This is cooking — work ahead"). Works solo and in a cook-together session.
+Phase 2 (shipped): the **work-ahead nudge only shows on genuine waits** —
+`Step.handsOff?` (optional, additive, no migration) tags a step hands-off vs.
+needs-attention. AI import sets it (Worker `handsOff` in the step schema +
+SYSTEM rule); for recipes imported before the tag, `stepIsHandsOff` in CookPage
+falls back to a keyword heuristic (treat a step as a wait unless its prose
+demands constant attention). `handsOff` rides through the editor draft
+(passthrough, `test:draft`-guarded) so an edit never drops it; a copy carries it
+like any step field. Later still: realistic per-step durations + suggesting which
+upcoming steps are safe to start.
 And an **owner-only recipe backup** (`.github/workflows/backup-recipes.yml` +
 `scripts/backup-recipes.ts`): a weekly/manual Firestore→`backups/recipes/*.json`
 snapshot committed to git, the safety net now that the app owns recipes (additive,

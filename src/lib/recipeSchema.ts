@@ -57,6 +57,9 @@ const stepInput = z.object({
   uses: z.array(z.string().trim().min(1)).optional(),
   timers: z.array(timerInput).optional(),
   temperature: temperatureInput.nullable().optional(),
+  /** A mostly-unattended wait the cook can step away from (drives cook mode's
+   * "work ahead" nudge). Absent = unknown; cook mode falls back to a heuristic. */
+  handsOff: z.boolean().optional(),
   /**
    * Up to 3 step photos, shown in the reader and cook mode. Each entry is a
    * `photos` document id (see src/data/photos.ts); a transient `data:` URL may
@@ -266,6 +269,7 @@ export function parseRecipe(raw: unknown): ParseResult {
       ingredientIds,
       timers: entry.timers ?? [],
       temperature: entry.temperature ?? null,
+      ...(entry.handsOff === undefined ? {} : { handsOff: entry.handsOff }),
       images: entry.images ?? [],
     }
   })
