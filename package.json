@@ -1,7 +1,7 @@
 {
   "name": "curated-kitchen",
   "private": true,
-  "version": "0.34.0",
+  "version": "0.34.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,8 @@
     "test:steps": "tsx scripts/test-steps.ts",
     "test:draft": "tsx scripts/test-draft.ts",
     "test:cook": "tsx scripts/test-cook.ts",
-    "deploy:rules": "npx -y firebase-tools@13 deploy --only firestore:rules"
+    "deploy:rules": "npx -y firebase-tools@13 deploy --only firestore:rules",
+    "test:ai": "tsx scripts/test-ai.ts"
   },
   "dependencies": {
     "firebase": "^11.1.0",
