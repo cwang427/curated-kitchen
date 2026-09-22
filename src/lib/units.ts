@@ -25,6 +25,42 @@ function def(
   return { key, dimension, singular, plural, toBase, fractional }
 }
 
+/** Plurals the add-an-s rules get wrong, keyed by the singular. */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  leaf: 'leaves', loaf: 'loaves', half: 'halves', calf: 'calves', shelf: 'shelves',
+  knife: 'knives', potato: 'potatoes', tomato: 'tomatoes', mango: 'mangoes',
+  chili: 'chilies', chilli: 'chillies',
+}
+
+/** Nouns whose plural is the same word: "12 shrimp", not "12 shrimps". */
+const INVARIANT_PLURALS = new Set([
+  'shrimp', 'fish', 'squid', 'salmon', 'trout', 'cod', 'halibut', 'tuna', 'bison',
+])
+
+/**
+ * Pluralize an item or unit. Only the last word takes the plural ("bay leaf" →
+ * "bay leaves"), and a word that's already plural is left alone, so an item
+ * typed as "bay leaves" doesn't become "bay leaveses".
+ */
+function pluralizeWord(phrase: string): string {
+  const match = phrase.match(/^(.*?)([a-z\u00c0-\u024f]+)$/i)
+  if (!match) return phrase
+  const [, head, word] = match
+  const lower = word.toLowerCase()
+  if (INVARIANT_PLURALS.has(lower)) return phrase
+  const irregular = IRREGULAR_PLURALS[lower]
+  if (irregular) {
+    const cased = word[0] === word[0].toUpperCase() ? irregular[0].toUpperCase() + irregular.slice(1) : irregular
+    return head + cased
+  }
+  // Already plural ("eggs", "leaves"). Singulars ending in -ss/-us/-is
+  // ("watercress", "asparagus") still take -es below.
+  if (/s$/i.test(word) && !/(ss|us|is)$/i.test(word)) return phrase
+  if (/(s|x|z|ch|sh)$/i.test(word)) return `${phrase}es`
+  if (/[^aeiou]y$/i.test(word)) return `${phrase.slice(0, -1)}ies`
+  return `${phrase}s`
+}
+
 /** Count units get toBase 1 so that "2 cloves + 1 clove" can still merge. */
 const COUNT_UNITS = [
   'clove', 'sprig', 'stalk', 'stick', 'head', 'bunch', 'ear', 'leaf',
@@ -86,12 +122,7 @@ const ALIASES: Record<string, string> = {
   gallons: 'gallon', gal: 'gallon',
   inches: 'inch', in: 'inch', '"': 'inch',
   centimeter: 'cm', centimetre: 'cm', centimeters: 'cm', centimetres: 'cm',
-}
-
-function pluralizeWord(word: string): string {
-  if (/(s|x|z|ch|sh)$/i.test(word)) return `${word}es`
-  if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`
-  return `${word}s`
+  leaves: 'leaf', loaves: 'loaf',
 }
 
 /** Resolve a written unit to its canonical key, or null if we don't know it. */
@@ -101,8 +132,10 @@ export function normalizeUnit(raw: string | null | undefined): string | null {
   if (UNITS.has(key)) return key
   const singular = ALIASES[key]
   if (singular) return singular
-  const depluralized = key.replace(/s$/, '')
-  if (UNITS.has(depluralized)) return depluralized
+  // "pinches"/"boxes" drop -es; "slices"/"cans" drop just the -s.
+  for (const depluralized of [key.replace(/es$/, ''), key.replace(/s$/, '')]) {
+    if (UNITS.has(depluralized)) return depluralized
+  }
   return null
 }
 

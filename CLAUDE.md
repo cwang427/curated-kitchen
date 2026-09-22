@@ -236,16 +236,17 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   write, members + guests read).
 - `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
   `npm run test:plan` / `npm run test:steps` / `npm run test:draft` /
-  `npm run test:cook` / `npm run test:ai` — pure-logic unit tests for the JSON-LD converter, the
+  `npm run test:cook` / `npm run test:ai` / `npm run test:units` — pure-logic unit tests for the JSON-LD converter, the
   free pasted-text importer (real full-page fixtures under
   `scripts/fixtures/text/`), the grocery merge/aisle logic, the meal-plan day
   window + plan→groceries aggregation, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
-  timeline (attention/agenda merge + ordering), and the AI-answer tidy-up
-  (`sanitizeAiRecipe`). Run after touching
+  timeline (attention/agenda merge + ordering), the AI-answer tidy-up
+  (`sanitizeAiRecipe`), and unit/item pluralization ("bay leaf" → "bay leaves",
+  never "leafs"/"leaveses"). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/plan.ts`, `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
-  `src/lib/cookboard.ts`, or `src/lib/aiRecipe.ts`.
+  `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, or `src/lib/units.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
