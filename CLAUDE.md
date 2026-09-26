@@ -266,6 +266,10 @@ the deploy and leaves the previous version up.
 - Match the surrounding code's style; comments explain *why*, not *what*.
 - Keep touch targets generous and type large — this is used at arm's length
   with wet hands. Palette is CSS tokens on `:root` with a dark-mode block.
+- Don't put `tabular-nums` on anything that can show an amount (ingredient
+  quantities, `{{ }}` step amounts, grocery amounts): on iPhone the system font
+  breaks vulgar-fraction glyphs apart under it (`½ oz` renders as "1 /2 oz").
+  Keep it for timers/counters, which never show fractions.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 

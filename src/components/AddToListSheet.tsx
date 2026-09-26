@@ -202,7 +202,7 @@ export default function AddToListSheet({
                       />
                       <span>
                         {(f.quantity || f.unit) && (
-                          <span className="font-medium tabular-nums">
+                          <span className="font-medium">
                             {[f.quantity, f.unit].filter(Boolean).join(' ')}{' '}
                           </span>
                         )}

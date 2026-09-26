@@ -5,6 +5,9 @@ interface Props {
   title?: string
   /** Show a back chevron that returns to the recipe list. */
   back?: boolean
+  /** Where the back chevron goes instead of the list — e.g. the editor returns
+   * to the recipe being edited. */
+  onBack?: () => void
   /** Show the "add a recipe" shortcut (members only). */
   add?: boolean
   /** Show the meal-plan (calendar) shortcut. */
@@ -13,7 +16,7 @@ interface Props {
   cart?: boolean
 }
 
-export default function AppHeader({ title, back, add, plan, cart }: Props) {
+export default function AppHeader({ title, back, onBack, add, plan, cart }: Props) {
   const { user, profile, household } = useAuth()
   // Email/password accounts carry no auth displayName, so prefer the profile's.
   const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
@@ -22,28 +25,23 @@ export default function AppHeader({ title, back, add, plan, cart }: Props) {
   // shortcuts rather than offer a tap that errors.
   const isMember = !!user && !!household && household.memberUids.includes(user.uid)
   const canAdd = add && isMember
+  const backClass =
+    '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
 
   return (
     <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 pb-3">
         <div className="flex min-w-0 items-center gap-2">
-          {back && (
-            <Link
-              to="/"
-              aria-label="Back to recipes"
-              className="-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line"
-            >
-              <svg viewBox="0 0 24 24" className="size-6" fill="none" aria-hidden="true">
-                <path
-                  d="M15 19l-7-7 7-7"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </Link>
-          )}
+          {back &&
+            (onBack ? (
+              <button type="button" onClick={onBack} aria-label="Back" className={backClass}>
+                <BackChevron />
+              </button>
+            ) : (
+              <Link to="/" aria-label="Back to recipes" className={backClass}>
+                <BackChevron />
+              </Link>
+            ))}
           <Link to="/" className="min-w-0">
             <span className="block truncate font-serif text-xl tracking-tight">
               {title ?? 'Curated Kitchen'}
@@ -122,5 +120,13 @@ export default function AppHeader({ title, back, add, plan, cart }: Props) {
         </div>
       </div>
     </header>
+  )
+}
+
+function BackChevron() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" aria-hidden="true">
+      <path d="M15 19l-7-7 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

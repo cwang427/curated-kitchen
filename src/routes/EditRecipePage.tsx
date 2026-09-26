@@ -28,7 +28,8 @@ export default function EditRecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title="Edit recipe" back />
+      {/* Back returns to the recipe being edited (same as Cancel), not the list. */}
+      <AppHeader title="Edit recipe" back onBack={slug ? () => leave(slug) : undefined} />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
         {!isMember ? (

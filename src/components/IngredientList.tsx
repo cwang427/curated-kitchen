@@ -41,7 +41,7 @@ function IngredientRow({
         />
         <span className={checked ? 'text-ink-faint line-through' : ''}>
           {formatted.quantity && (
-            <span className="font-medium tabular-nums">
+            <span className="font-medium">
               {formatted.quantity}
               {formatted.unit ? ` ${formatted.unit}` : ''}{' '}
             </span>

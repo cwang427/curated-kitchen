@@ -74,7 +74,7 @@ function StepLine({ line, scale }: { line: string; scale: number }) {
         seg.type === 'text' ? (
           <span key={i}>{seg.value}</span>
         ) : (
-          <strong key={i} className="font-semibold text-accent tabular-nums">
+          <strong key={i} className="font-semibold text-accent">
             {formatStepQuantity(seg, scale)}
           </strong>
         ),
@@ -729,7 +729,7 @@ export default function CookPage() {
                         className="size-6 shrink-0 accent-[var(--check)]"
                       />
                       <span className={`text-lg ${done ? 'text-ink-faint line-through' : ''}`}>
-                        <span className="font-medium tabular-nums">
+                        <span className="font-medium">
                           {[f.quantity, f.unit].filter(Boolean).join(' ')}
                         </span>{' '}
                         {f.item}
