@@ -301,6 +301,7 @@ export default function RecipePage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 to={`/r/${recipe.slug}/edit`}
+                state={{ fromRecipe: true }}
                 className="min-h-11 grid place-items-center rounded-full border border-line px-4 text-sm text-ink-soft transition active:scale-[0.98]"
               >
                 Edit recipe

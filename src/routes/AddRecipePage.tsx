@@ -6,7 +6,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'
 import { importRecipeFromUrl } from '../data/urlImport'
 import { importRecipeFromText } from '../lib/importText'
-import { compressForImport } from '../data/photos'
+import { compressForImport, readFileBase64 } from '../data/photos'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import type { RecipeSeed } from '../lib/types'
 
@@ -20,7 +20,9 @@ export default function AddRecipePage() {
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
   const [text, setText] = useState('')
   const [link, setLink] = useState('')
-  const [photos, setPhotos] = useState<{ src: string; data: string; mediaType: string }[]>([])
+  // Photos and PDFs to read as one recipe. `src` is a thumbnail for photos; a
+  // PDF has none and shows its file name instead.
+  const [photos, setPhotos] = useState<{ src: string | null; data: string; mediaType: string; name: string }[]>([])
   const [preparing, setPreparing] = useState(false)
   const [reading, setReading] = useState(false)
   const [readSeconds, setReadSeconds] = useState(0)
@@ -42,6 +44,11 @@ export default function AddRecipePage() {
 
   // A long recipe rarely fits one phone screenshot, so allow a few, read as one.
   const MAX_PHOTOS = 6
+  // A PDF isn't downscaled like a photo (the AI reads it as-is), so cap its size
+  // — and the whole request — to stay well under the AI's per-request limit.
+  const MAX_PDF_MB = 10
+  const MAX_TOTAL_CHARS = 18_000_000 // base64, ≈13 MB of files
+  const isPdf = (file: File) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
 
   const onPickImages = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -55,18 +62,27 @@ export default function AddRecipePage() {
         setError(`You can add up to ${MAX_PHOTOS} photos.`)
         return
       }
+      const tooBig = files.filter((f) => isPdf(f) && f.size > MAX_PDF_MB * 1024 * 1024)
+      const usable = files.filter((f) => !tooBig.includes(f))
       const added = await Promise.all(
-        files.slice(0, room).map(async (file) => {
+        usable.slice(0, room).map(async (file) => {
+          if (isPdf(file)) {
+            return { src: null, data: await readFileBase64(file), mediaType: 'application/pdf', name: file.name }
+          }
           // Downscale in-browser: keeps small text legible while keeping the
           // combined request light enough to send several at once.
           const src = await compressForImport(file)
-          return { src, data: src.slice(src.indexOf(',') + 1), mediaType: 'image/jpeg' }
+          return { src, data: src.slice(src.indexOf(',') + 1), mediaType: 'image/jpeg', name: file.name }
         }),
       )
       setPhotos((prev) => [...prev, ...added])
-      if (files.length > room) setError(`Added the first ${room} — max is ${MAX_PHOTOS} photos.`)
+      if (tooBig.length > 0) {
+        setError(`That PDF is over ${MAX_PDF_MB} MB — too big to read. Try screenshots of just the recipe pages.`)
+      } else if (usable.length > room) {
+        setError(`Added the first ${room} — max is ${MAX_PHOTOS}.`)
+      }
     } catch {
-      setError('Couldn’t read one of those photos. Try another.')
+      setError('Couldn’t read one of those files. Try another.')
     } finally {
       setPreparing(false)
     }
@@ -74,9 +90,13 @@ export default function AddRecipePage() {
 
   const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, n) => n !== i))
 
-  // Photo(s) / screenshot(s) → AI (Gemini vision). No on-device fallback for images.
+  // Photo(s) / screenshot(s) / PDF(s) → AI (Gemini vision). No on-device fallback.
   const readPhoto = async () => {
     if (photos.length === 0) return
+    if (photos.reduce((n, p) => n + p.data.length, 0) > MAX_TOTAL_CHARS) {
+      setError('That’s too much to send at once — remove a file or two.')
+      return
+    }
     setError(null)
     setReading(true)
     try {
@@ -152,7 +172,10 @@ export default function AddRecipePage() {
         ) : mode === 'edit' ? (
           <RecipeEditor
             initial={initial}
-            onSaved={(slug) => navigate(`/r/${slug}`)}
+            // Replace, don't push: the new recipe takes the editor's place in
+            // history, so Back (or an iOS swipe) returns to the recipe list
+            // instead of a stale editor that then resets to "Add a recipe".
+            onSaved={(slug) => navigate(`/r/${slug}`, { replace: true })}
             onCancel={() => setMode('choose')}
           />
         ) : mode === 'link' ? (
@@ -241,11 +264,21 @@ export default function AddRecipePage() {
               <div className="grid grid-cols-3 gap-2">
                 {photos.map((p, i) => (
                   <div key={i} className="relative">
-                    <img src={p.src} alt={`Recipe photo ${i + 1}`} className="h-28 w-full rounded-xl border border-line object-cover" />
+                    {p.src ? (
+                      <img src={p.src} alt={`Recipe photo ${i + 1}`} className="h-28 w-full rounded-xl border border-line object-cover" />
+                    ) : (
+                      <div className="flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-card px-2 text-center">
+                        <svg viewBox="0 0 24 24" className="size-7 text-ink-faint" fill="none" aria-hidden="true">
+                          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                          <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                        </svg>
+                        <span className="w-full truncate text-xs text-ink-soft">{p.name || 'PDF'}</span>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => removePhoto(i)}
-                      aria-label={`Remove photo ${i + 1}`}
+                      aria-label={`Remove ${p.src ? 'photo' : 'PDF'} ${i + 1}`}
                       className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-base leading-none text-white"
                     >
                       ×
@@ -257,17 +290,17 @@ export default function AddRecipePage() {
 
             {photos.length < MAX_PHOTOS && (
               <label className="grid min-h-32 cursor-pointer place-items-center rounded-2xl border border-dashed border-line bg-card p-6 text-center text-sm text-ink-soft">
-                <input type="file" accept="image/*" multiple onChange={onPickImages} className="hidden" />
+                <input type="file" accept="image/*,application/pdf,.pdf" multiple onChange={onPickImages} className="hidden" />
                 {preparing ? (
                   <span>Adding…</span>
                 ) : photos.length > 0 ? (
                   <span>
-                    Add another photo
+                    Add another photo or PDF
                     <span className="mt-1 block text-xs">{photos.length} of {MAX_PHOTOS} added</span>
                   </span>
                 ) : (
                   <span>
-                    Tap to take photos or choose screenshots
+                    Tap to take photos, or choose screenshots or a PDF
                     <span className="mt-1 block text-xs">add several of one recipe — we read them together</span>
                   </span>
                 )}
@@ -275,7 +308,7 @@ export default function AddRecipePage() {
             )}
             <p className="text-sm text-ink-soft">
               A long recipe rarely fits one screenshot — add each part (in order) and we’ll combine
-              them into one recipe for you to review before saving.
+              them into one recipe for you to review before saving. A recipe PDF works too.
             </p>
 
             {error && (
@@ -292,7 +325,11 @@ export default function AddRecipePage() {
               disabled={photos.length === 0 || reading || preparing}
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
-              {reading ? 'Reading…' : photos.length > 1 ? `Read recipe (${photos.length} photos)` : 'Read recipe'}
+              {reading
+                ? 'Reading…'
+                : photos.length > 1
+                  ? `Read recipe (${photos.length} ${photos.every((p) => p.src) ? 'photos' : 'files'})`
+                  : 'Read recipe'}
             </button>
             <button
               type="button"
@@ -323,9 +360,10 @@ export default function AddRecipePage() {
                 onClick={() => setMode('capture')}
                 className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
               >
-                <span className="block font-medium">Scan a photo</span>
+                <span className="block font-medium">Scan a photo or PDF</span>
                 <span className="mt-0.5 block text-sm text-ink-soft">
-                  Snap a cookbook page, a recipe card, or a screenshot and we’ll read it in for you.
+                  Snap a cookbook page, a recipe card, or a screenshot — or pick a recipe PDF — and
+                  we’ll read it in for you.
                 </span>
               </button>
             )}

@@ -101,7 +101,13 @@ confusion:
     once it settles). A retired id shows up as a 404 "no longer available." It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
     (one or several photos of the SAME recipe, read together; the legacy single
-    `{ image }` is still accepted) — via structured JSON output → tidied by
+    `{ image }` is still accepted). **PDFs ride the same `images` array** with
+    `mediaType: 'application/pdf'` — the Worker passes each file's type straight
+    through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
+    pages too), so PDF import needed no Worker change. The app sends a PDF as-is
+    (`readFileBase64`, no downscale), capped at 10 MB each / ~13 MB per request
+    (Gemini's inline limit is far higher). The dormant Claude route would need a
+    `document` block for PDFs — it sends everything as `image`. Then → tidied by
     `sanitizeAiRecipe` (`src/lib/aiRecipe.ts`: a missing yield becomes "1
     batch", `{{½ cup}}` → `{{1/2 cup}}`, half-filled timers/temps and bad links
     are dropped, so one model slip can't sink a good import) → the same
@@ -300,7 +306,13 @@ save as `origin: 'app'`; when enabled, the default engine for text with the
 on-device parser as the offline/rate-limit fallback, and the only engine for
 photos/screenshots — several at once, since a long recipe rarely fits one phone
 screenshot, downscaled in-browser via `compressForImport` and combined into one
-recipe; a paid Claude route stays available as an alternative), and
+recipe — and recipe **PDFs** (Add a recipe → **Scan a photo or PDF**; sent as-is
+to Gemini, which reads them natively); a paid Claude route stays available as an
+alternative). Saving a new recipe (or leaving the editor) **replaces** the editor
+in history rather than stacking on it, so Back / an iOS swipe from the saved
+recipe returns to the list, never a stale editor; `/r/:slug/edit` opened from the
+recipe page steps back via `navigate(-1)` (the Edit link passes
+`state.fromRecipe`). And
 a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result

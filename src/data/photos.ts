@@ -122,6 +122,23 @@ export async function compressForImport(file: File): Promise<string> {
   }
 }
 
+/**
+ * Read a file for AI import as raw base64 (no data-URL prefix). Used for PDFs,
+ * which go to the AI as-is: Gemini reads them natively, scanned pages included,
+ * so there's nothing to convert or downscale.
+ */
+export function readFileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = String(reader.result)
+      resolve(url.slice(url.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('Couldn’t read that file.'))
+    reader.readAsDataURL(file)
+  })
+}
+
 /** Store a compressed photo for a household; returns the new photo document id. */
 export async function createPhoto(
   householdId: string,

@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
@@ -12,11 +12,19 @@ import { useRecipe } from '../data/recipes'
 export default function EditRecipePage() {
   const { slug } = useParams<{ slug: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
+
+  // Leave the editor by stepping back to the recipe page it was opened from,
+  // rather than pushing a second copy of it — otherwise Back (or an iOS swipe)
+  // from the recipe lands on the stale editor. Opened some other way (a
+  // bookmark, a reload), swap the editor out of history instead.
+  const cameFromRecipe = (location.state as { fromRecipe?: boolean } | null)?.fromRecipe === true
+  const leave = (to: string) => (cameFromRecipe ? navigate(-1) : navigate(`/r/${to}`, { replace: true }))
 
   return (
     <div className="min-h-dvh">
@@ -40,8 +48,8 @@ export default function EditRecipePage() {
           <RecipeEditor
             initial={recipe}
             editingSlug={recipe.slug}
-            onSaved={(saved) => navigate(`/r/${saved}`)}
-            onCancel={() => navigate(`/r/${recipe.slug}`)}
+            onSaved={leave}
+            onCancel={() => leave(recipe.slug)}
           />
         )}
       </main>
