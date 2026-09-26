@@ -333,7 +333,10 @@ function parseNumber(token: string): number | null {
   return Number(trimmed)
 }
 
-const AMOUNT = /^([\d.]+(?:\s+\d+\/\d+)?|\d+\/\d+)(?:\s*(?:-|–|—|to)\s*([\d.]+(?:\s+\d+\/\d+)?|\d+\/\d+))?\s*(.*)$/
+// Mixed numbers and fractions must be tried before a plain number: otherwise
+// "1/2 oz" matches just the "1" and the rest ("/2 oz") becomes the unit.
+const NUMBER = String.raw`\d+\s+\d+\/\d+|\d+\/\d+|[\d.]+`
+const AMOUNT = new RegExp(String.raw`^(${NUMBER})(?:\s*(?:-|–|—|to)\s*(${NUMBER}))?\s*(.*)$`)
 
 export interface ParsedAmount {
   quantity: number

@@ -67,7 +67,7 @@ function StepRow({
             segment.type === 'text' ? (
               <span key={i}>{segment.value}</span>
             ) : (
-              <strong key={i} className="font-semibold text-accent">
+              <strong key={i} className="font-semibold text-accent tabular-nums">
                 {formatStepQuantity(segment, scale)}
               </strong>
             ),

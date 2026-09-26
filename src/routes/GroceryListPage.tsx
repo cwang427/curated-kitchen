@@ -23,7 +23,7 @@ function ItemRow({
           className="size-5 shrink-0 accent-[var(--check)]"
         />
         <span className={item.checked ? 'text-ink-faint line-through' : ''}>
-          {amount && <span className="font-medium">{amount} </span>}
+          {amount && <span className="font-medium tabular-nums">{amount} </span>}
           {item.name}
           {item.note && <span className="text-ink-faint"> · {item.note}</span>}
         </span>

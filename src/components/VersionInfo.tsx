@@ -29,13 +29,18 @@ export default function VersionInfo() {
   const [check, setCheck] = useState<Check>({ status: 'checking' })
   const [applying, setApplying] = useState(false)
 
+  const [note, setNote] = useState<string | null>(null)
+
   // A plain reload isn't enough for a PWA: a freshly deployed service worker
   // has to install and take control first, otherwise the reload just re-serves
-  // the old cached app (hence the old "press twice" behavior). So trigger the
-  // worker update and reload only once the new one is in control — with a
-  // timeout fallback so the button always does something.
+  // the old cached app. So fetch the new worker and reload only once it's in
+  // control. Installing means downloading the whole new build — seconds on
+  // wifi, far longer on weak cell service — so wait for it to finish rather
+  // than reloading on a timer (that reloaded into the old version mid-download,
+  // which is why a second tap used to be needed).
   const applyUpdate = useCallback(async () => {
     setApplying(true)
+    setNote(null)
     let reloaded = false
     const reload = () => {
       if (reloaded) return
@@ -47,20 +52,45 @@ export default function VersionInfo() {
       const reg = await navigator.serviceWorker.getRegistration()
       if (!reg) return reload()
       // The new worker taking control is the real signal it's safe to reload.
+      // Left attached on purpose: if the download outlasts our wait below, the
+      // app still switches over by itself once it lands.
       navigator.serviceWorker.addEventListener('controllerchange', reload, { once: true })
-      // Nudge a worker that's already waiting, fetch the latest, then nudge
-      // whatever that turned up. (autoUpdate workers skip-waiting on their own;
-      // the message is harmless if unhandled.)
-      reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
       await reg.update()
-      reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
-      reg.installing?.addEventListener('statechange', (e) => {
-        const sw = e.target as ServiceWorker
-        if (sw.state === 'installed') reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
+      let incoming = reg.installing ?? reg.waiting
+      if (!incoming) {
+        // Some browsers resolve update() a beat before the new worker appears.
+        incoming = await new Promise<ServiceWorker | null>((resolve) => {
+          const timer = setTimeout(() => resolve(null), 3000)
+          reg.addEventListener(
+            'updatefound',
+            () => {
+              clearTimeout(timer)
+              resolve(reg.installing)
+            },
+            { once: true },
+          )
+        })
+      }
+      // Nothing new to install: the latest build already finished in the
+      // background, so a plain reload picks it up.
+      if (!incoming) return reload()
+      const worker = incoming
+      // autoUpdate workers skip waiting on their own; the nudge is harmless.
+      const nudge = () => reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
+      nudge()
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed') nudge()
+        else if (worker.state === 'activated') reload()
+        else if (worker.state === 'redundant' && !reloaded) {
+          setApplying(false)
+          setNote('The update didn’t finish downloading — check your connection and try again.')
+        }
       })
-      // If nothing new actually installs, controllerchange won't fire — reload
-      // anyway after a moment so the button never feels dead.
-      setTimeout(reload, 3500)
+      setTimeout(() => {
+        if (reloaded) return
+        setApplying(false)
+        setNote('Still downloading on this connection. It’ll switch over by itself when it’s done, or try again in a minute.')
+      }, 60_000)
     } catch {
       reload()
     }
@@ -119,7 +149,7 @@ export default function VersionInfo() {
             disabled={applying}
             className="min-h-11 rounded-full bg-accent px-4 text-sm font-semibold text-white transition active:scale-[0.98] disabled:opacity-60 dark:text-stone-900"
           >
-            {applying ? 'Updating…' : 'Update available — reload'}
+            {applying ? 'Downloading update…' : 'Update available — reload'}
           </button>
         )}
 
@@ -133,6 +163,7 @@ export default function VersionInfo() {
           </button>
         )}
       </div>
+      {note && <p className="mt-2 text-sm text-ink-soft">{note}</p>}
     </section>
   )
 }

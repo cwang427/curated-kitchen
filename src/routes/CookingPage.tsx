@@ -42,7 +42,7 @@ function StepText({ line, scale }: { line: string; scale: number }) {
         seg.type === 'text' ? (
           <span key={i}>{seg.value}</span>
         ) : (
-          <strong key={i} className="font-semibold">
+          <strong key={i} className="font-semibold tabular-nums">
             {formatStepQuantity(seg, scale)}
           </strong>
         ),
