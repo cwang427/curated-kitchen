@@ -267,13 +267,15 @@ the deploy and leaves the previous version up.
 - Keep touch targets generous and type large — this is used at arm's length
   with wet hands. Palette is CSS tokens on `:root` with a dark-mode block.
 - Keep anything that sits at the top edge **opaque** (no `bg-paper/90` +
-  `backdrop-blur` on sticky headers). iOS 26+ draws a "Liquid Glass" blur over
-  the top of an installed web app wherever it can't sample a solid colour there,
-  which smeared the header on a friend's iPhone; the `.status-strip` in
-  `index.html` (a real fixed element, standalone only) plus opaque headers give
-  it one. If the blur ever returns, the fallback other apps confirmed on-device
-  is ~2.5rem of extra top clearance in `@media (display-mode: standalone)` so
-  header content sits below the ~40pt blur ramp.
+  `backdrop-blur` on sticky headers), and put top-edge content under
+  `.pad-safe-top`. iOS 26+ (much stronger in iOS 27) draws a "Liquid Glass"
+  progressive blur over the top ~40pt below the status bar of an installed web
+  app — system chrome, no CSS/meta switch. A solid-colour sampler strip did
+  NOT stop it on iOS 27, so `.pad-safe-top` adds `--edge-clearance` (2.5rem,
+  iOS standalone portrait only) to keep header content below the band; the band
+  shows only the opaque header background, where blur is invisible. The other
+  known fix — `apple-mobile-web-app-status-bar-style: default` — works too but
+  only after every user deletes and re-adds the home-screen app, so we avoid it.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
