@@ -14,9 +14,11 @@ import type { RecipeSeed } from '../lib/types'
  */
 
 export type AiPhoto = { data: string; mediaType: string }
-/** Text paste, or one-or-more photos of the SAME recipe (a long recipe often
- * needs several phone screenshots), read together into one result. */
-export type AiInput = { text: string } | { images: AiPhoto[] }
+/** Text paste, one-or-more photos/PDFs of the SAME recipe (a long recipe often
+ * needs several phone screenshots) read together into one result, or a link —
+ * which Gemini reads itself through Google, so sites that block our Worker's
+ * own fetch still work. */
+export type AiInput = { text: string } | { images: AiPhoto[] } | { url: string }
 
 export interface AiImportResult {
   seed: RecipeSeed
@@ -61,13 +63,18 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   const title = raw.title as string
   const source = raw.source as { url?: string }
   // The model can invent a plausible-but-wrong source link (it guessed a Serious
-  // Eats URL from pasted text that had none, and it 404'd). Trust a URL only if
-  // it's a real http(s) link AND literally appears in the text we sent — a photo
-  // has no text to verify against. Better no link than a broken one; the cook
-  // can always paste the real URL in the editor.
-  const providedText = 'text' in input ? input.text : ''
-  if (source.url && (!/^https?:\/\//i.test(source.url) || !providedText.includes(source.url))) {
-    delete source.url
+  // Eats URL from pasted text that had none, and it 404'd). For a link import
+  // the source is simply the link the cook gave us. Otherwise trust a URL only
+  // if it's a real http(s) link AND literally appears in the text we sent — a
+  // photo has no text to verify against. Better no link than a broken one; the
+  // cook can always paste the real URL in the editor.
+  if ('url' in input) {
+    source.url = input.url
+  } else {
+    const providedText = 'text' in input ? input.text : ''
+    if (source.url && (!/^https?:\/\//i.test(source.url) || !providedText.includes(source.url))) {
+      delete source.url
+    }
   }
   // Recipes are keyed by a global slug; give this one a fresh unique one.
   const withSlug = { ...raw, slug: `${slugify(title) || 'recipe'}-${randomSuffix()}` }

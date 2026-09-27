@@ -7,7 +7,7 @@ export interface AiImportResult {
   warnings: string[]
 }
 export type AiPhoto = { data: string; mediaType: string }
-export type AiInput = { text: string } | { images: AiPhoto[] }
+export type AiInput = { text: string } | { images: AiPhoto[] } | { url: string }
 
 /** Preview: return a real parsed recipe after a short "reading" delay. */
 export async function importRecipeViaAI(_input?: AiInput): Promise<AiImportResult> {

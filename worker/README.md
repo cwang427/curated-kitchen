@@ -6,9 +6,13 @@ and you can use just the first:
 - **`/url` — paste a link (FREE).** The app can't fetch another website directly
   (browsers block that — CORS), so the Worker fetches the page for you and reads
   the schema.org recipe data most cooking sites embed. **No API key, no cost.**
-- **root — paste text or a photo (FREE with Gemini).** Sends the text/photo to
-  Google's Gemini to structure it. This reads *any* layout (blog-style pages that
-  the link route can't) and photos/screenshots. It uses Gemini's **free tier**
+  Many big sites block this fetch, so with Gemini set up it's only the fallback.
+- **root — paste text, a photo/PDF, or a link (FREE with Gemini).** Sends the
+  text/photo to Google's Gemini to structure it. This reads *any* layout
+  (blog-style pages that the `/url` route can't) and photos/screenshots/PDFs. For
+  a **link** (`{ url }`), Gemini reads the page itself with its URL-context tool
+  — Google serves it from its own search index, so sites that block the Worker
+  (Serious Eats and most big ones) still work; paywalled pages don't. It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
   imports. Off in the app until you enable it (below). *(A paid Anthropic Claude
   route is also supported as an alternative — see the end.)*
@@ -103,9 +107,9 @@ me and I'll make that change.
 ## Testing it worked
 Open the app → Recipes → **Add** → **Paste a link**, paste a recipe URL, and tap
 **Read recipe**. If you get "Not signed in", the token check is failing (check
-`FIREBASE_PROJECT_ID`). "That site blocked the import" or "No structured recipe
-data" means that particular page can't be read — normal for some sites; use paste
-or a photo. Worker logs: `wrangler tail`.
+`FIREBASE_PROJECT_ID`). "Couldn't open that page" or "behind a paywall" means
+Google couldn't read that particular page — normal for paywalled sites; use paste
+or a photo. Worker logs: `wrangler tail` (a link logs `gemini url statuses=…`).
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.

@@ -328,11 +328,14 @@ async function handleUrlImport(
 /* ---- AI import: pasted text / a photo → structured recipe ---- */
 
 type AiPhoto = { data: string; mediaType: string }
-type AiInput = { text?: string; images: AiPhoto[] }
+type AiInput = { text?: string; images: AiPhoto[]; url?: string }
 
 /** The instruction that rides alongside any attached photos. Several photos are
  * treated as parts of ONE recipe (a long recipe needs several phone screenshots). */
 function imagePrompt(input: AiInput): string {
+  if (input.url) {
+    return `Convert the recipe on this web page: ${input.url}\n\nUse only what that page says — if you can't read it, or it has no recipe, set not_a_recipe true rather than recalling a recipe from memory.`
+  }
   if (input.text) return `Convert this recipe:\n\n${input.text}`
   if (input.images.length > 1) {
     return 'Convert the recipe in the attached images. They are multiple screenshots or pages of the SAME recipe, in order — combine them into one recipe, without duplicating any part shown in more than one image.'
@@ -357,7 +360,10 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // fallback. A retired id shows up as a 404 "no longer available."
   const primaryModel = env.GEMINI_MODEL || 'gemini-3.5-flash-lite'
   const models = env.GEMINI_MODEL ? [primaryModel] : [primaryModel, 'gemini-3.5-flash']
-  console.log(`gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}`)
+  console.log(
+    `gemini start models=${models.join(',')} images=${input.images.length} textLen=${input.text?.length ?? 0}` +
+      (input.url ? ` url=${input.url}` : ''),
+  )
   // Structured JSON output. We deliberately do NOT send thinkingConfig — some
   // models (notably the -lite tier) reject it with 400 INVALID_ARGUMENT — and we
   // give generous output room so a long recipe's JSON isn't cut off. The app's
@@ -373,14 +379,19 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     return JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts }],
+      // A link: let Gemini read the page itself (URL context). Google serves it
+      // from its own search index first, so recipe sites that block our
+      // Worker's fetch (Serious Eats et al.) still come through.
+      ...(input.url ? { tools: [{ url_context: {} }] } : {}),
       generationConfig,
     })
   }
   // Abort a model that hangs so we move on instead of waiting for a ~100s
-  // Cloudflare 524. A healthy call finishes in a few seconds; 30s is generous.
+  // Cloudflare 524. A healthy call finishes in a few seconds; 30s is generous
+  // (45s for a link, which may need a live page fetch first).
   const call = async (m: string, useSchema: boolean): Promise<Response | null> => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30_000)
+    const timer = setTimeout(() => controller.abort(), input.url ? 45_000 : 30_000)
     try {
       return await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
@@ -442,8 +453,34 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   }
 
   const data = (await res.json().catch(() => ({}))) as {
-    candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>
+    candidates?: Array<{
+      finishReason?: string
+      content?: { parts?: Array<{ text?: string }> }
+      urlContextMetadata?: { urlMetadata?: Array<{ retrievedUrl?: string; urlRetrievalStatus?: string }> }
+    }>
     promptFeedback?: { blockReason?: string }
+  }
+  // For a link, only trust the answer if Google actually read the page —
+  // otherwise the model can "helpfully" produce a recipe from memory that isn't
+  // what's on the page. (If the metadata is missing we can't tell, so we let it
+  // through; the cook reviews it in the editor before saving.)
+  if (input.url) {
+    const statuses = (data.candidates?.[0]?.urlContextMetadata?.urlMetadata ?? []).map(
+      (m) => m.urlRetrievalStatus ?? 'unknown',
+    )
+    console.log(`gemini url statuses=${statuses.join(',') || 'none'}`)
+    if (statuses.length > 0 && !statuses.includes('URL_RETRIEVAL_STATUS_SUCCESS')) {
+      return json(
+        {
+          error: statuses.some((st) => st.includes('PAYWALL'))
+            ? 'That page is behind a paywall — copy the recipe text or take a screenshot instead.'
+            : 'Couldn’t open that page — copy the recipe text or take a screenshot instead.',
+          detail: statuses.join(','),
+        },
+        422,
+        origin,
+      )
+    }
   }
   const finishReason = data.candidates?.[0]?.finishReason
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
@@ -585,11 +622,24 @@ export default {
     // the free Gemini route; fall back to the (paid, optional) Claude route if
     // only that key is set.
     const images = body.images ?? (body.image ? [body.image] : [])
-    if (!body.text && images.length === 0) {
+    // A link is read by Gemini itself (URL context), never fetched by this
+    // Worker, so it needs no SSRF guard — just a well-formed http(s) URL.
+    let url: string | undefined
+    if (typeof body.url === 'string' && body.url.trim()) {
+      try {
+        const parsed = new URL(body.url.trim())
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('scheme')
+        url = parsed.toString()
+      } catch {
+        return json({ error: 'Enter a valid recipe link (starting with https://).' }, 400, origin)
+      }
+    }
+    if (!body.text && images.length === 0 && !url) {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }
-    const input: AiInput = { text: body.text, images }
+    const input: AiInput = { text: body.text, images, url }
     if (env.GEMINI_API_KEY) return handleGemini(input, env, origin)
+    if (url) return json({ error: 'Reading links needs the Gemini key on the server.' }, 501, origin)
     if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
     return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)
   },

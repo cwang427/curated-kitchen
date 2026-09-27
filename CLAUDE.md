@@ -80,12 +80,9 @@ confusion:
     same pure `recipeFromJsonLd` (`src/lib/importRecipe.ts`) and validates with
     `parseRecipe` → editable preview → save as `origin: 'app'`. **No API key** —
     reading structured data is deterministic. Fragile per-site (bot walls / no
-    JSON-LD), so it degrades to paste/photo; that's expected. **Currently the
-    "Paste a link" option is disabled (greyed) in the Add-recipe chooser** —
-    too many sites block the server-side fetch to be worth it, and text/photo
-    import cover it. The route and its `link` mode still work; to re-enable, drop
-    `disabled` and restore the `onClick={() => setMode('link')}` on that button in
-    `src/routes/AddRecipePage.tsx`.
+    JSON-LD), so it degrades to paste/photo; that's expected. Most big sites
+    (Serious Eats, Smitten Kitchen, …) block this fetch, so with AI enabled it's
+    now only the **fallback** for "Paste a link" — see the AI route's `{ url }`.
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
@@ -101,7 +98,17 @@ confusion:
     once it settles). A retired id shows up as a 404 "no longer available." It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
     (one or several photos of the SAME recipe, read together; the legacy single
-    `{ image }` is still accepted). **PDFs ride the same `images` array** with
+    `{ image }` is still accepted). **A link** (`{ url }`, Add a recipe → **Paste
+    a link**, first in the chooser) is read by Gemini itself via its
+    **URL-context tool** (`tools: [{ url_context: {} }]`, combined with the same
+    structured output): Google serves the page from its own search index first,
+    so sites that bot-block our Worker's fetch still come through (paywalled
+    pages don't). The Worker only trusts the answer if `urlContextMetadata`
+    reports `URL_RETRIEVAL_STATUS_SUCCESS` — otherwise the model may recite a
+    recipe from memory — and returns 422 "Couldn't open that page" (or
+    "paywall"); missing metadata is let through and logged. The app sets
+    `source.url` to the pasted link and falls back to the `/url` JSON-LD route
+    if the AI read fails. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
     through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
     pages too), so PDF import needed no Worker change. The app sends a PDF as-is
@@ -399,8 +406,11 @@ un-favorited). Shared `HeartIcon` component; `test:rules` unchanged since the
 existing member-updates-recipe rule already covers it.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
-fully-offline photo path is ever wanted. Next: a PWA share-target
-("Share → Curated Kitchen" hands over the page text, sidestepping CORS) and
-ownership transfer / co-owner. The cook log is intentionally skipped —
+fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated
+Kitchen") is **not possible on iPhone**: WebKit still doesn't implement the Web
+Share Target API (bug 194593), and iOS doesn't route links into a home-screen
+app (Safari and the installed app have separate storage). The iPhone flow for
+links is Share → Copy in Safari, then Paste a link. Next: ownership transfer /
+co-owner. The cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

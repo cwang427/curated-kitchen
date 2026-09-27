@@ -110,12 +110,31 @@ export default function AddRecipePage() {
     }
   }
 
+  // A link. With AI set up, Gemini reads the page itself through Google — which
+  // gets past the bot walls that block our Worker's own fetch (Serious Eats and
+  // most big sites) and handles blog-style pages with no structured data. The
+  // Worker's direct JSON-LD fetch is the fallback (and the only engine without AI).
   const readLink = async () => {
     setError(null)
     setReading(true)
+    const url = link.trim()
     try {
-      const res = await importRecipeFromUrl(link.trim())
-      setInitial(res.seed)
+      let seed: RecipeSeed
+      if (aiImportConfigured) {
+        try {
+          seed = (await importRecipeViaAI({ url })).seed
+        } catch (aiErr) {
+          if (!urlImportConfigured) throw aiErr
+          try {
+            seed = (await importRecipeFromUrl(url)).seed
+          } catch {
+            throw aiErr
+          }
+        }
+      } else {
+        seed = (await importRecipeFromUrl(url)).seed
+      }
+      setInitial(seed)
       setMode('edit')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
@@ -192,9 +211,9 @@ export default function AddRecipePage() {
               className="min-h-14 w-full rounded-2xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
             <p className="text-sm text-ink-soft">
-              Paste a link from most cooking sites and we’ll pull the ingredients and steps for you
-              to review before saving. Some sites block automatic reading — if it doesn’t work, use
-              paste or a photo instead.
+              In Safari, tap Share → Copy on the recipe page, then paste the link here. We’ll pull
+              the ingredients and steps for you to review before saving. If a site won’t open, copy
+              its text or take a screenshot instead.
             </p>
 
             {error && (
@@ -202,6 +221,8 @@ export default function AddRecipePage() {
                 {error}
               </p>
             )}
+
+            {reading && <ReadingIndicator seconds={readSeconds} />}
 
             <button
               type="button"
@@ -342,6 +363,20 @@ export default function AddRecipePage() {
         ) : (
           /* choose */
           <div className="space-y-4">
+            {(aiImportConfigured || urlImportConfigured) && (
+              <button
+                type="button"
+                onClick={() => setMode('link')}
+                className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
+              >
+                <span className="block font-medium">Paste a link</span>
+                <span className="mt-0.5 block text-sm text-ink-soft">
+                  From Serious Eats, a food blog, most recipe sites. We read the page and pull the
+                  recipe in for you. (Paywalled sites need a screenshot.)
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setMode('text')}
@@ -364,26 +399,6 @@ export default function AddRecipePage() {
                 <span className="mt-0.5 block text-sm text-ink-soft">
                   Snap a cookbook page, a recipe card, or a screenshot — or pick a recipe PDF — and
                   we’ll read it in for you.
-                </span>
-              </button>
-            )}
-
-            {/* Disabled for now: most sites block the Worker's server-side fetch,
-                so this route is unreliable. Left visible (greyed) so it's easy to
-                turn back on later — flip `disabled` and restore the onClick. */}
-            {urlImportConfigured && (
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                className="w-full cursor-not-allowed rounded-2xl border border-line bg-card p-4 text-left opacity-55"
-              >
-                <span className="block font-medium">
-                  Paste a link{' '}
-                  <span className="font-normal text-ink-faint">(not working right now)</span>
-                </span>
-                <span className="mt-0.5 block text-sm text-ink-soft">
-                  Too many sites block automatic reading — use Paste text or Scan a photo instead.
                 </span>
               </button>
             )}
