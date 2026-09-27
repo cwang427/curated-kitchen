@@ -266,6 +266,138 @@ function extractJsonLd(html: string): unknown[] {
   return out
 }
 
+/** Find a schema.org Recipe object in JSON-LD blocks (top level, arrays, or @graph). */
+function findRecipe(blocks: unknown[]): Record<string, unknown> | null {
+  const queue = [...blocks]
+  while (queue.length) {
+    const node = queue.shift()
+    if (Array.isArray(node)) queue.push(...node)
+    else if (node && typeof node === 'object') {
+      const obj = node as Record<string, unknown>
+      const type = obj['@type']
+      if (type === 'Recipe' || (Array.isArray(type) && type.includes('Recipe'))) return obj
+      if (obj['@graph']) queue.push(obj['@graph'])
+    }
+  }
+  return null
+}
+
+const BROWSER_HEADERS = {
+  // A real browser UA clears the most basic bot checks; big sites still block.
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml',
+  'Accept-Language': 'en-US,en;q=0.9',
+}
+
+async function fetchText(url: string, headers: Record<string, string>, label: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20_000)
+  try {
+    const res = await fetch(url, { headers, redirect: 'follow', signal: controller.signal })
+    console.log(`page ${label}: ${res.status}`)
+    return res.ok ? await res.text() : null
+  } catch (e) {
+    console.log(`page ${label}: failed ${String(e)}`)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+type PageSource = 'direct' | 'reader' | 'archive'
+
+/**
+ * Get a recipe page's HTML, trying routes that get past the bot walls big sites
+ * put up against server fetches like ours (a person's browser gets through; a
+ * data-centre fetch doesn't):
+ *   1. direct — our own fetch; fine for small sites.
+ *   2. reader — Jina Reader (r.jina.ai), a free service (no key, ~20 req/min)
+ *      that loads the page in a real browser on its servers.
+ *   3. archive — the Internet Archive's latest saved copy; popular recipes are
+ *      archived many times over, and archive.org serves them to anyone.
+ * A page counts only if it carries schema.org Recipe data; failing that, the
+ * first substantial page that isn't a bot challenge is returned for the AI to
+ * read as text. Each step logs to `wrangler tail`.
+ */
+async function fetchRecipePage(url: string): Promise<{ html: string; via: PageSource } | null> {
+  let fallback: { html: string; via: PageSource } | null = null
+  const consider = (html: string | null, via: PageSource): boolean => {
+    if (!html) return false
+    if (findRecipe(extractJsonLd(html))) {
+      console.log(`page ${via}: recipe data found`)
+      fallback = { html, via }
+      return true
+    }
+    const head = html.slice(0, 5000)
+    const challenge = /access denied|just a moment|are you a robot|captcha|enable javascript and cookies/i.test(head)
+    console.log(`page ${via}: no recipe data${challenge ? ' (bot challenge)' : ''}, ${html.length} chars`)
+    if (!fallback && !challenge && html.length > 5000) fallback = { html, via }
+    return false
+  }
+
+  let host = ''
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return null
+  }
+  if (!isBlockedHost(host) && consider(await fetchText(url, BROWSER_HEADERS, 'direct'), 'direct')) return fallback
+  const reader = await fetchText(`https://r.jina.ai/${url}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'reader')
+  if (consider(reader, 'reader')) return fallback
+  const avail = await fetchText(
+    `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`,
+    { Accept: 'application/json' },
+    'archive lookup',
+  )
+  let stamp: string | undefined
+  try {
+    stamp = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
+      .archived_snapshots?.closest?.timestamp
+  } catch {
+    stamp = undefined
+  }
+  if (stamp) {
+    // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
+    const archived = await fetchText(`https://web.archive.org/web/${stamp}id_/${url}`, BROWSER_HEADERS, `archive ${stamp}`)
+    if (consider(archived, 'archive')) return fallback
+  } else {
+    console.log('page archive: no saved copy')
+  }
+  return fallback
+}
+
+/** Visible text of a page, roughly: scripts/styles/chrome dropped, tags stripped. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style|noscript|svg|nav|header|footer|form|iframe)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<(br|\/p|\/div|\/li|\/h\d|\/tr|\/section|\/article)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;|&rsquo;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n\n')
+    .trim()
+}
+
+/** What the AI reads when it can't open a link itself: the page's recipe data
+ * (precise amounts/steps) plus its visible text (headnote, notes, tips). */
+function pageForAi(html: string, url: string): string {
+  const recipe = findRecipe(extractJsonLd(html))
+  const text = htmlToText(html).slice(0, 40_000)
+  return [
+    `Recipe page: ${url}`,
+    recipe ? `Structured recipe data (schema.org JSON-LD):\n${JSON.stringify(recipe)}` : '',
+    `Page text:\n${text}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 async function handleUrlImport(
   body: { url?: string },
   origin: string,
@@ -284,41 +416,12 @@ async function handleUrlImport(
     return json({ error: 'That link can’t be fetched.' }, 400, origin)
   }
 
-  let page: Response
-  try {
-    page = await fetch(target.toString(), {
-      headers: {
-        // A real browser UA clears the most basic bot checks; aggressive sites
-        // still block, and the app falls back to paste/photo then.
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-      redirect: 'follow',
-    })
-  } catch {
-    return json({ error: 'Couldn’t reach that page.' }, 502, origin)
-  }
-
-  if (!page.ok) {
-    const blocked = page.status === 403 || page.status === 429 || page.status === 401
+  const page = await fetchRecipePage(target.toString())
+  const jsonld = page ? extractJsonLd(page.html) : []
+  if (!page || !findRecipe(jsonld)) {
     return json(
-      {
-        error: blocked
-          ? 'That site blocked the import. Try paste or a screenshot instead.'
-          : `Couldn’t load the page (${page.status}).`,
-      },
+      { error: 'That site blocked the import. Try paste or a screenshot instead.' },
       502,
-      origin,
-    )
-  }
-
-  const html = await page.text()
-  const jsonld = extractJsonLd(html)
-  if (jsonld.length === 0) {
-    return json(
-      { error: 'No structured recipe data on that page. Try paste or a screenshot instead.' },
-      422,
       origin,
     )
   }
@@ -470,6 +573,13 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     )
     console.log(`gemini url statuses=${statuses.join(',') || 'none'}`)
     if (statuses.length > 0 && !statuses.includes('URL_RETRIEVAL_STATUS_SUCCESS')) {
+      // Google couldn't open it (big sites block its AI reader too). Get the
+      // page another way and have Gemini read it as text instead.
+      const page = await fetchRecipePage(input.url)
+      if (page) {
+        console.log(`gemini reading page via ${page.via} as text`)
+        return handleGemini({ images: [], text: pageForAi(page.html, input.url) }, env, origin)
+      }
       return json(
         {
           error: statuses.some((st) => st.includes('PAYWALL'))

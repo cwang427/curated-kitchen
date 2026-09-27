@@ -10,9 +10,12 @@ and you can use just the first:
 - **root — paste text, a photo/PDF, or a link (FREE with Gemini).** Sends the
   text/photo to Google's Gemini to structure it. This reads *any* layout
   (blog-style pages that the `/url` route can't) and photos/screenshots/PDFs. For
-  a **link** (`{ url }`), Gemini reads the page itself with its URL-context tool
-  — Google serves it from its own search index, so sites that block the Worker
-  (Serious Eats and most big ones) still work; paywalled pages don't. It uses Gemini's **free tier**
+  a **link** (`{ url }`), Gemini first reads the page itself with its URL-context
+  tool. Big sites (Serious Eats) block that too, so the Worker then fetches the
+  page another way — directly, then via **Jina Reader** (`r.jina.ai`, a free
+  page-reading service, no key), then the **Internet Archive's** saved copy —
+  and has Gemini read it as text. Paywalled pages don't work. Only the public
+  recipe link is sent to those services. It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
   imports. Off in the app until you enable it (below). *(A paid Anthropic Claude
   route is also supported as an alternative — see the end.)*
@@ -109,7 +112,8 @@ Open the app → Recipes → **Add** → **Paste a link**, paste a recipe URL, a
 **Read recipe**. If you get "Not signed in", the token check is failing (check
 `FIREBASE_PROJECT_ID`). "Couldn't open that page" or "behind a paywall" means
 Google couldn't read that particular page — normal for paywalled sites; use paste
-or a photo. Worker logs: `wrangler tail` (a link logs `gemini url statuses=…`).
+or a photo. Worker logs: `wrangler tail` (a link logs `gemini url statuses=…`, then `page direct/reader/archive: …` for
+each fallback it tried).
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.

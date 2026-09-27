@@ -102,13 +102,23 @@ confusion:
     a link**, first in the chooser) is read by Gemini itself via its
     **URL-context tool** (`tools: [{ url_context: {} }]`, combined with the same
     structured output): Google serves the page from its own search index first,
-    so sites that bot-block our Worker's fetch still come through (paywalled
-    pages don't). The Worker only trusts the answer if `urlContextMetadata`
-    reports `URL_RETRIEVAL_STATUS_SUCCESS` — otherwise the model may recite a
-    recipe from memory — and returns 422 "Couldn't open that page" (or
-    "paywall"); missing metadata is let through and logged. The app sets
-    `source.url` to the pasted link and falls back to the `/url` JSON-LD route
-    if the AI read fails. **PDFs ride the same `images` array** with
+    so small sites come through (paywalled pages don't). The Worker only trusts
+    the answer if `urlContextMetadata` reports `URL_RETRIEVAL_STATUS_SUCCESS` —
+    otherwise the model may recite a recipe from memory; missing metadata is let
+    through and logged. **Serious Eats (Dotdash Meredith) blocks Google's AI
+    reader too** (`URL_RETRIEVAL_STATUS_ERROR`), so on a failed retrieval the
+    Worker gets the page itself via `fetchRecipePage` — direct fetch → **Jina
+    Reader** (`r.jina.ai`, free, no key, ~20 req/min; renders in a real browser)
+    → the **Internet Archive's** latest saved copy (`archive.org/wayback/available`
+    → `web.archive.org/web/<ts>id_/<url>`) — accepting the first page with
+    schema.org Recipe data (else the first substantial non-challenge page), and
+    has Gemini read `pageForAi` (the JSON-LD + visible page text) as a normal
+    text import. Every step logs `page <route>: …` in `wrangler tail`. Only if
+    all fail does it return 422 "Couldn't open that page" (or "paywall"). The
+    `/url` JSON-LD route uses the same chain. The app sets `source.url` to the
+    pasted link and falls back to the `/url` route only when Gemini itself
+    failed (not on a 422 — the chain already ran). The recipe URL is sent to
+    Jina / archive.org (public links, no user data). **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
     through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
     pages too), so PDF import needed no Worker change. The app sends a PDF as-is

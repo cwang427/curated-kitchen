@@ -110,10 +110,11 @@ export default function AddRecipePage() {
     }
   }
 
-  // A link. With AI set up, Gemini reads the page itself through Google — which
-  // gets past the bot walls that block our Worker's own fetch (Serious Eats and
-  // most big sites) and handles blog-style pages with no structured data. The
-  // Worker's direct JSON-LD fetch is the fallback (and the only engine without AI).
+  // A link. With AI set up, the Worker has Gemini read the page (through Google,
+  // else via a reader service or the Internet Archive — big sites like Serious
+  // Eats block plain server fetches) and handles blog-style pages with no
+  // structured data. The Worker's JSON-LD route is the fallback when Gemini is
+  // busy (and the only engine without AI).
   const readLink = async () => {
     setError(null)
     setReading(true)
@@ -124,7 +125,10 @@ export default function AddRecipePage() {
         try {
           seed = (await importRecipeViaAI({ url })).seed
         } catch (aiErr) {
-          if (!urlImportConfigured) throw aiErr
+          // 422 = the Worker already tried every way to read the page (Google,
+          // a reader service, the Internet Archive); the JSON-LD route would
+          // only repeat those. It's for when Gemini itself is busy or down.
+          if (!urlImportConfigured || (aiErr as { status?: number }).status === 422) throw aiErr
           try {
             seed = (await importRecipeFromUrl(url)).seed
           } catch {

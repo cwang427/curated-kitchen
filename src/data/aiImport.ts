@@ -54,7 +54,11 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     body: JSON.stringify(input),
   })
   const data = (await res.json().catch(() => ({}))) as { recipe?: unknown; error?: string }
-  if (!res.ok) throw new Error(data.error || `Import failed (${res.status}).`)
+  if (!res.ok) {
+    // Keep the status: a 422 means the Worker already tried everything it could
+    // for that input, so the caller shouldn't retry another way.
+    throw Object.assign(new Error(data.error || `Import failed (${res.status}).`), { status: res.status })
+  }
   if (!data.recipe) throw new Error('The AI didn’t return a recipe.')
 
   // Fill gaps (e.g. no servings) and drop pieces the strict validator would
