@@ -29,7 +29,7 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
 
   return (
-    <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
+    <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           {back &&

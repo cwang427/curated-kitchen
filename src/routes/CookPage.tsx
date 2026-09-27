@@ -574,7 +574,7 @@ export default function CookPage() {
   return (
     <div className="flex min-h-dvh flex-col bg-paper">
       {/* Top: exit + progress + timer tray */}
-      <div className="pad-safe-top sticky top-0 z-10 space-y-3 border-b border-line bg-paper/95 px-4 pb-3 backdrop-blur">
+      <div className="pad-safe-top sticky top-0 z-10 space-y-3 border-b border-line bg-paper px-4 pb-3">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <Link
             to={`/r/${recipe.slug}`}

@@ -266,6 +266,14 @@ the deploy and leaves the previous version up.
 - Match the surrounding code's style; comments explain *why*, not *what*.
 - Keep touch targets generous and type large — this is used at arm's length
   with wet hands. Palette is CSS tokens on `:root` with a dark-mode block.
+- Keep anything that sits at the top edge **opaque** (no `bg-paper/90` +
+  `backdrop-blur` on sticky headers). iOS 26+ draws a "Liquid Glass" blur over
+  the top of an installed web app wherever it can't sample a solid colour there,
+  which smeared the header on a friend's iPhone; the `.status-strip` in
+  `index.html` (a real fixed element, standalone only) plus opaque headers give
+  it one. If the blur ever returns, the fallback other apps confirmed on-device
+  is ~2.5rem of extra top clearance in `@media (display-mode: standalone)` so
+  header content sits below the ~40pt blur ramp.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
