@@ -93,7 +93,7 @@ export default function AddToListSheet({
         className="pad-safe-bottom max-h-[85dvh] overflow-y-auto rounded-t-3xl bg-paper"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur">
+        <div className="sticky top-0 flex items-center justify-between border-b border-line bg-paper px-4 py-3">
           <h2 className="font-serif text-lg tracking-tight">Add to grocery list</h2>
           <button
             type="button"
@@ -220,7 +220,7 @@ export default function AddToListSheet({
               </p>
             )}
 
-            <div className="sticky bottom-0 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur">
+            <div className="sticky bottom-0 border-t border-line bg-paper px-4 py-3">
               <button
                 type="button"
                 onClick={add}

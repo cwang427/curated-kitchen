@@ -760,7 +760,7 @@ export default function CookPage() {
       </main>
 
       {/* Bottom: work-ahead nudge (when this step is cooking) + big navigation */}
-      <div className="pad-safe-bottom sticky bottom-0 space-y-3 border-t border-line bg-paper/95 px-4 pt-3 backdrop-blur">
+      <div className="pad-safe-bottom sticky bottom-0 space-y-3 border-t border-line bg-paper px-4 pt-3">
         {/* Once the current step is cooking, invite moving on — its timer keeps
             running in the Meanwhile band and calls you back when it rings, so
             nothing's forgotten. Kept here so it's always visible, not buried

@@ -68,7 +68,7 @@ export default function PlanSheet({
         className="pad-safe-bottom max-h-[85dvh] overflow-y-auto rounded-t-3xl bg-paper"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur">
+        <div className="sticky top-0 flex items-center justify-between border-b border-line bg-paper px-4 py-3">
           <h2 className="font-serif text-lg tracking-tight">
             {plannedLabel ? 'Added to the plan' : picked ? 'When are you making it?' : 'Plan a meal'}
           </h2>

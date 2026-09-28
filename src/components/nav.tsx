@@ -1,5 +1,5 @@
-import { useCallback, useEffect, type AnchorHTMLAttributes } from 'react'
-import { useHref, useLocation, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useRef, type AnchorHTMLAttributes } from 'react'
+import { useHref, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 
 /**
  * Navigation follows a fixed hierarchy, not "wherever you came from":
@@ -83,7 +83,53 @@ export function useAppNav(): { goTo: (target: string) => void; goUp: () => void 
 export function HistoryChain(): null {
   const navigate = useNavigate()
   const location = useLocation()
+  const navType = useNavigationType()
   const here = location.pathname + location.search
+  const positions = useRef(new Map<string, number>())
+
+  // Scroll is ours, not the browser's. iOS's own restore on a history step
+  // lands mid-render (a recipe shows "Loading…" before its content), which
+  // left pages blank until you scrolled — tappable but unpainted.
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'
+  }, [])
+
+  // Remember where each history entry was scrolled to. `activeKey` switches to
+  // the new entry before any scrolling for it happens, so the new page's
+  // scroll-to-top (or the browser clamping a now-shorter page) can never
+  // overwrite the position of the page you just left.
+  const activeKey = useRef(location.key)
+  useEffect(() => {
+    const onScroll = () => positions.current.set(activeKey.current, window.scrollY)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // A new screen opens at the top; going back returns to where you were —
+  // retried for a moment while the page's content loads in.
+  useLayoutEffect(() => {
+    activeKey.current = location.key
+    const target = navType === 'POP' ? (positions.current.get(location.key) ?? 0) : 0
+    let tries = 0
+    let frame = 0
+    const settle = () => {
+      window.scrollTo(0, target)
+      if (Math.abs(window.scrollY - target) > 2 && tries++ < 90) frame = requestAnimationFrame(settle)
+    }
+    settle()
+    // And make iOS repaint: a 1px round trip once the new page has rendered.
+    const nudge = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const y = window.scrollY
+        window.scrollTo(0, y + 1)
+        window.scrollTo(0, y)
+      }),
+    )
+    return () => {
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(nudge)
+    }
+  }, [location.key, navType])
 
   // Opened straight onto a deeper screen (a reload, an old link): rebuild its
   // ancestors underneath it, so the first swipe back lands on the parent.

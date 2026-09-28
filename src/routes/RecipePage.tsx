@@ -188,7 +188,7 @@ export default function RecipePage() {
           </p>
         )}
 
-        <div className="sticky top-16 z-10 -mx-4 mt-6 border-y border-line bg-paper/95 px-4 py-3 backdrop-blur">
+        <div className="sticky top-16 z-10 -mx-4 mt-6 border-y border-line bg-paper px-4 py-3">
           <ScaleControl scale={scale} onChange={setScale} recipeYield={recipe.yield} />
         </div>
 

@@ -422,7 +422,7 @@ export default function RecipeEditor({
       </Section>
 
       {/* Sticky save bar */}
-      <div className="pad-safe-bottom fixed inset-x-0 bottom-0 border-t border-line bg-paper/95 px-4 pt-3 backdrop-blur">
+      <div className="pad-safe-bottom fixed inset-x-0 bottom-0 border-t border-line bg-paper px-4 pt-3">
         {error && (
           <p role="alert" className="mx-auto mb-2 max-w-3xl text-sm text-red-600 dark:text-red-400">
             {error}

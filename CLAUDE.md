@@ -322,6 +322,14 @@ the deploy and leaves the previous version up.
   two-phase moves. Add a recipe manages its own inner steps (the editor sits on
   its import screen so Back keeps the paste) and, on save, unwinds to the
   chooser and replaces it with the new recipe, so history reads kitchen → recipe.
+- **Scroll is the app's, not the browser's** (`HistoryChain` in `nav.tsx`):
+  `history.scrollRestoration = 'manual'`; a new screen opens at the top, going
+  back restores that entry's saved position (retried per frame while content
+  loads), then a 1px round-trip nudge forces a repaint. iOS's own restore on a
+  history step landed mid-render (a recipe shows "Loading…" first) and left the
+  page **blank until you scrolled** — tappable but unpainted — after Save
+  changes. Also: **no `backdrop-blur` on sticky/fixed bars** (all opaque
+  `bg-paper`), a classic WebKit paint-glitch trigger.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
