@@ -114,9 +114,11 @@ confusion:
     otherwise the model may recite a recipe from memory; missing metadata is let
     through and logged. **Serious Eats (Dotdash Meredith) blocks Google's AI
     reader too** (`URL_RETRIEVAL_STATUS_ERROR`), so on a failed retrieval the
-    Worker gets the page itself via `fetchRecipePage` — direct fetch → **Jina
-    Reader** (`r.jina.ai`, free, no key, ~20 req/min; renders in a real browser)
-    → the **Internet Archive's** latest saved copy (`archive.org/wayback/available`
+    Worker gets the page itself via `fetchRecipePage` — direct fetch (8 s budget;
+    if it hasn't answered in 3 s, **Jina Reader** starts alongside and the first
+    recipe wins, the other called off) → **Jina Reader** (`r.jina.ai`, free, no
+    key, ~20 req/min; renders in a real browser; 12 s) → the **Internet
+    Archive's** latest saved copy (`archive.org/wayback/available`
     → `web.archive.org/web/<ts>id_/<url>`; that quick lookup sometimes says "no
     copy" for pages saved many times — a years-old Serious Eats recipe, twice —
     so when it's empty the Worker asks for **the save closest to right now**
@@ -128,14 +130,29 @@ confusion:
     documented shape, filtered to 200/HTML in our code — asking the live index
     to `filter=` got a **400** (v0.42.3). A 400 anywhere logs the server's
     reason (`page …: 400 says "…"`). Lookups use `archiveKey(url)`, the link
-    minus `#fragment` and `utm_`/`fbclid`-style tracking params) — accepting the first page with
-    schema.org Recipe data (else the first substantial non-challenge page), and
-    has Gemini read `pageForAi` (the JSON-LD + visible page text) as a normal
+    minus `#fragment` and `utm_`/`fbclid`-style tracking params). Pages are scored
+    by `recipeSignal` (v0.46): 3 = schema.org Recipe data, 2 = recipe-plugin
+    markup (`wprm-recipe`, `tasty-recipes`, microdata) or an Ingredients heading,
+    1 = mentions ingredients, 0 = none, -1 = a bot challenge (HUMAN "Press &
+    Hold", DataDome, Incapsula… — checked only when there's no recipe markup,
+    since real pages load captcha scripts too) or a near-empty page. A score of
+    2+ ends the search (a plugin page no longer burns Jina and Archive
+    requests); otherwise the highest-scoring page any route brought is kept
+    (not the first). `findRecipe` / the app's `findRecipeNode` also look in
+    `WebPage.mainEntity` and match `@type` in any case or as a list; the app's
+    `recipeFromJsonLd` decodes `&frac12;`-style codes and splits a one-string
+    instruction on paragraphs/lines. It then has Gemini read `pageForAi` (the JSON-LD + visible page text) as a normal
     text import. Every step logs `page <route>: …` in `wrangler tail`. Only if
     all fail does it return 422 "Couldn't open that page" (or "paywall"). The
     `/url` JSON-LD route uses the same chain. The app sets `source.url` to the
-    pasted link and falls back to the `/url` route only when Gemini itself
-    failed (not on a 422 — the chain already ran). The recipe URL is sent to
+    pasted link. With AI on, the app no longer falls back to the `/url` route
+    (it re-ran the whole search, then imported a lesser version silently):
+    when Gemini fails after the Worker got the page, the Worker answers
+    `code: 'ai_busy'` with the page's recipe node (reviews etc. trimmed) and
+    cover, and the app offers **"Import it as listed"** (`importFromRecipeData`
+    → `seedFromJsonLd`, with a note) or **Try again**. A page that shows no
+    recipe signs and that the AI calls `not_a_recipe` (likely a soft block)
+    goes to Google's reader instead. The recipe URL is sent to
     Jina / archive.org (public links, no user data). **Order (v0.39):** `handleLink` now
     gets the page itself FIRST (direct → Jina → Archive) and has Gemini read it
     as text; Google's URL-context reader is only the last resort (no page from
@@ -146,7 +163,7 @@ confusion:
     stamp }`. **The cover is a few candidates** (`covers`, ≤4, best first;
     `cover` = the first, for older apps): recipe data often names a big size of
     the main photo the page never shows, and the Archive only saves images a
-    page shows, so `pageImageVariants` adds every size of that photo the page's
+    page shows, so `findLinkPhotos` (via `pageImageIndex`) adds every size of that photo the page's
     own `<img>`/`<source>` src/srcset/data-src shows (matched by `photoStem`: file
     name minus extension and `-1024x683`-style suffix), widest first — and puts
     them FIRST for an Archive-read page (listed sizes first otherwise). The app
@@ -174,12 +191,15 @@ confusion:
     logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
     host/…end-of-path`), compresses them like any added photo, and opens the preview editor
     with them as unsaved photos, so saving stores them as photo docs.
-    **Every Archive request identifies us honestly** (`ARCHIVE_UA`,
-    "CuratedKitchen/1.0 (personal recipe app…)"), never in `BROWSER_HEADERS`
-    (v0.42.4): the Archive's Sept 2026 access update says it's getting better
-    at telling abusive bots from real users, the advice for its 429s is to
-    identify your tool and not spoof browser headers, and our refused requests
-    were exactly the disguised ones. Sites still get `BROWSER_HEADERS`. The
+    **Every request identifies us honestly** (`APP_UA`, "CuratedKitchen/1.0
+    (+https://cwang427.github.io/curated-kitchen/; …)", in `SITE_HEADERS`) —
+    the Archive since v0.42.4, and sites, Jina and `/img` since v0.46 (the
+    Chrome-125 `BROWSER_HEADERS` is gone): a Worker's connection looks nothing
+    like a browser's, and a browser name on it is exactly what bot filters
+    score as spoofing. It won't get past a site that blocks automated fetches
+    (nothing from a Worker does); a site that refuses the honest name still
+    comes through Jina and the image proxy, just slower — watch the `import`
+    log lines for sites that stop working directly. The
     same update says **signed-in users don't get 429s**, so the Worker
     **signs in — and keeps itself signed in** (v0.44; the owner can't be on
     call to fix an expired sign-in for friends). Secrets, all set at once by
@@ -207,48 +227,81 @@ confusion:
     ends `archive sign-in on (saved, until …)` / `on (signed in automatically)`
     / `off (not set up)` / `off (signing in failed …)` / `ready (not needed this
     time)`.
-    **The Archive throttles (429)** the shared addresses Workers fetch from.
-    Archive requests are **not retried** (v0.42.5): in every real log a 429 was
-    still a 429 1.5 s and 3 s later, and retries only added to the count held
-    against the address. `fetchText` still takes per-call retry waits (for
-    other callers) and logs each 429's `Retry-After` (`page archive …: 429,
-    retry-after 60s` / `not given`) — never retrying sooner than it asks.
-    **Diagnostics:** each link import logs `link: ran in <colo>, worker copy
-    <id> (import #N since it started M min ago), outgoing address <ip>` (the
-    address from api.ipify.org, 3 s cap, best effort) — to test whether
-    refusals follow one outgoing address and whether a fresh Worker copy (a
-    deploy, or an idle recycle) gets through where a warm one was refused.
+    **The Archive throttles (429)** the shared addresses Workers fetch from —
+    by source address (IA staff: ~60/min for the CDX index, with a 1-hour
+    block that doubles if 429s are ignored); signing in and an honest name
+    don't change which counter we hit. Nothing is retried (`fetchText` has no
+    retry loop since v0.46; it logs each 429's `Retry-After` — in real logs
+    always `not given` — and whether it carries `memento-datetime`). **A
+    breaker** (v0.46, `noteReplay` / `replayWaitMs`, module memory, per Worker
+    copy) covers **web.archive.org only** (page copies + the CDX index): a
+    429/503 without `memento-datetime` (with it, it's a saved copy of the
+    SITE's own 429 — not a refusal) or a copy that doesn't answer in 12 s opens
+    it for 90 s, doubling on each refusal in a row to a 10-minute cap, jittered;
+    while open, no request goes to web.archive.org at all (`page archive …:
+    skipped`). Any answer closes it and logs `archive breaker: answered again
+    Ns after the first refusal` — the data for tuning the cap (real logs showed
+    refused copies working minutes later; the 1-hour figures are about CDX).
+    The availability lookup (archive.org, a different host) never refused us
+    in 17 of 17 logged imports and still runs while the breaker is open. The
+    research behind all this is in `docs/research/` (read `HANDOFF.md`'s
+    "Revised after review" first). **Diagnostics:** each link import logs
+    `link: ran in <colo>, worker copy <id> (import #N since it started M min
+    ago), outgoing IPv4 <ip>` — IPv4 (`api4.ipify.org`, looked up once per
+    Worker copy) because the Archive has no IPv6 address; before v0.46 this
+    logged the IPv6 address, one the Archive never sees — and one structured
+    `{ event: 'import', host, via, status, ms, archive, cover, stepPhotos }`
+    line per import. **Workers Logs** is on (`[observability]` in
+    `wrangler.toml`, free plan: 3 days), so these can be filtered afterwards in
+    the Cloudflare dashboard (Workers & Pages → curated-kitchen-import → Logs),
+    not only while `wrangler tail` runs. `REFUSING_SITES` (NYT Cooking) answers
+    at once with `code: 'site_refuses'` and what to do instead.
     Other sources were weighed and rejected: the "Wayback Machine" IS the
     Archive; archive.today (CAPTCHA loops, blocks Cloudflare-related traffic,
     blacklisted by Wikipedia in Feb 2026 after being used for a DDoS and
     altering snapshots; only has pages people saved); Common Crawl (built for
     programmatic use, but monthly, no photos, and CCBot is one of the
     most-blocked crawlers); Google/Bing caches are gone.
-    If the copy is still refused, Jina Reader fetches the Archive's copy for us
-    (`r.jina.ai/<archive url>` — its own addresses; it 451s any link naming a
-    site that blocks it, Serious Eats included). **When the Archive refused us
-    (429/503 — or both lookups were throttled, "too busy to check") and Google
-    can't open the link either**, `handleLink` returns an honest 422: "<site>
+    If the copy is refused, Jina Reader fetches the Archive's copy for us
+    (`r.jina.ai/<archive url>`) — unless Jina already refused the site (451):
+    it refuses any link naming a site that blocks it, Archive links included
+    (Serious Eats: 5 of 5 in real logs), so that request is skipped.
+    **When no route got the page** (`readWithGoogle`, v0.46), Google's reader
+    reads it from Google's servers — the recipe, but **not its photos**
+    (without the page we can't find them). When the Archive has a copy it
+    refused us (`PageLookup.archiveCopy` + `archiveBusy`) and Jina refused the
+    site, Google reads **the Archive's copy** (it fetches from its own
+    addresses; the v0.41.7 idea) instead of the site; otherwise the site, then
+    the copy. The answer carries **`photosUnavailable: true`** and, when the
+    Archive was only busy, **`retryAfterMs`** (the breaker's wait, at least a
+    minute). If nothing could be read while the Archive was busy: 422 "<site>
     blocks direct imports, and its saved copy at the Internet Archive is busy
-    right now — try again in a few minutes, or paste the recipe text instead."
-    with **`code: 'archive_busy'`** (`PageLookup.archiveBusy`; a paywall or a
-    genuinely missing copy keeps its own message). **The app retries that by
-    itself** (v0.45, `readLink` in `AddRecipePage` + `src/lib/archiveBusy.ts`):
-    the refusals clear within minutes, so rather than hand a friend an error it
-    shows "The Internet Archive is busy — trying again in 40 s" (countdown, a
-    filling bar, Cancel) and tries again after `ARCHIVE_BUSY_WAITS` = 40 / 50 /
-    60 s — four tries over ~3 min — before showing that message. The waits
-    check the clock (not one long timer), so time the phone spends with the app
-    in the background counts; leaving the link screen (Back / swipe) or Cancel
-    stops it (Cancel shows the message, which names the paste-text option).
-    `isArchiveBusy` also accepts `detail` starting "archive busy", from a
-    Worker older than 0.45. Deliberately NOT done: silently falling back to a
-    lower-quality import (e.g. Google reading the Archive copy, which brings no
-    photos) — the owner wants imports to behave consistently; that was tried
-    in v0.41.7 and reverted. `/img` falls back to wsrv.nl instead (above), and the app downloads photos **three at a time** (v0.42.1; it was
+    right now." with **`code: 'archive_busy'`** + `retryAfterMs` (a paywall or
+    a genuinely missing copy keeps its own message). **The app never retries by
+    itself** (v0.46; 0.45's 40/50/60 s countdown re-ran the whole search each
+    time and held friends for minutes with no idea how it would end). The
+    owner's rule for anything less than a full import: **the cook chooses**
+    (`ChoicePanel` in `AddRecipePage`): recipe but no photos while the Archive
+    is busy → "We could read the recipe, but not its photos" with **Continue
+    without photos** / **Try again** (locked with the time left — "Try again in
+    1:30" — until `retryAfterMs` passes); no photos and nothing to wait for →
+    straight to the editor with a note; every photo download failed → the same
+    choice, Try again open at once; nothing readable while busy → **Paste the
+    recipe text instead** / Try again. Paste is offered only when there's no
+    text to be had — otherwise it's the same text with more work. Anything the
+    import couldn't bring shows as a note above the preview editor (right by
+    the cover-photo button). `isArchiveBusy` / `busyRetryMs`
+    (`src/lib/archiveBusy.ts`) also read a Worker older than 0.45. `/img` falls back to wsrv.nl (above), and the app downloads photos **three at a time** (v0.42.1; it was
     one at a time for Archive pages while photos still hit the Archive from our
     shared addresses — through wsrv.nl there's no allowance of ours to spend),
-    each into its fixed slot so a step's photos keep their order. An Archive copy
+    each into its fixed slot so a step's photos keep their order — within
+    **15 s in all** (v0.46, `PHOTO_DEADLINE_MS`; ≤12 s per photo): the editor
+    then opens with whatever arrived and says "3 of 5 photos came through"
+    (`LinkReport.photos`), rather than a slow image host holding the import.
+    `/img` caps a response with no declared size at 12 MB as it streams. The
+    Worker checks the caller's sign-in against Google's keys cached for 6 h;
+    if Google's key server is unreachable it answers 503 "try again" (with
+    CORS) instead of crashing. An Archive copy
     can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
     through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
@@ -270,10 +323,12 @@ confusion:
   Put the Worker URL in `src/lib/aiConfig.ts` (`IMPORT_WORKER_URL`; not secret,
   empty until set → the options that need it stay hidden). The Worker verifies
   the caller's Firebase ID token (members only) and guards its fetcher against
-  private/loopback hosts (basic SSRF). No `firestore.rules` change. `worker/` is
-  outside the app's tsc build; `wrangler` builds it — and bundles in
-  `src/lib/tags.ts` (the fixed tag list), so keep that file free of React/DOM
-  and other app imports.
+  private/loopback hosts (basic SSRF). No `firestore.rules` change. The
+  Worker's code is `worker/src/importer.ts` (`worker/src/index.ts` is just the
+  entry that exports it, so tests can import the pieces); `wrangler` builds it —
+  and bundles in `src/lib/tags.ts` (the fixed tag list), so keep that file free
+  of React/DOM and other app imports. `worker/tsconfig.json` makes
+  `npm run typecheck` (and CI) type-check the Worker and its tests too.
 
   **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
   which CI always builds from the pushed branch). So after ANY commit that
@@ -386,6 +441,10 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 
 - `npm run typecheck` — always.
 - `npm run validate:recipes` — after any recipe or schema change.
+- `npm run test:worker` — after any `worker/` change: the link route against a
+  fake internet (`scripts/test-worker.ts`) — which routes it asks, how many
+  Archive requests, the breaker, the honest name, Google reading the Archive
+  copy, `ai_busy`, the sign-in renewal, the image-size cap.
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
@@ -481,7 +540,8 @@ cross-step timers, large controls, per-step mise-en-place checklist,
 scannable step bullets — authored `brief` or auto-split prose, resume an
 interrupted solo cook — several dishes at once — via the cook board
 (`src/data/cookBoard.ts`) in localStorage),
-pull-to-refresh, screen-name editor, recipe import (URL via CI, or paste text),
+pull-to-refresh, screen-name editor, recipe import (paste text; the old
+GitHub Actions URL importer was removed in v0.46),
 the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
 order, realtime check-off, quick-add), the meal plan (plan recipes onto a
 rolling week → one-tap "add the week to groceries"), and two-phone "cook

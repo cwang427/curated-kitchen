@@ -140,5 +140,18 @@ console.log('recipeFromJsonLd → publisher name wins over hostname')
   check('source name from publisher', (recipe.source as { name: string }).name === 'Bon Appétit')
 }
 
+console.log('recipeFromJsonLd → shapes real pages use')
+{
+  const inPage = { '@type': 'WebPage', mainEntity: { '@type': ['recipe', 'NewsArticle'], name: 'Peach cobbler &amp; cream', recipeIngredient: ['2 &frac12; pounds ripe peaches', '1&#189; cups sugar'], recipeInstructions: '<p>Heat the oven.</p><p>Bake the cobbler.</p>' } }
+  const { recipe } = recipeFromJsonLd(inPage, 'https://example.com/cobbler')
+  check('Recipe found as WebPage.mainEntity, @type lowercase in a list', recipe.title === 'Peach cobbler & cream')
+  const items = (recipe.ingredients as Array<{ quantity?: number; item: string }>)
+  check('entity-coded fractions read as numbers (2 ½ pounds)', items[0].quantity === 2.5 && !items[0].item.includes('&'))
+  check('numeric codes too (1½ cups)', items[1].quantity === 1.5)
+  check('steps given as HTML paragraphs in one string → two steps', (recipe.steps as unknown[]).length === 2)
+  const lines = recipeFromJsonLd({ '@type': 'Recipe', name: 'x', recipeIngredient: ['1 egg'], recipeInstructions: 'Whisk.\nFry.' }, 'https://example.com')
+  check('steps one per line in one string → two steps', (lines.recipe.steps as unknown[]).length === 2)
+}
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail > 0) process.exit(1)

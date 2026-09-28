@@ -14,3 +14,11 @@ ALLOWED_ORIGIN = "https://cwang427.github.io"
 # GEMINI_MODEL = "gemini-3.6-flash"
 # Optional (paid alternative): the Claude model, used only if no GEMINI_API_KEY.
 # ANTHROPIC_MODEL = "claude-sonnet-5"
+
+# Keep the Worker's logs for a few days (Workers Logs, free plan: 3 days), so an
+# import that went wrong can be looked up afterwards in the Cloudflare dashboard
+# (Workers & Pages → curated-kitchen-import → Logs) — not only while someone
+# happens to be running `wrangler tail`. Each link import logs one `import`
+# line (host, route, time, photos) that can be filtered there.
+[observability]
+enabled = true

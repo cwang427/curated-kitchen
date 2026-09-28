@@ -1,0 +1,416 @@
+/**
+ * Tests for the recipe-import Worker's link route (worker/src/importer.ts),
+ * against a fake internet: every outside request goes to a stub, so these
+ * check what the Worker ASKS for (which routes, how many Archive requests, what
+ * it calls itself) as well as what it answers. Time budgets run 100× faster.
+ *
+ *   npm run test:worker
+ */
+import {
+  handleLink,
+  handleImageProxy,
+  recipeSignal,
+  findRecipe,
+  replayWaitMs,
+  resetForTests,
+  worker,
+} from '../worker/src/importer'
+
+// The Worker's own log lines are collected (to check what it says), so the
+// test's output goes through the real console.
+const realLog = console.log
+const RealDate = Date
+let passed = 0
+let failed = 0
+function check(label: string, cond: boolean, detail?: unknown): void {
+  if (cond) {
+    realLog(`  ✓ ${label}`)
+    passed++
+  } else {
+    console.error(`  ✗ ${label}${detail === undefined ? '' : `: ${JSON.stringify(detail).slice(0, 600)}`}`)
+    failed++
+  }
+}
+/** Move the clock forward by `ms` (the breaker's windows are minutes long). */
+function clockAhead(ms: number): void {
+  ;(globalThis as { Date: DateConstructor }).Date = class extends RealDate {
+    static now() {
+      return RealDate.now() + ms
+    }
+  } as DateConstructor
+}
+
+const URL_ = 'https://www.seriouseats.com/the-best-roast-potatoes-ever-recipe'
+const BLOG = 'https://smallblog.example/lentil-soup/'
+const env = { FIREBASE_PROJECT_ID: 'test', GEMINI_API_KEY: 'k' }
+const filler = '<p>Crispy, fluffy, golden.</p>'.repeat(300)
+const ld = (extra: Record<string, unknown> = {}) =>
+  `<script type="application/ld+json">${JSON.stringify({
+    '@type': 'Recipe',
+    name: 'Potatoes',
+    image: 'https://img.example/potatoes.jpg',
+    recipeIngredient: ['potatoes'],
+    recipeInstructions: [{ '@type': 'HowToStep', text: 'Roast.', image: 'https://img.example/step1.jpg' }],
+    ...extra,
+  })}</script>`
+const PAGES = {
+  recipeData: `<html><head>${ld()}</head><body>${filler}</body></html>`,
+  markup: `<html><body><div class="wprm-recipe-container"><h3>Ingredients</h3><ul><li>potatoes</li></ul></div>${filler}</body></html>`,
+  plain: `<html><body><h1>About us</h1>${filler}</body></html>`,
+  challenge: `<html><body><div id="px-captcha">Press &amp; Hold to confirm you are a human</div>${'<div></div>'.repeat(2000)}</body></html>`,
+}
+const AI_RECIPE = '{"title":"Potatoes","ingredients":[{"item":"potatoes","category":"produce"}],"steps":[{"text":"Roast."}]}'
+
+type Call = { url: string; headers: Headers }
+type World = {
+  direct?: (signal?: AbortSignal) => Response | Promise<Response>
+  reader?: (url: string) => Response | Promise<Response>
+  lookup?: () => Response
+  replay?: (url: string) => Response | Promise<Response>
+  /** Google's reader: which links it can open. */
+  googleReads?: (url: string) => boolean
+  gemini?: (model: string, body: { tools?: unknown }) => Response
+}
+
+let calls: Call[] = []
+const logs: string[] = []
+
+/** Answer every outside request from the scenario; anything unexpected is a 404. */
+function install(w: World): void {
+  calls = []
+  logs.length = 0
+  console.log = (...args: unknown[]) => logs.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '))
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input instanceof Request ? input.url : input)
+    calls.push({ url, headers: new Headers(init.headers) })
+    const hang = () =>
+      new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    if (url.startsWith('https://api4.ipify.org')) return new Response('104.28.1.1')
+    if (url.includes('generativelanguage.googleapis.com')) {
+      const model = url.match(/models\/([^:]+):/)?.[1] ?? ''
+      const body = JSON.parse(String(init.body)) as { tools?: unknown; contents: Array<{ parts: Array<{ text?: string }> }> }
+      if (w.gemini) {
+        const r = w.gemini(model, body)
+        if (r) return r
+      }
+      const prompt = body.contents[0].parts.map((p) => p.text ?? '').join('')
+      const link = body.tools ? prompt.match(/web page: (\S+)/)?.[1] ?? '' : ''
+      const ok = !body.tools || (w.googleReads?.(link) ?? false)
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { parts: [{ text: AI_RECIPE }] },
+              ...(body.tools
+                ? { urlContextMetadata: { urlMetadata: [{ urlRetrievalStatus: ok ? 'URL_RETRIEVAL_STATUS_SUCCESS' : 'URL_RETRIEVAL_STATUS_ERROR' }] } }
+                : {}),
+            },
+          ],
+        }),
+      )
+    }
+    if (url.startsWith('https://r.jina.ai/')) return w.reader ? w.reader(url) : new Response('refused', { status: 451 })
+    if (url.startsWith('https://archive.org/wayback/available')) {
+      return w.lookup?.() ?? new Response(JSON.stringify({ archived_snapshots: { closest: { available: true, timestamp: '20260810220319' } } }))
+    }
+    if (url.startsWith('https://web.archive.org/cdx/')) return new Response('[]')
+    if (url.startsWith('https://web.archive.org/web/')) {
+      const r = w.replay ? w.replay(url) : new Response(PAGES.recipeData)
+      return (r as unknown) === 'hang' ? hang() : r
+    }
+    if (url === URL_ || url === BLOG) {
+      if (!w.direct) return new Response('Forbidden', { status: 403 })
+      return w.direct(init.signal ?? undefined)
+    }
+    return new Response('not found', { status: 404 })
+  }) as typeof fetch
+}
+
+const archiveCalls = () => calls.filter((c) => /(^https:\/\/web\.archive\.org\/)/.test(c.url))
+const replayCalls = () => calls.filter((c) => c.url.startsWith('https://web.archive.org/web/'))
+const readerCalls = () => calls.filter((c) => c.url.startsWith('https://r.jina.ai/'))
+const googleCalls = () => calls.filter((c) => c.url.includes('generativelanguage'))
+const importLog = () => logs.find((l) => l.includes('"event":"import"')) ?? ''
+async function link(url = URL_) {
+  const res = await handleLink(url, env as never, 'https://app.example', 'TEST')
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> }
+}
+const refused = () => new Response('slow down', { status: 429 })
+function section(name: string) {
+  console.log = realLog
+  realLog(name)
+}
+
+// ---------------------------------------------------------------------------
+section('recipe signals')
+check('JSON-LD recipe → 3', recipeSignal(PAGES.recipeData) === 3)
+check('recipe plugin markup → 2', recipeSignal(PAGES.markup) === 2)
+check('microdata → 2', recipeSignal(`<div itemscope itemtype="https://schema.org/Recipe">${filler}</div>`) === 2)
+check('Ingredients heading → 2', recipeSignal(`<h2><span>Ingredients</span></h2>${filler}`) === 2)
+check('mentions ingredients → 1', recipeSignal(`<p>the ingredients are simple</p>${filler}`) === 1)
+check('no signs → 0', recipeSignal(PAGES.plain) === 0)
+check('"Press & Hold" challenge → -1', recipeSignal(PAGES.challenge) === -1)
+check('reCAPTCHA on a real recipe page is not a challenge', recipeSignal(`<script src="https://www.google.com/recaptcha/api.js"></script>${ld()}${filler}`) === 3)
+check('reCAPTCHA alone does not make a page a challenge', recipeSignal(`<script src="/recaptcha/api.js"></script><p>ingredients</p>${filler}`) === 1)
+check('near-empty page → -1', recipeSignal('<html>hi</html>') === -1)
+check('WebPage.mainEntity → Recipe found', findRecipe([{ '@type': 'WebPage', mainEntity: { '@type': 'Recipe', name: 'x' } }])?.name === 'x')
+check('@type in lowercase / as a list', findRecipe([{ '@type': ['recipe', 'NewsArticle'], name: 'y' }])?.name === 'y')
+check('@type as a schema.org URL', findRecipe([{ '@type': 'http://schema.org/Recipe', name: 'z' }])?.name === 'z')
+
+// ---------------------------------------------------------------------------
+section('a site that lets us in')
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.recipeData) })
+let r = await link(BLOG)
+check('imports from the direct fetch', r.status === 200 && r.body.via === 'direct', r.body)
+check('no reader, no Archive requests', readerCalls().length === 0 && archiveCalls().length === 0 && !calls.some((c) => c.url.includes('archive.org')))
+check('brings photo links (cover + step)', (r.body.photos as { covers: string[] }).covers[0] === 'https://img.example/potatoes.jpg')
+check('the outcome line names host, route and photos', /"host":"smallblog.example".*"via":"direct".*"cover":true/.test(importLog()), importLog())
+
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.markup) })
+r = await link(BLOG)
+check('recipe-plugin page with no recipe data: used as is, no Archive', r.status === 200 && r.body.via === 'direct' && !calls.some((c) => c.url.includes('archive.org')), calls.map((c) => c.url))
+
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.challenge), reader: () => new Response(PAGES.recipeData) })
+r = await link(BLOG)
+check('a 200 bot challenge escalates to the reader', r.status === 200 && r.body.via === 'reader', r.body)
+
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.plain), reader: () => new Response(PAGES.markup), replay: () => new Response(PAGES.plain) })
+r = await link(BLOG)
+check('a recipe page from the reader beats a signless direct page', r.status === 200 && r.body.via === 'reader', r.body)
+
+// The direct fetch is slow: the reader starts after 3 s (30 ms here) and wins.
+resetForTests({}, 0.01)
+install({
+  direct: (signal) =>
+    new Promise((res, reject) => {
+      const t = setTimeout(() => res(new Response(PAGES.recipeData)), 70)
+      signal?.addEventListener('abort', () => {
+        clearTimeout(t)
+        reject(new DOMException('aborted', 'AbortError'))
+      })
+    }),
+  reader: () => new Response(PAGES.recipeData),
+})
+r = await link(BLOG)
+check('slow site: the reader starts alongside and wins', r.status === 200 && r.body.via === 'reader', r.body)
+check('the slow direct fetch is called off', logs.some((l) => l.includes('page direct: called off')), logs)
+
+// ---------------------------------------------------------------------------
+section('honest name, sign-in only to the Archive')
+resetForTests({ legacy: 'logged-in-user=a; logged-in-sig=b' }, 0.01)
+install({})
+await link()
+check('no request claims to be Chrome', calls.every((c) => !/Chrome|Mozilla/.test(c.headers.get('User-Agent') ?? '')), calls.map((c) => c.headers.get('User-Agent')))
+check('site, reader and Archive requests say who we are', calls.filter((c) => /seriouseats|jina|archive/.test(c.url)).every((c) => (c.headers.get('User-Agent') ?? '').startsWith('CuratedKitchen/1.0')))
+check('the Archive sign-in goes only to archive hosts', calls.filter((c) => c.headers.get('Cookie')).every((c) => /^https:\/\/(web\.)?archive\.org\//.test(c.url)))
+
+// ---------------------------------------------------------------------------
+section('Serious Eats while the Archive refuses us')
+resetForTests({}, 0.01)
+install({ replay: refused, googleReads: (u) => u.startsWith('https://web.archive.org/') })
+r = await link()
+check('one refused page copy, no index search, no reader-of-archive', replayCalls().length === 1 && archiveCalls().length === 1 && readerCalls().length === 1, calls.map((c) => c.url))
+check('the breaker opens for about 90 s', replayWaitMs() > 85_000 && replayWaitMs() <= 100_000, replayWaitMs())
+check('Google reads the Archive copy (not the blocked site)', googleCalls().length === 1 && r.status === 200 && r.body.via === 'google-archive', r.body)
+check('…and says photos are unavailable, try again after the breaker', r.body.photosUnavailable === true && Number(r.body.retryAfterMs) >= 60_000, r.body)
+
+// Straight away, a second import: no page-copy request at all.
+install({ replay: refused, googleReads: (u) => u.startsWith('https://web.archive.org/') })
+r = await link()
+check('next import within the window: zero page-copy requests', replayCalls().length === 0 && archiveCalls().length === 0, calls.map((c) => c.url))
+check('…the lookup still runs (a different host) and Google still gets the copy', calls.some((c) => c.url.startsWith('https://archive.org/wayback/available')) && r.body.via === 'google-archive')
+check('…and the tail says why', logs.some((l) => l.includes('skipped — the Archive refused us moments ago')))
+
+// Google can't open the copy either: the honest "busy" answer, with when to try again.
+resetForTests({}, 0.01)
+install({ replay: refused, googleReads: () => false })
+r = await link()
+check('nothing readable → 422 archive_busy', r.status === 422 && r.body.code === 'archive_busy', r.body)
+check('…with retryAfterMs from the breaker', Number(r.body.retryAfterMs) >= 85_000, r.body)
+check('…and one line of text, no "try again in a few minutes" (the app says that)', !String(r.body.error).includes('try again'), r.body.error)
+
+// A second refusal in a row doubles the wait; a later answer closes it.
+resetForTests({}, 0.01)
+install({ replay: refused })
+await link()
+const first = replayWaitMs()
+// Pretend the window passed.
+clockAhead(first + 1_000)
+install({ replay: refused })
+await link()
+check('second refusal in a row: about 3 min', replayWaitMs() > 175_000 && replayWaitMs() <= 190_000, replayWaitMs())
+clockAhead(first + 200_000)
+install({})
+r = await link()
+check('once the Archive answers, the import works and the breaker closes', r.status === 200 && r.body.via === 'archive' && replayWaitMs() === 0, r.body)
+check('…and logs how long the refusals lasted', logs.some((l) => /answered again \d+s after the first refusal/.test(l)), logs)
+;(globalThis as { Date: DateConstructor }).Date = RealDate
+
+// A saved copy of the SITE's own 429 is not the Archive refusing us.
+resetForTests({}, 0.01)
+install({ replay: () => new Response('site said slow down', { status: 429, headers: { 'memento-datetime': 'Mon, 10 Aug 2026 22:03:19 GMT' } }) })
+await link()
+check('a replayed 429 (memento-datetime) leaves the breaker closed', replayWaitMs() === 0)
+
+// A page copy that never answers counts as a refusal and ends the Archive's turn.
+resetForTests({}, 0.01)
+install({ replay: () => 'hang' as unknown as Response })
+r = await link()
+check('a copy that times out opens the breaker', replayWaitMs() > 85_000, replayWaitMs())
+check('…and no index search or more copies after it', archiveCalls().length === 1, calls.map((c) => c.url))
+
+// ---------------------------------------------------------------------------
+section('the Archive sign-in keeps itself fresh')
+{
+  const SAVED = 'logged-in-user=k%40example.com; logged-in-sig=OLD'
+  const FRESH = 'logged-in-user=k%40example.com; logged-in-sig=NEW'
+  const days = (n: number) => new RealDate(RealDate.now() + n * 86_400_000).toISOString()
+  const creds = { email: 'k@example.com', password: 'pw' }
+  let signIns = 0
+  const withSignIn = (reply: 'ok' | 'account_bad_password') => {
+    const base = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (String(input).startsWith('https://archive.org/services/xauthn/')) {
+        signIns++
+        return new Response(
+          JSON.stringify(
+            reply === 'ok'
+              ? { success: true, values: { cookies: { 'logged-in-user': 'k%40example.com; Max-Age=31536000; path=/', 'logged-in-sig': 'NEW; Max-Age=31536000; path=/' } } }
+              : { success: false, values: { reason: reply } },
+          ),
+        )
+      }
+      return base(input, init)
+    }) as typeof fetch
+  }
+  const replayCookie = () => replayCalls()[0]?.headers.get('Cookie') ?? null
+
+  resetForTests({ saved: JSON.stringify({ cookie: SAVED, expires: days(200) }), ...creds }, 0.01)
+  install({})
+  withSignIn('ok')
+  signIns = 0
+  await link()
+  check('a saved sign-in with months left is used as is', replayCookie() === SAVED && signIns === 0)
+
+  resetForTests({ saved: JSON.stringify({ cookie: SAVED, expires: days(0.5) }), ...creds }, 0.01)
+  install({})
+  withSignIn('ok')
+  signIns = 0
+  await link()
+  check('one about to expire is renewed first', replayCookie() === FRESH && signIns === 1)
+
+  resetForTests({ saved: JSON.stringify({ cookie: SAVED, expires: days(200) }), ...creds }, 0.01)
+  install({ replay: refused, googleReads: () => true })
+  withSignIn('ok')
+  signIns = 0
+  await link()
+  check('a refusal does NOT trigger signing in again (it never helped)', signIns === 0 && replayCalls().length === 1)
+
+  resetForTests({ ...creds }, 0.01)
+  install({})
+  withSignIn('account_bad_password')
+  signIns = 0
+  r = await link()
+  check('a failed sign-in: the import carries on unsigned', r.status === 200 && replayCookie() === null && signIns === 1)
+  install({})
+  withSignIn('account_bad_password')
+  await link()
+  check('…and it waits 10 min before trying to sign in again', signIns === 1)
+
+  resetForTests({}, 0.01)
+  install({})
+  await link()
+  check('not set up: no cookie, no sign-in', replayCookie() === null && logs.some((l) => l.includes('archive sign-in off (not set up)')))
+}
+
+// ---------------------------------------------------------------------------
+section('sites that refuse everything')
+resetForTests({}, 0.01)
+install({})
+r = await link('https://cooking.nytimes.com/recipes/1017518-panzanella')
+check('NYT Cooking: answered at once, nothing fetched', r.status === 422 && r.body.code === 'site_refuses' && calls.length === 0, r.body)
+
+// ---------------------------------------------------------------------------
+section('the AI')
+resetForTests({}, 0.01)
+install({
+  direct: () => new Response(PAGES.recipeData),
+  gemini: (model) => (model === 'gemini-3.5-flash-lite' ? new Response('{"error":"quota"}', { status: 429 }) : (undefined as unknown as Response)),
+})
+r = await link(BLOG)
+check('a 429 on the first model tries the next', r.status === 200 && googleCalls().length === 2, googleCalls().map((c) => c.url))
+
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.recipeData), gemini: () => new Response('busy', { status: 503 }) })
+r = await link(BLOG)
+check('AI down after we got the page: code ai_busy', r.status === 502 && r.body.code === 'ai_busy', r.body)
+check('…with the recipe data and cover to offer a simpler import', Array.isArray(r.body.jsonld) && (r.body.photos as { cover: string }).cover === 'https://img.example/potatoes.jpg', r.body)
+check('…and without fetching the page again', calls.filter((c) => c.url === BLOG).length === 1)
+
+resetForTests({}, 0.01)
+install({
+  direct: () => new Response(PAGES.plain),
+  replay: () => new Response(PAGES.plain),
+  googleReads: (u) => u === BLOG,
+  gemini: (_m, body) => (body.tools ? (undefined as unknown as Response) : new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"not_a_recipe":true,"title":"","ingredients":[],"steps":[]}' }] } }] }))),
+})
+r = await link(BLOG)
+check('a signless page the AI calls "not a recipe" → Google reads the link', r.status === 200 && r.body.via === 'google', r.body)
+
+// ---------------------------------------------------------------------------
+section('photos')
+resetForTests({}, 0.01)
+install({})
+globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+  calls.push({ url: String(input), headers: new Headers(init.headers) })
+  // No Content-Length: a stream of 13 MB, over the cap.
+  const chunk = new Uint8Array(1_000_000)
+  let sent = 0
+  const body = new ReadableStream<Uint8Array>({
+    pull(c) {
+      if (sent++ >= 13) c.close()
+      else c.enqueue(chunk)
+    },
+  })
+  return new Response(body, { headers: { 'Content-Type': 'image/jpeg' } })
+}) as typeof fetch
+const img = await handleImageProxy({ url: 'https://img.example/huge.jpg' }, 'https://app.example')
+let size = 0
+let cut = false
+try {
+  const reader = img.body!.getReader()
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    size += value.byteLength
+  }
+} catch {
+  cut = true
+}
+check('an image with no declared size is cut off at 12 MB', cut && size <= 12_000_000, { size, cut })
+check('photo requests say who we are too', (calls[0]?.headers.get('User-Agent') ?? '').startsWith('CuratedKitchen/1.0'))
+
+// ---------------------------------------------------------------------------
+section('sign-in check')
+resetForTests({}, 0.01)
+install({})
+globalThis.fetch = (async () => {
+  throw new TypeError('network down')
+}) as typeof fetch
+const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const now = Math.floor(Date.now() / 1000)
+const token = `${b64({ alg: 'RS256', kid: 'k1' })}.${b64({ aud: 'test', iss: 'https://securetoken.google.com/test', sub: 'u1', exp: now + 600, iat: now })}.c2ln`
+const res = await worker.fetch(
+  new Request('https://w.example/', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: '{"url":"https://x.example/"}' }),
+  env as never,
+)
+check("Google's key server down → 503 with CORS, not a crash", res.status === 503 && res.headers.get('Access-Control-Allow-Origin') !== null, res.status)
+
+console.log = realLog
+console.log(`\n${passed} passed, ${failed} failed`)
+if (failed) (globalThis as { process?: { exit(code: number): never } }).process?.exit(1)

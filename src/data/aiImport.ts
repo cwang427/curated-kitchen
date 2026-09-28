@@ -4,6 +4,7 @@ import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { sanitizeAiRecipe } from '../lib/aiRecipe'
 import { compressToDataUrl, makeCoverThumb } from './photos'
+import { seedFromJsonLd } from './urlImport'
 import type { RecipeSeed } from '../lib/types'
 
 /**
@@ -24,6 +25,32 @@ export type AiInput = { text: string } | { images: AiPhoto[] } | { url: string }
 export interface AiImportResult {
   seed: RecipeSeed
   warnings: string[]
+  /** For a link: how it was read and how its photos went. */
+  link?: LinkReport
+}
+
+export interface LinkReport {
+  /** Which route read the page ('direct', 'reader', 'archive', 'google', …). */
+  via?: string
+  /** The recipe was read without its page (Google's reader), so without photos. */
+  photosUnavailable?: boolean
+  /** Trying again after this long could bring the photos too (the Archive was
+   * only busy). Absent when trying again wouldn't help. */
+  retryAfterMs?: number
+  /** Photos the page had, and how many came through in time. */
+  photos?: { wanted: number; got: number }
+}
+
+/** A failed import, with what the Worker said about why. */
+export type ImportError = Error & {
+  status?: number
+  /** 'archive_busy' | 'ai_busy' | 'site_refuses' | 'not_a_recipe' … */
+  code?: string
+  detail?: string
+  retryAfterMs?: number
+  /** With 'ai_busy': the page's own recipe data, for a simpler import. */
+  jsonld?: unknown
+  photos?: LinkPhotos
 }
 
 function randomSuffix(): string {
@@ -59,17 +86,25 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     error?: string
     code?: string
     detail?: string
+    retryAfterMs?: number
+    jsonld?: unknown
     photos?: LinkPhotos
+    via?: string
+    photosUnavailable?: boolean
   }
   if (!res.ok) {
-    // Keep the status: a 422 means the Worker already tried everything it could
-    // for that input, so the caller shouldn't retry another way. `code` / `detail`
-    // say why — e.g. the Internet Archive was only busy, worth a retry shortly.
-    throw Object.assign(new Error(data.error || `Import failed (${res.status}).`), {
+    // Keep what the Worker said: the status (a 422 means it already tried every
+    // way it has), and `code` for why — e.g. the Internet Archive was only busy,
+    // worth trying again after `retryAfterMs`.
+    const error: ImportError = Object.assign(new Error(data.error || `Import failed (${res.status}).`), {
       status: res.status,
       code: data.code,
       detail: data.detail,
+      retryAfterMs: data.retryAfterMs,
+      jsonld: data.jsonld,
+      photos: data.photos,
     })
+    throw error
   }
   if (!data.recipe) throw new Error('The AI didn’t return a recipe.')
 
@@ -102,8 +137,31 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   } catch (cause) {
     throw new Error(describeInvalid(cause))
   }
-  if (data.photos) await attachLinkPhotos(parsed.seed, data.photos, token)
+  if ('url' in input) {
+    parsed.link = {
+      via: data.via,
+      photosUnavailable: data.photosUnavailable,
+      retryAfterMs: data.retryAfterMs,
+      photos: data.photos ? await attachLinkPhotos(parsed.seed, data.photos, token) : undefined,
+    }
+  }
   return parsed
+}
+
+/**
+ * The AI was busy, but the Worker had the page and handed back its recipe data
+ * (error code 'ai_busy'): the recipe as the site lists it — steps as written,
+ * aisles guessed, no cook-mode summaries — plus its cover photo. Only when the
+ * cook chooses it over trying again.
+ */
+export async function importFromRecipeData(error: ImportError, url: string): Promise<AiImportResult> {
+  const user = auth.currentUser
+  if (!user) throw new Error('Sign in first.')
+  const result: AiImportResult = seedFromJsonLd(error.jsonld, url)
+  result.seed.source = { ...result.seed.source, url }
+  const cover = error.photos && { cover: error.photos.cover, covers: error.photos.covers, steps: {}, stamp: error.photos.stamp }
+  result.link = { via: 'recipe data', photos: cover ? await attachLinkPhotos(result.seed, cover, await user.getIdToken()) : undefined }
+  return result
 }
 
 /** Photo links a link import found on the page (see the Worker's findLinkPhotos):
@@ -120,26 +178,47 @@ type LinkPhotos = {
   stamp?: string
 }
 
+/** Photos get this long in all; the editor then opens with whatever arrived
+ * (and says what didn't), rather than a slow image host holding the import. */
+const PHOTO_DEADLINE_MS = 15_000
+
 /**
  * Bring a link import's photos in as unsaved photos on the preview (data URLs,
  * compressed like any photo you add), so the cook sees them in the editor and
  * saving stores them as photo docs. Each photo streams through the Worker's
- * /img route — the browser can't fetch another site's image itself. Best-effort:
- * a photo that won't come through is just left out.
+ * /img route — the browser can't fetch another site's image itself. Best-effort
+ * and bounded: a photo that won't come through in time is left out, and the
+ * report says how many made it.
  */
-async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: string): Promise<void> {
+async function attachLinkPhotos(
+  seed: RecipeSeed,
+  photos: LinkPhotos,
+  token: string,
+): Promise<{ wanted: number; got: number }> {
+  const deadline = Date.now() + PHOTO_DEADLINE_MS
+  const inflight = new Set<AbortController>()
+  let closed = false
   const download = async (url: string): Promise<File | null> => {
+    const left = Math.min(deadline - Date.now(), 12_000)
+    if (left <= 0 || closed) return null
+    const controller = new AbortController()
+    inflight.add(controller)
+    const timer = setTimeout(() => controller.abort(), left)
     try {
       const res = await fetch(`${AI_IMPORT_URL}/img`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ url, stamp: photos.stamp }),
+        signal: controller.signal,
       })
       if (!res.ok) return null
       const blob = await res.blob()
       return new File([blob], 'photo', { type: blob.type || 'image/jpeg' })
     } catch {
       return null
+    } finally {
+      clearTimeout(timer)
+      inflight.delete(controller)
     }
   }
   // Three at a time. (It used to be one at a time for an Archive-read page:
@@ -161,6 +240,7 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   ]
   // Each photo keeps its slot, so two parallel downloads can't swap a step's order.
   const stepPhotos = new Map<number, (string | undefined)[]>()
+  let got = 0
   const run = async (job: Job) => {
     // The first candidate that downloads and decodes wins: each photo comes as
     // a few sizes, because the Archive often lacks the size the recipe data
@@ -171,15 +251,18 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
       try {
         if (job.kind === 'cover') {
           const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
+          if (closed) return
           seed.cover = { photo, thumb }
         } else {
           const image = await compressToDataUrl(file)
+          if (closed) return
           // Look the list up only after the await, or two downloads for one step
           // could each start a fresh list and the second would drop the first.
           const list = stepPhotos.get(job.index) ?? []
           list[job.slot] = image
           stepPhotos.set(job.index, list)
         }
+        got++
         return
       } catch {
         /* unreadable image — try the next candidate, if any */
@@ -188,12 +271,22 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   }
   let next = 0
   const worker = async () => {
-    while (next < jobs.length) await run(jobs[next++])
+    while (next < jobs.length && !closed) await run(jobs[next++])
   }
-  await Promise.all(Array.from({ length: 3 }, worker))
+  // Past the deadline (plus a moment to finish shrinking a photo that just
+  // arrived), stop: call off what's still downloading and keep what we have.
+  let stop: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    Promise.all(Array.from({ length: 3 }, worker)),
+    new Promise<void>((resolve) => (stop = setTimeout(resolve, PHOTO_DEADLINE_MS + 1_500))),
+  ])
+  clearTimeout(stop)
+  closed = true
+  for (const controller of inflight) controller.abort()
   for (const [index, slots] of stepPhotos) {
     const step = seed.steps[index]
     const images = slots.filter((x): x is string => !!x)
     if (step && images.length) step.images = images
   }
+  return { wanted: jobs.length, got }
 }

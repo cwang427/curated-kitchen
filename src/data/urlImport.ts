@@ -45,9 +45,14 @@ export async function importRecipeFromUrl(url: string): Promise<UrlImportResult>
   }
   if (!res.ok) throw new Error(data.error || `Import failed (${res.status}).`)
   if (!data.jsonld) throw new Error('No recipe data found on that page.')
+  return seedFromJsonLd(data.jsonld, data.url || url)
+}
 
+/** A page's schema.org recipe data → a validated recipe, no AI. Also used when
+ * the AI is busy and the Worker hands back the page's recipe data instead. */
+export function seedFromJsonLd(jsonld: unknown, url: string): UrlImportResult {
   // recipeFromJsonLd throws a clear message if the page has no Recipe markup.
-  const { recipe, warnings } = recipeFromJsonLd(data.jsonld, data.url || url)
+  const { recipe, warnings } = recipeFromJsonLd(jsonld, url)
   const clean = stripEmpty(recipe) as Record<string, unknown>
   const title = typeof clean.title === 'string' ? clean.title : ''
   const withSlug = { ...clean, slug: `${slugify(title) || 'recipe'}-${randomSuffix()}` }

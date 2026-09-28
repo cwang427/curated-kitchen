@@ -114,7 +114,8 @@ function extractAlt(text: string): { alt: ParsedLine['alt']; rest: string } {
 }
 
 export function parseIngredientLine(raw: string): ParsedLine {
-  const line = raw.trim()
+  // "2 ½ cups" is "2½ cups" — sites often put a space before the fraction.
+  const line = raw.trim().replace(/(\d)\s+([½¼¾⅓⅔⅛⅜⅝⅞⅙⅚⅕⅖⅗⅘])/g, '$1$2')
 
   // Metric aside first, so it doesn't confuse quantity/unit detection.
   const { alt, rest: withoutAlt } = extractAlt(line)
@@ -197,7 +198,9 @@ function flattenSteps(instructions: unknown): string[] {
     }
     if (node && typeof node === 'object') {
       const obj = node as Record<string, unknown>
-      if (obj['@type'] === 'HowToSection' && obj.itemListElement) {
+      const type = obj['@type']
+      const isSection = (Array.isArray(type) ? type : [type]).some((t) => typeof t === 'string' && /howtosection$/i.test(t))
+      if ((isSection || !('text' in obj)) && obj.itemListElement) {
         visit(obj.itemListElement)
         return
       }
@@ -205,8 +208,10 @@ function flattenSteps(instructions: unknown): string[] {
       if (text) out.push(text)
       return
     }
-    const text = textOf(node).trim()
-    if (text) out.push(text)
+    // One string may hold every step: as HTML paragraphs, or one per line.
+    for (const part of textOf(node).split(/<\/p>|<br\s*\/?>|\n+/i)) {
+      if (part.replace(/<[^>]+>/g, '').trim()) out.push(part.trim())
+    }
   }
   visit(instructions)
   return out
@@ -240,27 +245,56 @@ function hostName(url: string): string | null {
   }
 }
 
-/** Find the Recipe node inside a parsed JSON-LD blob (handles @graph, arrays). */
+/** Find the Recipe node inside a parsed JSON-LD blob: at the top level, in
+ * arrays, in @graph, or as a page's mainEntity (WebPage → Recipe). `@type` may
+ * be a list ("Recipe", "NewsArticle"), in any case, or a schema.org URL. */
 export function findRecipeNode(jsonld: unknown): Record<string, unknown> | null {
   const isRecipe = (node: unknown): node is Record<string, unknown> => {
     if (!node || typeof node !== 'object') return false
     const type = (node as Record<string, unknown>)['@type']
-    return Array.isArray(type) ? type.includes('Recipe') : type === 'Recipe'
+    const types = Array.isArray(type) ? type : [type]
+    return types.some((t) => typeof t === 'string' && /^(?:https?:\/\/schema\.org\/)?recipe$/i.test(t.trim()))
   }
-  const search = (node: unknown): Record<string, unknown> | null => {
+  const search = (node: unknown, depth: number): Record<string, unknown> | null => {
+    if (depth > 8) return null
     if (isRecipe(node)) return node
     if (Array.isArray(node)) {
       for (const n of node) {
-        const found = search(n)
+        const found = search(n, depth + 1)
         if (found) return found
       }
+      return null
     }
-    if (node && typeof node === 'object' && '@graph' in node) {
-      return search((node as { '@graph': unknown })['@graph'])
+    if (node && typeof node === 'object') {
+      const obj = node as Record<string, unknown>
+      return (obj['@graph'] ? search(obj['@graph'], depth + 1) : null) ?? (obj.mainEntity ? search(obj.mainEntity, depth + 1) : null)
     }
     return null
   }
-  return search(jsonld)
+  return search(jsonld, 0)
+}
+
+// The HTML character codes recipe data carries most ("2 &frac12; pounds").
+const ENTITIES: Record<string, string> = {
+  amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ', deg: '°', ndash: '–', mdash: '—', hellip: '…',
+  rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', frac12: '½', frac14: '¼', frac34: '¾', frac13: '⅓', frac23: '⅔',
+  frac18: '⅛', frac38: '⅜', frac58: '⅝', frac78: '⅞', eacute: 'é', egrave: 'è', ntilde: 'ñ', uuml: 'ü', times: '×',
+}
+
+/** Recipe data is JSON, but sites often leave HTML codes (and tags) in its
+ * strings. Decode them, so "2 &frac12; pounds" reads as "2 ½ pounds". */
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+\d*);/gi, (whole, code: string) => {
+      if (code[0] === '#') {
+        const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : Number(code.slice(1))
+        return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : whole
+      }
+      return ENTITIES[code.toLowerCase()] ?? whole
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export function recipeFromJsonLd(jsonld: unknown, sourceUrl: string): ImportResult {
@@ -270,10 +304,10 @@ export function recipeFromJsonLd(jsonld: unknown, sourceUrl: string): ImportResu
   }
   const warnings: string[] = []
 
-  const title = firstString(node.name) ?? 'Imported recipe'
+  const title = decodeEntities(firstString(node.name) ?? '') || 'Imported recipe'
   const author = firstString(node.author)
-  const rawIngredients = asArray(node.recipeIngredient).map(String).filter(Boolean)
-  const rawSteps = flattenSteps(node.recipeInstructions)
+  const rawIngredients = asArray(node.recipeIngredient).map((v) => decodeEntities(String(v))).filter(Boolean)
+  const rawSteps = flattenSteps(node.recipeInstructions).map(decodeEntities).filter(Boolean)
 
   if (rawIngredients.length === 0) warnings.push('No ingredients found in the structured data.')
   if (rawSteps.length === 0) warnings.push('No instructions found in the structured data.')

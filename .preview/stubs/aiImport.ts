@@ -2,31 +2,74 @@ import cacio from '../../recipes/cacio-e-pepe.json'
 import { parseRecipe } from '../../src/lib/recipeSchema'
 import type { RecipeSeed } from '../../src/lib/types'
 
+export interface LinkReport {
+  via?: string
+  photosUnavailable?: boolean
+  retryAfterMs?: number
+  photos?: { wanted: number; got: number }
+}
 export interface AiImportResult {
   seed: RecipeSeed
   warnings: string[]
+  link?: LinkReport
+}
+export type ImportError = Error & {
+  status?: number
+  code?: string
+  detail?: string
+  retryAfterMs?: number
+  jsonld?: unknown
 }
 export type AiPhoto = { data: string; mediaType: string }
 export type AiInput = { text: string } | { images: AiPhoto[] } | { url: string }
 
-let busyTries = 0
+const fail = (message: string, extra: Partial<ImportError>): never => {
+  throw Object.assign(new Error(message), extra)
+}
 
 /** Preview: return a real parsed recipe after a short "reading" delay. A link
- * containing "busy<N>" answers "Internet Archive busy" N times first ("busyall":
- * every time), to show the app's wait-and-retry. */
+ * naming one of these shows that outcome instead:
+ *   busy          nothing readable while the Archive is busy (Try again in 1:30)
+ *   nophotos      recipe but no photos, Archive busy (choice, Try again in 1:30)
+ *   blockedphotos recipe but no photos, nothing to wait for (editor + note)
+ *   nopics        the photo downloads all failed (choice, Try again now)
+ *   somepics      3 of 5 photos in time (editor + note)
+ *   aibusy        AI busy, the site's recipe data offered instead
+ *   nyt           a site that refuses everything */
 export async function importRecipeViaAI(input?: AiInput): Promise<AiImportResult> {
   await new Promise((r) => setTimeout(r, 400))
-  const busy = input && 'url' in input ? input.url.match(/busy(\d+|all)/)?.[1] : undefined
-  if (busy && (busy === 'all' || busyTries < Number(busy))) {
-    busyTries++
-    throw Object.assign(
-      new Error(
-        'seriouseats.com blocks direct imports, and its saved copy at the Internet Archive is busy right now — try again in a few minutes, or paste the recipe text instead.',
-      ),
-      { status: 422, code: 'archive_busy', detail: 'archive busy; URL_RETRIEVAL_STATUS_ERROR' },
-    )
+  const url = input && 'url' in input ? input.url : ''
+  if (url.includes('busy') && !url.includes('aibusy')) {
+    fail('seriouseats.com blocks direct imports, and its saved copy at the Internet Archive is busy right now.', {
+      status: 422,
+      code: 'archive_busy',
+      retryAfterMs: 90_000,
+    })
   }
-  busyTries = 0
+  if (url.includes('aibusy')) fail('Gemini is busy right now — please try again in a moment.', { status: 502, code: 'ai_busy', jsonld: [cacio] })
+  if (url.includes('nyt')) {
+    fail('NYT Cooking recipes are for subscribers only, so the app can’t open the link — copy the recipe text (or take a screenshot) and add it that way.', {
+      status: 422,
+      code: 'site_refuses',
+    })
+  }
   const { recipe, warnings } = parseRecipe(cacio)
-  return { seed: recipe, warnings }
+  const link: LinkReport | undefined = !url
+    ? undefined
+    : url.includes('nophotos')
+      ? { via: 'google-archive', photosUnavailable: true, retryAfterMs: 90_000 }
+      : url.includes('blockedphotos')
+        ? { via: 'google', photosUnavailable: true }
+        : url.includes('nopics')
+          ? { via: 'archive', photos: { wanted: 4, got: 0 } }
+          : url.includes('somepics')
+            ? { via: 'archive', photos: { wanted: 5, got: 3 } }
+            : { via: 'direct', photos: { wanted: 2, got: 2 } }
+  return { seed: recipe, warnings, link }
+}
+
+export async function importFromRecipeData(): Promise<AiImportResult> {
+  await new Promise((r) => setTimeout(r, 300))
+  const { recipe, warnings } = parseRecipe(cacio)
+  return { seed: recipe, warnings, link: { via: 'recipe data', photos: { wanted: 1, got: 1 } } }
 }

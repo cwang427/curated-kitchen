@@ -25,10 +25,12 @@ and you can use just the first:
   the site, else the Archive's copy fetched via **wsrv.nl**, a free public image
   proxy — so our own requests don't use up the Archive's allowance for the
   page — else wsrv.nl for the site's image; only public photo links are sent to
-  it). If the Archive is too busy for us right now (it turns requests away
-  for a few minutes at a time), the app waits and tries again by itself, with a
-  countdown, for about three minutes before saying so ("…busy right now — try
-  again in a few minutes"). Tags come only from the app's fixed
+  it). The whole search takes well under a minute: every route has its own
+  time limit, and after the Archive turns us away (it does, for a few minutes
+  at a time) the Worker stops asking it for page copies for a while (90 s,
+  growing to 10 minutes if it keeps refusing). When only Google's reader could
+  read the recipe, it comes without photos, and the app asks the cook: continue
+  without them, or try again once the Archive should be free. Tags come only from the app's fixed
   list (`src/lib/tags.ts`, bundled into the Worker by wrangler — it's in the
   repo, so a normal pull brings it). It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
@@ -58,8 +60,8 @@ From a computer with Node installed, in this `worker/` folder:
    ```
    (`wrangler login` opens your browser to authorize.)
 
-2. **Put your Firebase project ID into `wrangler.toml`** — replace
-   `REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID`. If your app isn't hosted at
+2. **Check your Firebase project ID in `wrangler.toml`** — `FIREBASE_PROJECT_ID`
+   under `[vars]` must be your Firebase project's ID. If your app isn't hosted at
    `https://cwang427.github.io`, fix `ALLOWED_ORIGIN` too (it's your GitHub
    Pages origin, with no path).
 
@@ -114,7 +116,7 @@ anyone else to do:
 Archive's sign-ins last a year. The Worker uses the saved one until a day before
 it expires, then signs itself in again with the stored email + password. (It
 doesn't sign in again when the Archive turns a request away: that's the Archive
-being busy, not the sign-in going stale — the app waits and retries instead.)
+being busy, not the sign-in going stale — the app offers "Try again" instead.)
 If signing in ever fails
 (say the account's password was changed), imports simply carry on as if it
 weren't set up, it tries again after 10 minutes, and the tail says
@@ -163,14 +165,21 @@ Open the app → Recipes → **Add** → **Add from URL**, paste a recipe URL, a
 **Read recipe**. If you get "Not signed in", the token check is failing (check
 `FIREBASE_PROJECT_ID`). "Couldn't open that page" or "behind a paywall" means
 Google couldn't read that particular page — normal for paywalled sites; use paste
-or a photo. Worker logs: `wrangler tail` (a link logs `page direct/reader/archive: …` for
-each route it tried — a `429` there is the Archive saying "slow down", which the
-Worker waits out — and `gemini url statuses=…` only if it fell back to Google's
-reader). A refusal shows the Archive's own wait hint, e.g. `page archive …: 429,
-retry-after 60s` (or `not given`). Each photo then logs one line, e.g. `img ok
+or a photo. Worker logs: `wrangler tail`, or afterwards in the Cloudflare
+dashboard → Workers & Pages → curated-kitchen-import → **Logs** (kept 3 days).
+A link logs `page direct/reader/archive: …` for each route it tried — a `429`
+there is the Archive saying "slow down", after which `archive breaker: not
+asking for page copies for 90s` and later imports log `page archive …: skipped`
+until it's over — then `gemini url statuses=…` only if it fell back to Google's
+reader (`link: asking Google to read the Archive's copy` for a blocked site).
+Every import ends with one `{ event: 'import', host, via, ms, … }` line: which
+site, which route worked, how long it took, and whether photos came. Each photo then logs one line, e.g. `img ok
 [site 403 → proxy/archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
-the end of the photo's link (shortened on purpose). If a link's tail starts with `gemini url statuses=`, the deployed
-Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
+the end of the photo's link (shortened on purpose). If a link's tail says `outgoing address` (not `outgoing
+IPv4`), the deployed Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
+
+Code changes: the Worker's code is `src/importer.ts` (`src/index.ts` only hands
+it to Cloudflare). Run `npm run test:worker` from the repo root after changing it.
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.

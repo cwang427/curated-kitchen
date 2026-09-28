@@ -29,6 +29,8 @@ The Claude Code session that builds the app reviewed this package against the wo
 
 **Deferred** (the logs don't support them yet): 2.1 Jina key (only if a `Jina 429` ever appears — refusals are policy, not rate), 2.3 the HTMLRewriter rewrite (no 1102s), 2.4's schema flattening and key skeleton (no schema 400s), 2.5 KV cache. **2.2 unlocker: not now** (owner) — revisit after Phase 1's logs show how often Serious Eats still fails. Phases 3–4 unchanged.
 
+**Status (v0.46.0).** Phase 1 as revised is shipped: breaker, per-route time budgets and the delayed reader race, signal scoring and challenge detection (Worker and app), honest `User-Agent` everywhere, `via` / `photosUnavailable` / `retryAfterMs` / `ai_busy`, Google reading the Archive copy, the cook's choice panels, the 15 s photo deadline, the NYT denylist, the JWKS cache, the Gemini 429 → next-model fix, Workers Logs, IPv4 diagnostics, and a permanent `npm run test:worker`. Deliberately not done: the `compatibility_date` bump (runtime changes we can't test from here, no known benefit), the host-health map (the refusals it would skip are fast — 403/451 in a second — so there's nothing slow to skip), magic-byte sniffing in `/img` (a non-image just fails to decode in the app and the next size is tried).
+
 ## 1. Owner's constraints and decisions (stated 2026-09-28)
 
 1. The product stays a web app (installable PWA). No native app for now: the owner wants ease of updating, testing and distribution among a small group of friends. Do not propose native or App Store paths.

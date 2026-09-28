@@ -4,32 +4,34 @@ import AppHeader from '../components/AppHeader'
 import { historyDepth } from '../components/nav'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
-import { importRecipeViaAI } from '../data/aiImport'
+import { importFromRecipeData, importRecipeViaAI, type AiImportResult, type ImportError } from '../data/aiImport'
 import { importRecipeFromUrl } from '../data/urlImport'
 import { importRecipeFromText } from '../lib/importText'
 import { compressForImport, readFileBase64 } from '../data/photos'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
-import { ARCHIVE_BUSY_WAITS, isArchiveBusy } from '../lib/archiveBusy'
+import { busyRetryMs, isArchiveBusy } from '../lib/archiveBusy'
 import type { RecipeSeed } from '../lib/types'
 
 type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
 const SCREENS: Mode[] = ['link', 'text', 'capture', 'edit']
 
-/** A link import in progress, so Cancel — or leaving the screen — can stop it. */
-type LinkRun = { stopped: boolean; lastError?: unknown }
+/** A link read that needs the cook's say before the editor opens (readLink):
+ * the recipe came but its photos didn't; the AI was busy but the site's own
+ * recipe data is here; or nothing could be read while the Archive was busy.
+ * `retryAt` = when trying again is worthwhile. */
+type LinkChoice =
+  | { kind: 'no-photos'; result: AiImportResult; retryAt: number; blocked: boolean }
+  | { kind: 'simpler'; error: ImportError; retryAt: number }
+  | { kind: 'busy'; message: string; retryAt: number }
 
-/** Resolve at `until` or as soon as the run is stopped. It checks the clock
- * rather than trusting one long timer, so time an iPhone spends with the app
- * in the background still counts toward the wait. */
-const waitUntil = (until: number, run: LinkRun) =>
-  new Promise<void>((resolve) => {
-    const id = setInterval(() => {
-      if (run.stopped || Date.now() >= until) {
-        clearInterval(id)
-        resolve()
-      }
-    }, 250)
-  })
+/** "www.seriouseats.com" → "seriouseats.com", for messages. */
+function siteOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return 'That site'
+  }
+}
 
 export default function AddRecipePage() {
   const { user, household } = useAuth()
@@ -58,11 +60,13 @@ export default function AddRecipePage() {
   const [reading, setReading] = useState(false)
   const [readSeconds, setReadSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  // A link import waiting out a busy Internet Archive (see readLink): the wait
-  // before its next try, and which try is running.
-  const [busyWait, setBusyWait] = useState<{ from: number; until: number } | null>(null)
-  const [tryNo, setTryNo] = useState(1)
-  const linkRun = useRef<LinkRun | null>(null)
+  const [choice, setChoice] = useState<LinkChoice | null>(null)
+  // A line above the preview editor about what the import couldn't bring.
+  const [notice, setNotice] = useState<string | null>(null)
+  // The link read in progress (a counter, so a read the cook walked away from
+  // is ignored when it finishes), and whether one is running.
+  const linkRun = useRef(0)
+  const linkActive = useRef(false)
 
   // The AI read is a single call with no progress events, so we can't show a
   // real percentage — but a spinner plus an elapsed counter makes clear it's
@@ -75,21 +79,16 @@ export default function AddRecipePage() {
     return () => clearInterval(id)
   }, [reading])
 
-  // Leaving the link screen (Back, or the swipe) abandons its import: stop any
-  // wait or retry, and ignore a read still in flight.
+  // Leaving the link screen (Back, or the swipe) abandons its import: a read
+  // still in flight is ignored, and a pending choice is dropped.
   useEffect(() => {
-    if (mode === 'link' || !linkRun.current) return
-    linkRun.current.stopped = true
-    linkRun.current = null
-    setBusyWait(null)
+    if (mode === 'link') return
+    setChoice(null)
+    if (!linkActive.current) return
+    linkActive.current = false
+    linkRun.current++
     setReading(false)
   }, [mode])
-  useEffect(
-    () => () => {
-      if (linkRun.current) linkRun.current.stopped = true
-    },
-    [],
-  )
 
   // Back at the chooser after a save: swap this entry for the new recipe, so
   // history reads list → recipe and a swipe back from it lands on the list.
@@ -155,7 +154,8 @@ export default function AddRecipePage() {
 
   const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, n) => n !== i))
 
-  const openEditor = (seed: RecipeSeed | null, from: Mode) => {
+  const openEditor = (seed: RecipeSeed | null, from: Mode, note: string | null = null) => {
+    setNotice(note)
     setInitial(seed)
     setReturnTo(from)
     open('edit')
@@ -210,72 +210,102 @@ export default function AddRecipePage() {
   // Eats block plain server fetches) and handles blog-style pages with no
   // structured data. The Worker's JSON-LD route is the fallback when Gemini is
   // busy (and the only engine without AI).
-  const readLinkOnce = async (url: string): Promise<RecipeSeed> => {
-    if (!aiImportConfigured) return (await importRecipeFromUrl(url)).seed
-    try {
-      return (await importRecipeViaAI({ url })).seed
-    } catch (aiErr) {
-      // 422 = the Worker already tried every way to read the page (Google,
-      // a reader service, the Internet Archive); the JSON-LD route would
-      // only repeat those. It's for when Gemini itself is busy or down.
-      if (!urlImportConfigured || (aiErr as { status?: number }).status === 422) throw aiErr
-      try {
-        return (await importRecipeFromUrl(url)).seed
-      } catch {
-        throw aiErr
-      }
-    }
-  }
-  // When the only problem was the Internet Archive being busy (it turns our
-  // requests away for a few minutes at a time), wait and try again by itself —
-  // a countdown the cook can cancel, instead of an error they'd have to act on.
-  // Only after the last try does the error show.
+  // A link: the Worker gets the page itself (directly, via a reader service, or
+  // the Internet Archive's copy — big sites like Serious Eats block plain
+  // server fetches) and has the AI read it, photos included. When it can read
+  // the recipe but not bring everything, the cook chooses — never a silently
+  // lesser import: continue without photos or try again later; the site's own
+  // recipe data or try again when the AI is busy. Without AI, the Worker's
+  // recipe-data route is the only engine.
   const readLink = async () => {
-    const run: LinkRun = { stopped: false }
-    linkRun.current = run
+    const run = ++linkRun.current
+    linkActive.current = true
     setError(null)
+    setChoice(null)
     setReading(true)
     const url = link.trim()
+    const current = () => run === linkRun.current
     try {
-      for (let retry = 0; ; retry++) {
-        setTryNo(retry + 1)
-        try {
-          const seed = await readLinkOnce(url)
-          if (!run.stopped) openEditor(seed, 'link')
-          return
-        } catch (cause) {
-          if (run.stopped || !isArchiveBusy(cause) || retry >= ARCHIVE_BUSY_WAITS.length) throw cause
-          run.lastError = cause
-          const from = Date.now()
-          const until = from + ARCHIVE_BUSY_WAITS[retry] * 1000
-          setReading(false)
-          setBusyWait({ from, until })
-          await waitUntil(until, run)
-          if (run.stopped) return
-          setBusyWait(null)
-          setReading(true)
-        }
+      if (!aiImportConfigured) {
+        const { seed } = await importRecipeFromUrl(url)
+        if (current()) openEditor(seed, 'link')
+        return
       }
+      const result = await importRecipeViaAI({ url })
+      if (!current()) return
+      const report = result.link
+      if (report?.photosUnavailable) {
+        // Read without the page itself (Google's reader), so without photos.
+        if (report.retryAfterMs) {
+          setChoice({ kind: 'no-photos', result, retryAt: Date.now() + report.retryAfterMs, blocked: true })
+        } else {
+          openEditor(result.seed, 'link', `${siteOf(url)} wouldn’t let us fetch its photos, so the recipe came without them — add your own with the photo buttons below.`)
+        }
+        return
+      }
+      const photos = report?.photos
+      if (photos && photos.wanted > 0 && photos.got === 0) {
+        setChoice({ kind: 'no-photos', result, retryAt: Date.now(), blocked: false })
+        return
+      }
+      openEditor(
+        result.seed,
+        'link',
+        photos && photos.got < photos.wanted
+          ? `${photos.got} of ${photos.wanted} photos came through — the rest took too long. Add your own with the photo buttons below.`
+          : null,
+      )
     } catch (cause) {
-      if (!run.stopped) setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
+      if (!current()) return
+      const err = cause as ImportError
+      if (isArchiveBusy(err)) {
+        setChoice({ kind: 'busy', message: err.message, retryAt: Date.now() + busyRetryMs(err) })
+      } else if (err.code === 'ai_busy' && err.jsonld) {
+        setChoice({ kind: 'simpler', error: err, retryAt: Date.now() + 15_000 })
+      } else {
+        setError(err instanceof Error ? err.message : 'Couldn’t read that link.')
+      }
     } finally {
-      if (linkRun.current === run) {
-        linkRun.current = null
-        setBusyWait(null)
+      if (current()) {
+        linkActive.current = false
         setReading(false)
       }
     }
   }
-  // Stop waiting: say why it stopped (the Archive's message, with the paste-
-  // text alternative) so the cook knows what they can do instead.
-  const cancelBusyWait = () => {
-    const run = linkRun.current
-    if (!run) return
-    run.stopped = true
-    linkRun.current = null
-    setBusyWait(null)
-    setReading(false)
-    setError(run.lastError instanceof Error ? run.lastError.message : null)
+  // The cook's answer to a choice.
+  const continueWithoutPhotos = (result: AiImportResult) => {
+    setChoice(null)
+    openEditor(result.seed, 'link', 'Imported without photos — add your own with the photo buttons below.')
+  }
+  const importAsListed = async (err: ImportError) => {
+    const run = ++linkRun.current
+    linkActive.current = true
+    setChoice(null)
+    setReading(true)
+    try {
+      const result = await importFromRecipeData(err, link.trim())
+      if (run === linkRun.current) {
+        openEditor(
+          result.seed,
+          'link',
+          'Imported as the site lists it, without the AI: steps are as written, grocery aisles are best guesses, and cook mode splits steps on its own. Check it over before saving.',
+        )
+      }
+    } catch (cause) {
+      if (run === linkRun.current) setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
+    } finally {
+      if (run === linkRun.current) {
+        linkActive.current = false
+        setReading(false)
+      }
+    }
+  }
+  // Nothing more to get from the link: the pasted-text screen, in its place
+  // (so Back still goes to the chooser).
+  const pasteInstead = () => {
+    setChoice(null)
+    setError(null)
+    setParams({ m: 'text' }, { replace: true })
   }
   const canReadLink = /^https?:\/\/\S+/i.test(link.trim())
 
@@ -323,11 +353,18 @@ export default function AddRecipePage() {
             Only members can add recipes to this kitchen.
           </p>
         ) : mode === 'edit' ? (
-          <RecipeEditor
-            initial={initial}
-            onSaved={onSaved}
-            onCancel={toChooser}
-          />
+          <>
+            {notice && (
+              <p role="note" className="mb-4 rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft">
+                {notice}
+              </p>
+            )}
+            <RecipeEditor
+              initial={initial}
+              onSaved={onSaved}
+              onCancel={toChooser}
+            />
+          </>
         ) : mode === 'link' ? (
           <div className="space-y-4">
             <input
@@ -336,30 +373,73 @@ export default function AddRecipePage() {
               autoCapitalize="off"
               autoCorrect="off"
               value={link}
-              onChange={(e) => setLink(e.target.value)}
+              onChange={(e) => {
+                setLink(e.target.value)
+                setChoice(null)
+              }}
               placeholder="https://…"
               aria-label="Recipe link"
               className="min-h-14 w-full rounded-2xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
             {error && (
-              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                {error}
-              </p>
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </p>
+                <button
+                  type="button"
+                  onClick={pasteInstead}
+                  className="text-sm font-medium text-accent underline underline-offset-2"
+                >
+                  Paste the recipe text instead
+                </button>
+              </div>
             )}
 
-            {reading && (
-              <ReadingIndicator seconds={readSeconds} title={tryNo > 1 ? 'Trying again…' : undefined} />
-            )}
-            {busyWait && <ArchiveBusyWait {...busyWait} onCancel={cancelBusyWait} />}
+            {reading && <ReadingIndicator seconds={readSeconds} />}
 
-            <button
-              type="button"
-              onClick={readLink}
-              disabled={!canReadLink || reading || !!busyWait}
-              className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
-            >
-              {busyWait ? 'Waiting to try again…' : reading ? 'Reading…' : 'Read recipe'}
-            </button>
+            {choice?.kind === 'no-photos' && (
+              <ChoicePanel
+                title={choice.blocked ? 'We could read the recipe, but not its photos' : 'The recipe came through, but its photos didn’t'}
+                body={
+                  choice.blocked
+                    ? `${siteOf(link.trim())} blocks apps like this one, and its saved copy at the Internet Archive is busy right now — that copy is where the photos come from. It usually frees up within a few minutes.`
+                    : 'The photo downloads took too long. Trying again often brings them.'
+                }
+                primary={{ label: 'Continue without photos', onClick: () => continueWithoutPhotos(choice.result) }}
+                retryAt={choice.retryAt}
+                onRetry={readLink}
+              />
+            )}
+            {choice?.kind === 'simpler' && (
+              <ChoicePanel
+                title="The AI that tidies recipes is busy"
+                body="We can bring the recipe in as the site lists it — you may want to tidy the steps afterwards — or try again in a moment for the full import."
+                primary={{ label: 'Import it as listed', onClick: () => void importAsListed(choice.error) }}
+                retryAt={choice.retryAt}
+                onRetry={readLink}
+              />
+            )}
+            {choice?.kind === 'busy' && (
+              <ChoicePanel
+                title="Couldn’t read this one just now"
+                body={`${choice.message} It usually frees up within a few minutes.`}
+                primary={{ label: 'Paste the recipe text instead', onClick: pasteInstead }}
+                retryAt={choice.retryAt}
+                onRetry={readLink}
+              />
+            )}
+
+            {!choice && (
+              <button
+                type="button"
+                onClick={readLink}
+                disabled={!canReadLink || reading}
+                className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
+              >
+                {reading ? 'Reading…' : 'Read recipe'}
+              </button>
+            )}
             <button
               type="button"
               onClick={goBack}
@@ -533,7 +613,7 @@ export default function AddRecipePage() {
 /** Indeterminate progress for an AI read: a spinner plus an elapsed counter, so
  * a multi-second wait doesn't feel frozen. After a while it reassures rather
  * than worries. */
-function ReadingIndicator({ seconds, title = 'Reading your recipe…' }: { seconds: number; title?: string }) {
+function ReadingIndicator({ seconds }: { seconds: number }) {
   return (
     <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-2xl border border-line bg-card p-4">
       <span
@@ -541,10 +621,7 @@ function ReadingIndicator({ seconds, title = 'Reading your recipe…' }: { secon
         className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-line border-t-accent"
       />
       <div className="text-sm">
-        <p className="font-medium text-ink">
-          {title}
-          {seconds >= 3 ? ` (${seconds}s)` : ''}
-        </p>
+        <p className="font-medium text-ink">Reading your recipe…{seconds >= 3 ? ` (${seconds}s)` : ''}</p>
         <p className="text-ink-soft">
           {seconds >= 12
             ? 'Still going — a long recipe can take a little while. Hang tight.'
@@ -555,34 +632,51 @@ function ReadingIndicator({ seconds, title = 'Reading your recipe…' }: { secon
   )
 }
 
-/** A link import waiting out a busy Internet Archive: a countdown to the next
- * try (with a bar filling toward it) and a way to stop. */
-function ArchiveBusyWait({ from, until, onCancel }: { from: number; until: number; onCancel: () => void }) {
+/** A decision for the cook after a link read: go ahead with what we have, or
+ * try again — enabled once trying again is worthwhile (`retryAt`), with the
+ * time left on the button until then. Nothing happens by itself. */
+function ChoicePanel({
+  title,
+  body,
+  primary,
+  retryAt,
+  onRetry,
+}: {
+  title: string
+  body: string
+  primary: { label: string; onClick: () => void }
+  retryAt: number
+  onRetry: () => void
+}) {
   const [now, setNow] = useState(() => Date.now())
+  const waiting = retryAt > now
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250)
+    if (!waiting) return
+    const id = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(id)
-  }, [])
-  const left = Math.max(0, Math.ceil((until - now) / 1000))
-  const done = Math.min(1, Math.max(0, (now - from) / (until - from)))
+  }, [waiting])
+  const left = Math.max(0, Math.ceil((retryAt - now) / 1000))
+  const clock = left >= 60 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : `${left}s`
   return (
-    <div className="rounded-2xl border border-line bg-card p-4">
-      <p role="status" className="font-medium text-ink">
-        The Internet Archive is busy — trying again in&nbsp;{left}&nbsp;s
-      </p>
-      <p className="mt-1 text-sm text-ink-soft">
-        This site opens through its saved copy at the Archive, which turns requests away now and then. It
-        usually clears up within a couple of minutes, so we&rsquo;ll keep trying.
-      </p>
-      <div aria-hidden className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
-        <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${done * 100}%` }} />
+    <div role="status" className="space-y-3 rounded-2xl border border-line bg-card p-4">
+      <div>
+        <p className="font-medium text-ink">{title}</p>
+        <p className="mt-1 text-sm text-ink-soft">{body}</p>
       </div>
       <button
         type="button"
-        onClick={onCancel}
-        className="mt-3 h-12 w-full rounded-xl border border-line text-base font-medium text-ink transition active:scale-[0.99]"
+        onClick={primary.onClick}
+        className="grid h-12 w-full place-items-center rounded-xl bg-accent px-4 text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
       >
-        Cancel
+        {primary.label}
+      </button>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={waiting}
+        className="grid h-12 w-full place-items-center rounded-xl border border-line px-4 text-base font-medium text-ink transition active:scale-[0.99] disabled:opacity-60"
+      >
+        {waiting ? `Try again in ${clock}` : 'Try again'}
       </button>
     </div>
   )
