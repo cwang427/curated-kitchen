@@ -958,7 +958,9 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
 // was refused, and do refusals follow one outgoing network address? Each link
 // import logs where it ran and what address the outside world sees.
 const ISOLATE = Math.random().toString(36).slice(2, 6)
-const ISOLATE_STARTED = Date.now()
+// Set on this copy's first import: at start-up a Worker's clock reads 1970 (it
+// only moves during a request), which logged "started 29842834 min ago".
+let isolateStarted = 0
 let isolateRequests = 0
 
 /** Our outgoing address as another site sees it (a free "what's my IP"
@@ -980,8 +982,9 @@ async function egressAddress(): Promise<string | null> {
 
 async function handleLink(url: string, env: Env, origin: string, colo = '?'): Promise<Response> {
   isolateRequests++
+  if (!isolateStarted) isolateStarted = Date.now()
   const importNo = isolateRequests
-  const upMin = Math.round((Date.now() - ISOLATE_STARTED) / 60_000)
+  const upMin = Math.round((Date.now() - isolateStarted) / 60_000)
   const address = egressAddress() // alongside the page fetches, not before them
   const seen: PageLookup = {}
   const page = await fetchRecipePage(url, seen)
