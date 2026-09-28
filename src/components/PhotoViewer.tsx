@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Props {
   /** Renderable srcs (photos are data URLs from their Firestore docs). */
@@ -107,7 +108,9 @@ export default function PhotoViewer({ photos, start, onClose }: Props) {
     else if (!g.moved && !g.onImage) onClose() // a tap on the dark backdrop
   }
 
-  return (
+  // Portaled to <body> so no surrounding layout (e.g. a parent's space-y
+  // margins) can shape a full-screen overlay.
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -185,7 +188,8 @@ export default function PhotoViewer({ photos, start, onClose }: Props) {
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

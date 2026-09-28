@@ -105,6 +105,53 @@ export async function compressToDataUrl(file: File): Promise<string> {
 }
 
 /**
+ * A working copy of a picked photo for the crop tool: a phone photo can be
+ * 12 MP, which is slow to pan and can exceed iOS canvas limits when rotated, so
+ * crop from a 2048px copy — still well above the 1280px we store, so cropping
+ * in keeps detail. Returns a JPEG data URL.
+ */
+export async function prepareForCrop(file: File): Promise<string> {
+  const source = await loadSource(file)
+  try {
+    return encodeAt(source, 2048, 0.92)
+  } finally {
+    source.release()
+  }
+}
+
+/** Crop (and rotate, in 90° turns) `src` to `area` — pixel coordinates in the
+ * rotated image, as the crop tool reports them — and return it as a JPEG file
+ * for the usual compression. */
+export async function cropToFile(
+  src: string,
+  area: { x: number; y: number; width: number; height: number },
+  rotation: number,
+): Promise<File> {
+  const img = new Image()
+  img.src = src
+  await img.decode()
+  const turned = rotation % 180 !== 0
+  const rotated = document.createElement('canvas')
+  rotated.width = turned ? img.naturalHeight : img.naturalWidth
+  rotated.height = turned ? img.naturalWidth : img.naturalHeight
+  const rctx = rotated.getContext('2d')
+  if (!rctx) throw new Error('Couldn’t process that image.')
+  rctx.translate(rotated.width / 2, rotated.height / 2)
+  rctx.rotate((rotation * Math.PI) / 180)
+  rctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2)
+
+  const out = document.createElement('canvas')
+  out.width = Math.max(1, Math.round(area.width))
+  out.height = Math.max(1, Math.round(area.height))
+  const octx = out.getContext('2d')
+  if (!octx) throw new Error('Couldn’t process that image.')
+  octx.drawImage(rotated, area.x, area.y, area.width, area.height, 0, 0, out.width, out.height)
+  const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, 'image/jpeg', 0.92))
+  if (!blob) throw new Error('Couldn’t process that image.')
+  return new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+}
+
+/**
  * The small square thumbnail stored inline on a recipe for its cover photo:
  * center-cropped, 240px, ~10–20 KB, so the kitchen list can show every card's
  * photo from the recipe docs it already loads (no photo-doc read per card).

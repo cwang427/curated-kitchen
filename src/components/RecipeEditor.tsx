@@ -1,7 +1,8 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
-import { compressToDataUrl, createPhoto, makeCoverThumb, photoSrc, usePhotoUrls } from '../data/photos'
+import { compressToDataUrl, createPhoto, makeCoverThumb, photoSrc, prepareForCrop, usePhotoUrls } from '../data/photos'
+import PhotoCropper from './PhotoCropper'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -108,6 +109,15 @@ export default function RecipeEditor({
   const [coverBusy, setCoverBusy] = useState(false)
   const [coverError, setCoverError] = useState<string | null>(null)
 
+  // The crop tool, when open: which photo it's for. Every photo goes through it
+  // on the way in (Done straight away keeps it whole), and existing ones can be
+  // re-cropped — including ones a link import brought in.
+  const [cropping, setCropping] = useState<
+    | { src: string; target: 'cover' }
+    | { src: string; target: 'step'; stepId: string; replace?: string }
+    | null
+  >(null)
+
   const setCoverPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -115,14 +125,49 @@ export default function RecipeEditor({
     setCoverError(null)
     setCoverBusy(true)
     try {
-      // Like step photos, the full image becomes a photo doc on save; the small
-      // thumbnail rides inline on the recipe for the kitchen list.
-      const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
-      set({ cover: { photo, thumb } })
+      setCropping({ src: await prepareForCrop(file), target: 'cover' })
     } catch (cause) {
       setCoverError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
     } finally {
       setCoverBusy(false)
+    }
+  }
+
+  // Cropped → compressed like any photo. Like step photos, the full image
+  // becomes a photo doc on save; the cover's small thumbnail rides inline on
+  // the recipe for the kitchen list.
+  const finishCrop = async (file: File) => {
+    const job = cropping
+    setCropping(null)
+    if (!job) return
+    if (job.target === 'cover') {
+      setCoverBusy(true)
+      try {
+        const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
+        set({ cover: { photo, thumb } })
+      } catch (cause) {
+        setCoverError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
+      } finally {
+        setCoverBusy(false)
+      }
+      return
+    }
+    setUploadingStep(job.stepId)
+    try {
+      const dataUrl = await compressToDataUrl(file)
+      // Re-find the step by id — its index may have shifted meanwhile.
+      setDraft((d) => ({
+        ...d,
+        steps: d.steps.map((st) =>
+          st.id !== job.stepId
+            ? st
+            : { ...st, images: job.replace ? st.images.map((u) => (u === job.replace ? dataUrl : u)) : [...st.images, dataUrl] },
+        ),
+      }))
+    } catch (cause) {
+      setPhotoError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
+    } finally {
+      setUploadingStep(null)
     }
   }
 
@@ -141,14 +186,9 @@ export default function RecipeEditor({
     setPhotoError(null)
     setUploadingStep(step.id)
     try {
-      // Compress in the browser now; the photo doc is written on save, so adding
+      // Compressed after cropping; the photo doc is written on save, so adding
       // and discarding photos never leaves stray docs behind.
-      const dataUrl = await compressToDataUrl(file)
-      // Re-find the step by id — its index may have shifted during compression.
-      setDraft((d) => ({
-        ...d,
-        steps: d.steps.map((s) => (s.id === step.id ? { ...s, images: [...s.images, dataUrl] } : s)),
-      }))
+      setCropping({ src: await prepareForCrop(file), target: 'step', stepId: step.id })
     } catch (cause) {
       setPhotoError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
     } finally {
@@ -212,6 +252,14 @@ export default function RecipeEditor({
 
   return (
     <div className="space-y-7 pb-28">
+      {cropping && (
+        <PhotoCropper
+          src={cropping.src}
+          lockAspect={cropping.target === 'cover' ? 3 / 2 : undefined}
+          onCancel={() => setCropping(null)}
+          onDone={(file) => void finishCrop(file)}
+        />
+      )}
       <Section title="Details">
         <div>
           <span className="mb-1 block text-sm text-ink-soft">Cover photo (optional)</span>
@@ -223,6 +271,19 @@ export default function RecipeEditor({
                 className="aspect-[3/2] w-full object-cover"
               />
               <div className="absolute right-2 top-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Crop from the full photo, never the small thumbnail (it'd
+                    // come out blurry) — so wait until the full one has loaded.
+                    const src = draft.cover && photoSrc(draft.cover.photo, photoUrls)
+                    if (src) setCropping({ src, target: 'cover' })
+                  }}
+                  aria-label="Crop cover photo"
+                  className="rounded-full bg-black/60 px-3 py-1.5 text-sm font-medium text-white"
+                >
+                  Crop
+                </button>
                 <label className="cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-sm font-medium text-white">
                   <input type="file" accept="image/*" onChange={setCoverPhoto} disabled={coverBusy} className="hidden" />
                   {coverBusy ? 'Adding…' : 'Replace'}
@@ -369,7 +430,22 @@ export default function RecipeEditor({
               <div className="flex flex-wrap gap-2">
                 {step.images.map((url) => (
                   <div key={url} className="relative size-20 overflow-hidden rounded-xl border border-line">
-                    <img src={photoSrc(url, photoUrls)} alt="" className="size-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const src = photoSrc(url, photoUrls)
+                        if (src) setCropping({ src, target: 'step', stepId: step.id, replace: url })
+                      }}
+                      aria-label="Crop photo"
+                      className="block size-full"
+                    >
+                      <img src={photoSrc(url, photoUrls)} alt="" className="size-full object-cover" />
+                      <span className="absolute bottom-1 left-1 grid size-6 place-items-center rounded-full bg-black/60 text-white" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" className="size-3.5" fill="none">
+                          <path d="M4 20h4L19 9l-4-4L4 16v4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => removePhoto(step.id, url)}

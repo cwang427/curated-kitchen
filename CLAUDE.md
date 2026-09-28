@@ -450,6 +450,19 @@ outside / Escape to close. Photos are data URLs, which iOS won't open in a new
 window — the old `<a target=_blank>` gave a blank white screen. The recipe page's
 ingredient list is plain (no checkboxes): gathering is cook mode's per-step
 checklist and shopping is the Add-to-grocery-list picker.
+And an **in-app crop tool** (`src/components/PhotoCropper.tsx`, on
+`react-easy-crop`): every photo added in the editor (cover or step) goes
+through it — drag / pinch or slider to zoom, rotate in 90° turns, shapes
+Original / Square / 4:3 / 3:4 / 16:9 (the cover is locked to 3:2, how it's
+shown); Done straight away keeps the whole photo. Existing photos re-crop from
+the editor (tap a step photo's ✎ / the cover's Crop), including photos a link
+import brought in, before or after saving. Picked photos are first scaled to a
+2048px working copy (`prepareForCrop`; 12 MP is slow and can exceed iOS canvas
+limits rotated), cropped at that resolution (`cropToFile`), then compressed as
+usual. A re-cropped saved photo becomes a new photo doc on save (the old one
+orphans, as with removal). Full-screen overlays (crop tool, photo viewer) are
+**portaled to `<body>`** — inside a `space-y-*` parent they inherited a bottom
+margin that cut them short.
 And a **free pasted-text importer** (`src/lib/importText.ts`, Add a recipe →
 **Add from pasted text**): the cook copies a recipe — the whole page or just the recipe
 section — and a rule-based, on-device parser (no network, no AI, no cost) anchors
