@@ -127,9 +127,10 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
       return null
     }
   }
-  // Two at a time, not all at once — and one at a time when the page came from
-  // the Internet Archive (`stamp`), where its photos will likely come from too:
-  // the Archive throttles bursts (a third photo at once got a 429).
+  // Three at a time. (It used to be one at a time for an Archive-read page:
+  // photos then came from the Archive via our Worker's shared addresses, which
+  // the Archive rations. They now come through the image proxy's own servers —
+  // the Worker's /img — so there's no allowance of ours to protect.)
   type Job = { kind: 'cover'; urls: string[] } | { kind: 'step'; index: number; slot: number; urls: string[] }
   const covers = photos.covers?.length ? photos.covers.slice(0, 4) : photos.cover ? [photos.cover] : []
   const jobs: Job[] = [
@@ -168,7 +169,7 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   const worker = async () => {
     while (next < jobs.length) await run(jobs[next++])
   }
-  await Promise.all(Array.from({ length: photos.stamp ? 1 : 2 }, worker))
+  await Promise.all(Array.from({ length: 3 }, worker))
   for (const [index, slots] of stepPhotos) {
     const step = seed.steps[index]
     const images = slots.filter((x): x is string => !!x)

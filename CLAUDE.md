@@ -172,8 +172,9 @@ confusion:
     own message.) Deliberately NOT done: silently falling back to a
     lower-quality import (e.g. Google reading the Archive copy, which brings no
     photos) — the owner wants imports to behave consistently; that was tried
-    in v0.41.7 and reverted. `/img` falls back to wsrv.nl instead (above), and the app downloads photos **two at a time — one at a time when
-    the page came from the Archive** (`photos.stamp`; three at once got a 429),
+    in v0.41.7 and reverted. `/img` falls back to wsrv.nl instead (above), and the app downloads photos **three at a time** (v0.42.1; it was
+    one at a time for Archive pages while photos still hit the Archive from our
+    shared addresses — through wsrv.nl there's no allowance of ours to spend),
     each into its fixed slot so a step's photos keep their order. An Archive copy
     can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
