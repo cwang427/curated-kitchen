@@ -176,12 +176,23 @@ confusion:
     same update says logged-in users don't get 429s — the next lever if honest
     naming isn't enough (the owner's own free Archive account, as a Worker
     secret; not built).
-    **The Archive throttles (429)** the shared addresses Workers fetch from, so
-    `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
-    3000]`; 429/503 only — waiting costs no Worker CPU), **but the response's
-    `Retry-After` wins**: it's logged (`page archive …: 429, retry-after 60s` /
-    `not given`, so the tail shows how long lockouts really last), we never
-    retry sooner than it asks, and we give up at once if it asks for > 5 s.
+    **The Archive throttles (429)** the shared addresses Workers fetch from.
+    Archive requests are **not retried** (v0.42.5): in every real log a 429 was
+    still a 429 1.5 s and 3 s later, and retries only added to the count held
+    against the address. `fetchText` still takes per-call retry waits (for
+    other callers) and logs each 429's `Retry-After` (`page archive …: 429,
+    retry-after 60s` / `not given`) — never retrying sooner than it asks.
+    **Diagnostics:** each link import logs `link: ran in <colo>, worker copy
+    <id> (import #N since it started M min ago), outgoing address <ip>` (the
+    address from api.ipify.org, 3 s cap, best effort) — to test whether
+    refusals follow one outgoing address and whether a fresh Worker copy (a
+    deploy, or an idle recycle) gets through where a warm one was refused.
+    Other sources were weighed and rejected: the "Wayback Machine" IS the
+    Archive; archive.today (CAPTCHA loops, blocks Cloudflare-related traffic,
+    blacklisted by Wikipedia in Feb 2026 after being used for a DDoS and
+    altering snapshots; only has pages people saved); Common Crawl (built for
+    programmatic use, but monthly, no photos, and CCBot is one of the
+    most-blocked crawlers); Google/Bing caches are gone.
     If the copy is still refused, Jina Reader fetches the Archive's copy for us
     (`r.jina.ai/<archive url>` — its own addresses; it 451s any link naming a
     site that blocks it, Serious Eats included). **When the Archive refused us

@@ -418,7 +418,7 @@ async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<strin
       '&output=json&fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10',
     { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
     'archive search',
-    [1500],
+    [],
     info,
   )
   try {
@@ -477,7 +477,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
     { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
     'archive lookup',
-    [1500],
+    [],
     availInfo,
   )
   let quick: string | undefined
@@ -498,7 +498,9 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
     const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
     const copyInfo: FetchInfo = {}
-    const archived = await fetchText(copy, ARCHIVE_HEADERS, label, [1500, 3000], copyInfo)
+    // No quick retries: in every real log, a 429 was still a 429 1.5 s and 3 s
+    // later — retrying only added to the count the Archive holds against us.
+    const archived = await fetchText(copy, ARCHIVE_HEADERS, label, [], copyInfo)
     stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
     if (archived) {
       tried.add(stamp)
@@ -806,9 +808,42 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
  * as text. Only when no route gets the page do we let Google read it (Gemini's
  * URL-context tool; no photos that way).
  */
-async function handleLink(url: string, env: Env, origin: string): Promise<Response> {
+// Diagnostics for the Archive's refusals: does a fresh copy of the Worker (a
+// new deploy, or Cloudflare recycling an idle one) get through where a warm one
+// was refused, and do refusals follow one outgoing network address? Each link
+// import logs where it ran and what address the outside world sees.
+const ISOLATE = Math.random().toString(36).slice(2, 6)
+const ISOLATE_STARTED = Date.now()
+let isolateRequests = 0
+
+/** Our outgoing address as another site sees it (a free "what's my IP"
+ * service); null if it doesn't answer within 3 s. It's Cloudflare's shared
+ * address, not the cook's. Best effort — the Archive request may leave from a
+ * different address in the same pool, which is part of what this tells us. */
+async function egressAddress(): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 3_000)
+  try {
+    const res = await fetch('https://api.ipify.org?format=text', { signal: controller.signal })
+    return res.ok ? (await res.text()).trim().slice(0, 45) : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function handleLink(url: string, env: Env, origin: string, colo = '?'): Promise<Response> {
+  isolateRequests++
+  const importNo = isolateRequests
+  const upMin = Math.round((Date.now() - ISOLATE_STARTED) / 60_000)
+  const address = egressAddress() // alongside the page fetches, not before them
   const seen: PageLookup = {}
   const page = await fetchRecipePage(url, seen)
+  console.log(
+    `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
+      `outgoing address ${(await address) ?? 'unknown'}`,
+  )
   if (!page) {
     const google = await handleGemini({ images: [], url }, env, origin)
     if (google.status !== 422 || !seen.archiveBusy) return google
@@ -1209,7 +1244,10 @@ export default {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }
     const input: AiInput = { text: body.text, images, url }
-    if (env.GEMINI_API_KEY) return url && !input.text && images.length === 0 ? handleLink(url, env, origin) : handleGemini(input, env, origin)
+    if (env.GEMINI_API_KEY) {
+      const colo = (request as Request & { cf?: { colo?: string } }).cf?.colo ?? '?'
+      return url && !input.text && images.length === 0 ? handleLink(url, env, origin, colo) : handleGemini(input, env, origin)
+    }
     if (url) return json({ error: 'Reading links needs the Gemini key on the server.' }, 501, origin)
     if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
     return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)
