@@ -5,8 +5,6 @@ interface Props {
   ingredients: Ingredient[]
   groups: string[]
   scale: number
-  checked: Set<string>
-  onToggle: (id: string) => void
   /** Ingredient ids to highlight — used when a step is focused. */
   highlighted?: Set<string>
 }
@@ -14,48 +12,34 @@ interface Props {
 function IngredientRow({
   ingredient,
   scale,
-  checked,
-  onToggle,
   highlighted,
 }: {
   ingredient: Ingredient
   scale: number
-  checked: boolean
-  onToggle: () => void
   highlighted: boolean
 }) {
   const formatted = formatIngredient(ingredient, scale)
 
   return (
-    <li>
-      <label
-        className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition ${
-          highlighted ? 'bg-accent-soft' : ''
-        }`}
-      >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onToggle}
-          className="mt-1 size-5 shrink-0 accent-[var(--check)]"
-        />
-        <span className={checked ? 'text-ink-faint line-through' : ''}>
-          {formatted.quantity && (
-            <span className="font-medium tabular-nums">
-              {formatted.quantity}
-              {formatted.unit ? ` ${formatted.unit}` : ''}{' '}
-            </span>
-          )}
-          <span>{formatted.item}</span>
-          {formatted.prep && <span className="text-ink-soft">, {formatted.prep}</span>}
-          {formatted.note && (
-            <span className="text-ink-faint"> ({formatted.note})</span>
-          )}
-          {formatted.optional && (
-            <span className="text-ink-faint italic"> — optional</span>
-          )}
-        </span>
-      </label>
+    // A plain list: gathering has cook mode's per-step checklist, and shopping
+    // has the "Add to grocery list" picker.
+    <li className={`rounded-lg px-2 py-1.5 transition ${highlighted ? 'bg-accent-soft' : ''}`}>
+      <span>
+        {formatted.quantity && (
+          <span className="font-medium tabular-nums">
+            {formatted.quantity}
+            {formatted.unit ? ` ${formatted.unit}` : ''}{' '}
+          </span>
+        )}
+        <span>{formatted.item}</span>
+        {formatted.prep && <span className="text-ink-soft">, {formatted.prep}</span>}
+        {formatted.note && (
+          <span className="text-ink-faint"> ({formatted.note})</span>
+        )}
+        {formatted.optional && (
+          <span className="text-ink-faint italic"> — optional</span>
+        )}
+      </span>
     </li>
   )
 }
@@ -64,8 +48,6 @@ export default function IngredientList({
   ingredients,
   groups,
   scale,
-  checked,
-  onToggle,
   highlighted,
 }: Props) {
   // Ungrouped ingredients come first, then each declared group in order.
@@ -83,8 +65,6 @@ export default function IngredientList({
               key={ingredient.id}
               ingredient={ingredient}
               scale={scale}
-              checked={checked.has(ingredient.id)}
-              onToggle={() => onToggle(ingredient.id)}
               highlighted={highlighted?.has(ingredient.id) ?? false}
             />
           ))}
@@ -102,8 +82,6 @@ export default function IngredientList({
                 key={ingredient.id}
                 ingredient={ingredient}
                 scale={scale}
-                checked={checked.has(ingredient.id)}
-                onToggle={() => onToggle(ingredient.id)}
                 highlighted={highlighted?.has(ingredient.id) ?? false}
               />
             ))}

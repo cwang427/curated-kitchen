@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { Link, useAppNav } from '../components/nav'
+import { PhotoStrip } from '../components/PhotoViewer'
 import { useRecipe } from '../data/recipes'
 import { useAuth } from '../auth/AuthProvider'
 import {
@@ -43,28 +44,7 @@ function CookStepPhotos({ ids }: { ids: string[] }) {
   const photos = list
     .map((entry) => photoSrc(entry, photoUrls))
     .filter((src): src is string => !!src)
-  if (photos.length === 0) return null
-  if (photos.length === 1) {
-    return (
-      <img
-        src={photos[0]}
-        alt=""
-        className="mt-6 max-h-80 w-full rounded-2xl border border-line object-cover"
-      />
-    )
-  }
-  return (
-    <div className="mt-6 flex gap-3 overflow-x-auto">
-      {photos.map((src, i) => (
-        <img
-          key={i}
-          src={src}
-          alt=""
-          className="h-52 w-auto shrink-0 rounded-2xl border border-line object-cover"
-        />
-      ))}
-    </div>
-  )
+  return <PhotoStrip srcs={photos} className="mt-6" />
 }
 
 /** One line of step prose, with its {{ }} amounts scaled. */

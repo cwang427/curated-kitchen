@@ -12,6 +12,7 @@ import { useAuth } from '../auth/AuthProvider'
 import HeartIcon from '../components/HeartIcon'
 import { deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
 import { photoSrc, usePhotoUrls } from '../data/photos'
+import PhotoViewer from '../components/PhotoViewer'
 import { getDish, removeDish } from '../data/cookBoard'
 import { describeFirestoreError } from '../lib/errors'
 import { formatMinutes } from '../lib/quantity'
@@ -34,10 +35,10 @@ export default function RecipePage() {
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   const coverUrls = usePhotoUrls(recipe?.cover ? [recipe.cover.photo] : [])
+  const [viewingCover, setViewingCover] = useState(false)
   // This recipe's dish on the cook board, if a solo cook is in progress here.
   const dish = useMemo(() => (slug ? getDish(slug) : null), [slug])
   const [scale, setScale] = useState(1)
-  const [checkedIngredients, toggleIngredient] = useToggleSet()
   const [doneSteps, toggleStep] = useToggleSet()
   const [showAddToList, setShowAddToList] = useState(false)
   const [showAddToPlan, setShowAddToPlan] = useState(false)
@@ -102,11 +103,20 @@ export default function RecipePage() {
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         {recipe.cover && (
           // The small inline thumbnail shows instantly; the full photo replaces
-          // it once its doc has loaded.
-          <img
-            src={photoSrc(recipe.cover.photo, coverUrls) ?? recipe.cover.thumb}
-            alt=""
-            className="mb-5 aspect-[3/2] w-full rounded-2xl border border-line object-cover"
+          // it once its doc has loaded. Tap for the full-screen viewer.
+          <button type="button" onClick={() => setViewingCover(true)} aria-label="View photo" className="mb-5 block w-full">
+            <img
+              src={photoSrc(recipe.cover.photo, coverUrls) ?? recipe.cover.thumb}
+              alt=""
+              className="aspect-[3/2] w-full rounded-2xl border border-line object-cover"
+            />
+          </button>
+        )}
+        {viewingCover && recipe.cover && (
+          <PhotoViewer
+            photos={[photoSrc(recipe.cover.photo, coverUrls) ?? recipe.cover.thumb]}
+            start={0}
+            onClose={() => setViewingCover(false)}
           />
         )}
         <header className="space-y-3">
@@ -259,8 +269,6 @@ export default function RecipePage() {
             ingredients={recipe.ingredients}
             groups={recipe.groups}
             scale={scale}
-            checked={checkedIngredients}
-            onToggle={toggleIngredient}
           />
         </section>
 

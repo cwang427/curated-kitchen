@@ -418,6 +418,16 @@ as before. Copies duplicate the cover's photo doc like step photos; removing a
 cover drops the reference only. No `firestore.rules` change (recipe fields
 aren't restricted). Recipe page buttons read "Add to grocery list" / "Add to
 meal plan" (they fit side by side down to 360pt).
+And a **photo viewer** (`src/components/PhotoViewer.tsx`): step photos show large
+on the recipe page and in cook mode (`PhotoStrip`: one photo full width, several
+in a swipeable row — its step column needs `min-w-0` or the row stretches the
+page sideways), and tapping one (or the recipe's cover) opens a full-screen
+viewer: swipe or ‹ › through that step's photos, pinch / double-tap to zoom and
+drag to pan (the app disables page zoom, so the viewer does its own), ✕ / tap
+outside / Escape to close. Photos are data URLs, which iOS won't open in a new
+window — the old `<a target=_blank>` gave a blank white screen. The recipe page's
+ingredient list is plain (no checkboxes): gathering is cook mode's per-step
+checklist and shopping is the Add-to-grocery-list picker.
 And a **free pasted-text importer** (`src/lib/importText.ts`, Add a recipe →
 **Add from pasted text**): the cook copies a recipe — the whole page or just the recipe
 section — and a rule-based, on-device parser (no network, no AI, no cost) anchors

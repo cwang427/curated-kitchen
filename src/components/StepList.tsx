@@ -1,5 +1,6 @@
 import { formatIngredient, formatStepQuantity, parseStepText } from '../lib/quantity'
 import { photoSrc, usePhotoUrls } from '../data/photos'
+import { PhotoStrip } from './PhotoViewer'
 import type { Ingredient, Step } from '../lib/types'
 
 interface Props {
@@ -61,7 +62,9 @@ function StepRow({
         {done ? '✓' : index}
       </button>
 
-      <div className={`flex-1 space-y-2 pb-2 ${done ? 'opacity-50' : ''}`}>
+      {/* min-w-0: let a wide photo row scroll inside the step instead of
+          stretching the page sideways. */}
+      <div className={`min-w-0 flex-1 space-y-2 pb-2 ${done ? 'opacity-50' : ''}`}>
         <p className="text-[17px] leading-relaxed">
           {parseStepText(step.text).map((segment, i) =>
             segment.type === 'text' ? (
@@ -108,20 +111,7 @@ function StepRow({
           </div>
         )}
 
-        {photos.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {photos.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noreferrer noopener">
-                <img
-                  src={src}
-                  alt=""
-                  loading="lazy"
-                  className="size-24 rounded-xl border border-line object-cover"
-                />
-              </a>
-            ))}
-          </div>
-        )}
+        <PhotoStrip srcs={photos} className="pt-1" />
       </div>
     </li>
   )
