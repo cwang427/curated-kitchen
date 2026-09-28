@@ -16,7 +16,9 @@ and you can use just the first:
   when the quick one comes up empty; waiting and retrying when the Archive says
   "too many requests", then asking Jina to fetch the Archive's copy) — and
   has Gemini read it as text. Only if none of those get the page does Gemini
-  try reading the link itself (its URL-context tool). Paywalled pages don't
+  try reading the link itself (its URL-context tool) — and, if the site blocks
+  that too, the Archive's copy (Google fetches from its own servers, which the
+  Archive doesn't throttle like Cloudflare's; no photos come that way). Paywalled pages don't
   work. Only the public
   recipe link is sent to those services. It also returns the links of the
   page's own photos (the main one — a few sizes of it, tried in turn — plus

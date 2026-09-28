@@ -375,7 +375,7 @@ async function archiveCaptures(url: string): Promise<string[]> {
   }
 }
 
-async function fetchRecipePage(url: string): Promise<RecipePage | null> {
+async function fetchRecipePage(url: string, seen: { archiveCopy?: string } = {}): Promise<RecipePage | null> {
   let fallback: RecipePage | null = null
   let stamp: string | undefined
   const consider = (html: string | null, via: PageSource): boolean => {
@@ -426,6 +426,7 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
     stamp = ts
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
     const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
+    seen.archiveCopy = copy // for handleLink, if we can't get it ourselves
     const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${ts}`, [1500, 3000])
     if (consider(archived, 'archive')) return 'recipe'
     if (archived) return 'other'
@@ -684,8 +685,20 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
  * URL-context tool; no photos that way).
  */
 async function handleLink(url: string, env: Env, origin: string): Promise<Response> {
-  const page = await fetchRecipePage(url)
-  if (!page) return handleGemini({ images: [], url }, env, origin)
+  const seen: { archiveCopy?: string } = {}
+  const page = await fetchRecipePage(url, seen)
+  if (!page) {
+    const google = await handleGemini({ images: [], url }, env, origin)
+    if (google.status !== 422 || !seen.archiveCopy) return google
+    // Google couldn't open the site either, but the Archive has a copy — it just
+    // refused us: it throttles the shared Cloudflare addresses Workers fetch
+    // from, and Jina won't fetch a link naming a site that blocks it. Google's
+    // reader fetches from Google's own servers, so let it read the Archive's
+    // copy. Same guard as above: only trusted if Google reports reading it.
+    // (No page HTML this way, so no photos.)
+    console.log('link: asking Google to read the Archive copy')
+    return handleGemini({ images: [], url: seen.archiveCopy, archivedFrom: url }, env, origin)
+  }
   console.log(`link: reading page via ${page.via} as text`)
   const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
   if (!res.ok) return res
@@ -739,13 +752,17 @@ async function handleUrlImport(
 /* ---- AI import: pasted text / a photo → structured recipe ---- */
 
 type AiPhoto = { data: string; mediaType: string }
-type AiInput = { text?: string; images: AiPhoto[]; url?: string }
+/** `archivedFrom`: `url` is the Internet Archive's copy of this original link. */
+type AiInput = { text?: string; images: AiPhoto[]; url?: string; archivedFrom?: string }
 
 /** The instruction that rides alongside any attached photos. Several photos are
  * treated as parts of ONE recipe (a long recipe needs several phone screenshots). */
 function imagePrompt(input: AiInput): string {
   if (input.url) {
-    return `Convert the recipe on this web page: ${input.url}\n\nUse only what that page says — if you can't read it, or it has no recipe, set not_a_recipe true rather than recalling a recipe from memory.`
+    const archived = input.archivedFrom
+      ? `\n\nThis is the Internet Archive's saved copy of ${input.archivedFrom} — the recipe's source is that original site, not the Internet Archive or the Wayback Machine.`
+      : ''
+    return `Convert the recipe on this web page: ${input.url}${archived}\n\nUse only what that page says — if you can't read it, or it has no recipe, set not_a_recipe true rather than recalling a recipe from memory.`
   }
   if (input.text) return `Convert this recipe:\n\n${input.text}`
   if (input.images.length > 1) {
