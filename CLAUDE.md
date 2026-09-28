@@ -385,6 +385,47 @@ confusion:
   of React/DOM and other app imports. `worker/tsconfig.json` makes
   `npm run typecheck` (and CI) type-check the Worker and its tests too.
 
+  **The import queue** (v0.49, `worker/src/queue.ts` + `src/data/importQueue.ts`
+  + `src/components/ImportQueue.tsx`): when a link fails in the moment, the
+  cook can **"Add to import queue — keep trying for me"** (on the AI-busy,
+  Archive-busy and no-photos panels), or queue a link without trying
+  ("Add to import queue instead", under Read recipe) to drop in several at
+  once. **One Durable Object per person** (`ImportQueue` in `index.ts`, a thin
+  wrapper extending Cloudflare's `DurableObject` around `QueueCore` in
+  `queue.ts`, which the tests run in Node; SQLite-backed —
+  included in Workers Free; declared in `wrangler.toml` with a `v1`
+  migration, created by `wrangler deploy`, nothing to set up by hand; the
+  Worker picks it by `idFromName(uid)` from the verified sign-in, never from
+  the request) keeps the queue and **wakes itself on an alarm** to retry —
+  even with the app closed — running the same `importLink` (= `handleLink`)
+  as Add from URL. **One import per wake-up** (the free plan allows 50 outside
+  requests per run; an import uses up to ~15), the next a second later.
+  Retries at 1, 2, 5, 10, 20, 30, 60 min, then hourly, for a day (≥ the
+  Worker's `retryAfterMs`); a paywall / refusing site / not-a-recipe / bad
+  link stops at once (`final`, no Try again); a link that simply can't be
+  opened gets 6 tries. Each item is its own storage key (`item:<id>`, the
+  answer under `result:<id>`), so a minute-long import never overwrites an
+  add/remove made meanwhile. **Saving happens in the app**, the next time it's
+  open (`ImportQueueRunner` in `App`: on open, when it comes back to the
+  front, and every minute while anything is in motion): it `take`s a finished
+  answer (a 5-min lease, so two devices can't both save it), runs the same
+  `finishLinkImport` as Add from URL (photos downloaded and shrunk on the
+  phone — the Worker's free plan can't), stores the photos
+  (`kitchenStore.createPhoto`) and the recipe (`createRecipeInHousehold`) in
+  the kitchen it was queued for with the cook's own sign-in, reports `done`,
+  and shows **"Added to your kitchen: …"** with Open (not over cook mode).
+  Owner's rules: saved **straight away** (no review step); a recipe whose
+  photos won't come keeps trying for them (`photos-failed` → import again in
+  ≥10 min) and after a day is listed "The recipe came through, but its photos
+  never did" with **Save without photos** (`without-photos`). The list on the
+  Add a recipe screens shows each link's state (waiting + why + when,
+  importing, saved → Open recipe, needs a decision, failed + reason). Saved
+  items drop off after 3 days. An older Worker (no queue) answers the app's
+  `/queue/list` with a 400/501 and the queue buttons stay hidden.
+  `npm run test:queue` covers the Durable Object's state machine; it was also
+  run once in the real runtime (`wrangler dev`): add → alarm → import →
+  "waiting, next try in a minute".
+
   **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
   which CI always builds from the pushed branch). So after ANY commit that
   changes `worker/`, tell the owner to update their computer's copy *before*
@@ -501,7 +542,10 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   Archive requests, the breaker, the honest name, Google reading the Archive
   copy, `ai_busy`, the sign-in renewal, the image-size cap, and Firecrawl (when
   it's asked, what for, racing the Archive, pausing on 402/429/401, the paid
-  photo route).
+  photo route), and that the import queue is chosen by the sign-in.
+- `npm run test:queue` — after touching `worker/src/queue.ts`: the import
+  queue's Durable Object with a fake storage, import and clock (adding,
+  retry schedule, give-up rules, the photo rule, take/done leases, alarms).
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members

@@ -660,6 +660,62 @@ const res = await worker.fetch(
 )
 check("Google's key server down → 503 with CORS, not a crash", res.status === 503 && res.headers.get('Access-Control-Allow-Origin') !== null, res.status)
 
+// ---------------------------------------------------------------------------
+section('the import queue: everyone gets their own')
+{
+  // A real signed sign-in token, from a key this test makes, so the Worker's
+  // own sign-in check runs.
+  const keys = (await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify'],
+  )) as CryptoKeyPair
+  const jwk = (await crypto.subtle.exportKey('jwk', keys.publicKey)) as JsonWebKey
+  const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const enc = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)))
+  const tokenFor = async (uid: string) => {
+    const now = Math.floor(RealDate.now() / 1000)
+    const head = `${enc({ alg: 'RS256', kid: 'test-key' })}.${enc({ aud: 'test', iss: 'https://securetoken.google.com/test', sub: uid, exp: now + 600, iat: now })}`
+    const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keys.privateKey, new TextEncoder().encode(head)))
+    return `${head}.${b64url(sig)}`
+  }
+  resetForTests({}, 0.01)
+  install({})
+  const base = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).includes('securetoken@system.gserviceaccount.com')
+      ? new Response(JSON.stringify({ keys: [{ ...jwk, kid: 'test-key' }] }))
+      : base(input, init)) as typeof fetch
+  const opened: string[] = []
+  const QUEUE = {
+    idFromName: (name: string) => `id-of-${name}`,
+    get: (id: unknown) => ({
+      fetch: async (req: Request) => {
+        opened.push(`${String(id)} ${new URL(req.url).pathname} ${await req.text()}`)
+        return new Response('{"items":[]}')
+      },
+    }),
+  }
+  const ask = async (uid: string, action: string, body: unknown, withQueue = true) =>
+    worker.fetch(
+      new Request(`https://w.example/queue/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await tokenFor(uid)}` },
+        body: JSON.stringify(body),
+      }),
+      { ...env, ...(withQueue ? { QUEUE } : {}) } as never,
+    )
+  let res = await ask('alice', 'list', {})
+  check('a signed-in cook reaches their queue', res.status === 200 && opened[0]?.startsWith('id-of-alice /list'), opened)
+  check('…with CORS for the app', res.headers.get('Access-Control-Allow-Origin') !== null)
+  res = await ask('bob', 'remove', { id: 'x', uid: 'alice' })
+  check('the queue is chosen by the sign-in, never the request (bob can’t reach alice’s)', opened[1]?.startsWith('id-of-bob /remove'), opened)
+  res = await ask('alice', 'list', {}, false)
+  check('a Worker without the queue says so (501, no_queue)', res.status === 501 && ((await res.json()) as { code?: string }).code === 'no_queue')
+  const noToken = await worker.fetch(new Request('https://w.example/queue/list', { method: 'POST', body: '{}' }), { ...env, QUEUE } as never)
+  check('no sign-in, no queue', noToken.status === 401 && opened.length === 2)
+}
+
 console.log = realLog
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed) (globalThis as { process?: { exit(code: number): never } }).process?.exit(1)

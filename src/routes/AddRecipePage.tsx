@@ -10,6 +10,8 @@ import { importRecipeFromText } from '../lib/importText'
 import { compressForImport, readFileBase64 } from '../data/photos'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import { busyRetryMs, isArchiveBusy } from '../lib/archiveBusy'
+import { addToQueue, useImportQueue } from '../data/importQueue'
+import { ImportQueueList } from '../components/ImportQueue'
 import type { RecipeSeed } from '../lib/types'
 
 type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
@@ -61,6 +63,9 @@ export default function AddRecipePage() {
   const [readSeconds, setReadSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [choice, setChoice] = useState<LinkChoice | null>(null)
+  // The import queue (worker 0.49+): links to keep trying in the background.
+  const queue = useImportQueue()
+  const [queued, setQueued] = useState(false)
   // A line above the preview editor about what the import couldn't bring.
   const [notice, setNotice] = useState<string | null>(null)
   // The link read in progress (a counter, so a read the cook walked away from
@@ -222,6 +227,7 @@ export default function AddRecipePage() {
     linkActive.current = true
     setError(null)
     setChoice(null)
+    setQueued(false)
     setReading(true)
     const url = link.trim()
     const current = () => run === linkRun.current
@@ -277,6 +283,22 @@ export default function AddRecipePage() {
     setChoice(null)
     openEditor(result.seed, 'link', 'Imported without photos — add your own with the photo buttons below.')
   }
+  // Hand the link to the import queue — it keeps trying (even with the app
+  // closed) and saves the recipe to this kitchen when it comes through.
+  // `tried`: it just failed here, so the queue gives it a minute first.
+  const queueLink = async (tried: boolean) => {
+    setError(null)
+    try {
+      await addToQueue(link.trim(), household.id, tried)
+      setChoice(null)
+      setLink('')
+      setQueued(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Couldn’t add it to the queue.')
+    }
+  }
+  const queueOption = queue.available ? () => void queueLink(true) : undefined
+
   // Nothing more to get from the link: the pasted-text screen, in its place
   // (so Back still goes to the chooser).
   const pasteInstead = () => {
@@ -353,6 +375,7 @@ export default function AddRecipePage() {
               onChange={(e) => {
                 setLink(e.target.value)
                 setChoice(null)
+                setQueued(false)
               }}
               placeholder="https://…"
               aria-label="Recipe link"
@@ -386,6 +409,7 @@ export default function AddRecipePage() {
                 primary={{ label: 'Continue without photos', onClick: () => continueWithoutPhotos(choice.result) }}
                 retryAt={choice.retryAt}
                 onRetry={readLink}
+  onQueue={queueOption}
               />
             )}
             {choice?.kind === 'ai-busy' && (
@@ -394,6 +418,7 @@ export default function AddRecipePage() {
                 body="The recipe reader we use (Google’s AI) is overloaded right now. That usually passes within a minute — try again shortly."
                 retryAt={choice.retryAt}
                 onRetry={readLink}
+  onQueue={queueOption}
               />
             )}
             {choice?.kind === 'busy' && (
@@ -403,7 +428,15 @@ export default function AddRecipePage() {
                 primary={{ label: 'Paste the recipe text instead', onClick: pasteInstead }}
                 retryAt={choice.retryAt}
                 onRetry={readLink}
+  onQueue={queueOption}
               />
+            )}
+
+            {queued && (
+              <p role="status" className="rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft">
+                <span className="font-medium text-ink">Added to your import queue.</span> We’ll keep trying and save it
+                to your kitchen when it comes through — you can close the app meanwhile. Paste another link to add more.
+              </p>
             )}
 
             {!choice && (
@@ -416,6 +449,15 @@ export default function AddRecipePage() {
                 {reading ? 'Reading…' : 'Read recipe'}
               </button>
             )}
+            {!choice && queue.available && canReadLink && !reading && (
+              <button
+                type="button"
+                onClick={() => void queueLink(false)}
+                className="min-h-11 w-full text-center text-sm font-medium text-accent underline underline-offset-2"
+              >
+                Add to import queue instead
+              </button>
+            )}
             <button
               type="button"
               onClick={goBack}
@@ -423,6 +465,7 @@ export default function AddRecipePage() {
             >
               Back
             </button>
+            <ImportQueueList />
           </div>
         ) : mode === 'text' ? (
           <div className="space-y-4">
@@ -579,6 +622,7 @@ export default function AddRecipePage() {
               <span className="block font-medium">Start from scratch</span>
               <span className="mt-0.5 block text-sm text-ink-soft">Type in the recipe yourself</span>
             </button>
+            <ImportQueueList />
           </div>
         )}
       </main>
@@ -617,6 +661,7 @@ function ChoicePanel({
   primary,
   retryAt,
   onRetry,
+  onQueue,
 }: {
   title: string
   body: string
@@ -624,6 +669,8 @@ function ChoicePanel({
   primary?: { label: string; onClick: () => void }
   retryAt: number
   onRetry: () => void
+  /** Hand it to the import queue instead (when the Worker has one). */
+  onQueue?: () => void
 }) {
   const [now, setNow] = useState(() => Date.now())
   const waiting = retryAt > now
@@ -661,6 +708,15 @@ function ChoicePanel({
       >
         {waiting ? `Try again in ${clock}` : 'Try again'}
       </button>
+      {onQueue && (
+        <button
+          type="button"
+          onClick={onQueue}
+          className="min-h-11 w-full text-center text-sm font-medium text-accent underline underline-offset-2"
+        >
+          Add to import queue — keep trying for me
+        </button>
+      )}
     </div>
   )
 }

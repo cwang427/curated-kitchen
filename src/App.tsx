@@ -12,6 +12,7 @@ import EditRecipePage from './routes/EditRecipePage'
 import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 import { HistoryChain } from './components/nav'
+import { ImportQueueRunner } from './components/ImportQueue'
 
 function Loading() {
   return (
@@ -52,6 +53,8 @@ export default function App() {
       {/* Keeps browser history shaped like the screen hierarchy, so the
           iPhone back-swipe matches the app's back buttons. */}
       <HistoryChain />
+      {/* Saves queued link imports as they finish, from any screen. */}
+      <ImportQueueRunner />
       <Routes>
         <Route path="/" element={<RecipeListPage />} />
         <Route path="/r/:slug" element={<RecipePage />} />

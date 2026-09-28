@@ -22,3 +22,15 @@ ALLOWED_ORIGIN = "https://cwang427.github.io"
 # line (host, route, time, photos) that can be filtered there.
 [observability]
 enabled = true
+
+# The import queue (src/queue.ts): one Durable Object per person, which keeps
+# retrying queued links on a timer even while the app is closed. Declared here
+# and created by `wrangler deploy` — no dashboard setup, no id to paste in.
+# SQLite-backed Durable Objects are included in the Workers free plan.
+[[durable_objects.bindings]]
+name = "QUEUE"
+class_name = "ImportQueue"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ImportQueue"]

@@ -20,7 +20,13 @@ import { ALL_TAGS, TAG_GROUPS } from '../../src/lib/tags'
 // is deployed — a stale local copy is the usual reason a change "didn't work".
 import { version as WORKER_VERSION } from '../../package.json'
 
-interface Env {
+/** The queue's storage (a Durable Object namespace), as far as we use it. */
+interface QueueNamespace {
+  idFromName(name: string): unknown
+  get(id: unknown): { fetch(request: Request): Promise<Response> }
+}
+
+export interface Env {
   FIREBASE_PROJECT_ID: string
   ALLOWED_ORIGIN?: string
   // AI import (paste text / a photo). The free /url route needs none of these.
@@ -48,6 +54,9 @@ interface Env {
   // block everything else we have. A secret: `npx wrangler secret put
   // FIRECRAWL_API_KEY`. Without it, that step is simply skipped.
   FIRECRAWL_API_KEY?: string
+  // The import queue (worker/src/queue.ts): one Durable Object per person,
+  // declared in wrangler.toml — nothing to set up by hand.
+  QUEUE?: QueueNamespace
 }
 
 const GROCERY_CATEGORIES = [
@@ -1911,16 +1920,29 @@ async function handleClaude(input: AiInput, env: Env, origin: string): Promise<R
   return json({ recipe }, 200, origin)
 }
 
+/** Pick up this deployment's secrets (the same for every request). */
+function useEnv(env: Env): void {
+  firecrawlKey = env.FIRECRAWL_API_KEY?.trim() || undefined
+  archiveSecrets = {
+    saved: env.ARCHIVE_SESSION,
+    legacy: env.ARCHIVE_COOKIES,
+    email: env.ARCHIVE_EMAIL?.trim(),
+    password: env.ARCHIVE_PASSWORD,
+  }
+}
+
+/** One link import, exactly as the app's "Add from URL" runs it — for the
+ * import queue, which tries again later on the cook's behalf. */
+export async function importLink(url: string, env: Env): Promise<{ status: number; body: Record<string, unknown> }> {
+  useEnv(env)
+  const res = await handleLink(url, env, env.ALLOWED_ORIGIN || 'https://cwang427.github.io', 'queue')
+  return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> }
+}
+
 export const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
-    firecrawlKey = env.FIRECRAWL_API_KEY?.trim() || undefined
-    archiveSecrets = {
-      saved: env.ARCHIVE_SESSION,
-      legacy: env.ARCHIVE_COOKIES,
-      email: env.ARCHIVE_EMAIL?.trim(),
-      password: env.ARCHIVE_PASSWORD,
-    }
+    useEnv(env)
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(origin) })
@@ -1959,6 +1981,17 @@ export const worker = {
     if (path.endsWith('/url')) return handleUrlImport(body, origin)
     // A link import's photos, streamed through (the app can't fetch them itself).
     if (path.endsWith('/img')) return handleImageProxy(body as { url?: string; stamp?: string; paid?: boolean }, origin)
+    // The import queue: each person's own, kept by a Durable Object named by
+    // their sign-in, so nobody can see or change anyone else's.
+    const queueAction = path.match(/\/queue\/([a-z-]+)$/)?.[1]
+    if (queueAction) {
+      if (!env.QUEUE) return json({ error: 'The import queue isn’t set up on the server.', code: 'no_queue' }, 501, origin)
+      const queue = env.QUEUE.get(env.QUEUE.idFromName(uid))
+      const res = await queue.fetch(
+        new Request(`https://queue/${queueAction}`, { method: 'POST', body: JSON.stringify(body) }),
+      )
+      return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } })
+    }
 
     // AI route: turn pasted text / one-or-more photos into a structured recipe.
     // Accept the current `images` array and the legacy single `image`. Prefer

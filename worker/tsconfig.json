@@ -17,5 +17,5 @@
     "noUnusedParameters": true,
     "types": []
   },
-  "include": ["src/**/*.ts", "../scripts/test-worker.ts"]
+  "include": ["src/**/*.ts", "../scripts/test-worker.ts", "../scripts/test-queue.ts"]
 }

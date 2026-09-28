@@ -153,6 +153,17 @@ through the Archive as before — nobody has to do anything.
 this is for a household's own occasional imports, one page at a time. Only the
 public recipe link goes to Firecrawl.)
 
+## The import queue (nothing to set up)
+When a link won't import in the moment, the app offers **Add to import queue**:
+the Worker keeps trying that link on a schedule (1, 2, 5, 10, 20, 30, 60
+minutes, then hourly, for up to a day) — even with the app closed — and the
+recipe is saved to the kitchen, photos included, the next time the app is open.
+Each person's queue lives in a **Durable Object** (Cloudflare's small
+always-available storage, included in the free plan). It's declared in
+`wrangler.toml`, so `npx wrangler deploy` creates it — there's no dashboard
+step. In `wrangler tail` a queued import logs `link: ran in queue, …` and then
+`queue: <link> → ready` (or `→ waiting (why)`).
+
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
 the Worker code changes, first pull the update to your computer, *then* deploy:

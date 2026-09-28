@@ -77,15 +77,10 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(input),
   })
-  const data = (await res.json().catch(() => ({}))) as {
-    recipe?: unknown
+  const data = (await res.json().catch(() => ({}))) as WorkerAnswer & {
     error?: string
     code?: string
     detail?: string
-    retryAfterMs?: number
-    photos?: LinkPhotos
-    via?: string
-    photosUnavailable?: boolean
   }
   if (!res.ok) {
     // Keep what the Worker said: the status (a 422 means it already tried every
@@ -99,6 +94,20 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     })
     throw error
   }
+  return 'url' in input ? finishLinkImport(data, input.url, token) : seedFromAnswer(data, input)
+}
+
+/** What the Worker answers for a successful import. */
+export interface WorkerAnswer {
+  recipe?: unknown
+  photos?: LinkPhotos
+  via?: string
+  photosUnavailable?: boolean
+  retryAfterMs?: number
+}
+
+/** The AI's answer → a validated recipe (no photos yet). */
+function seedFromAnswer(data: WorkerAnswer, input: AiInput): AiImportResult {
   if (!data.recipe) throw new Error('The AI didn’t return a recipe.')
 
   // Fill gaps (e.g. no servings) and drop pieces the strict validator would
@@ -123,20 +132,24 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   // Recipes are keyed by a global slug; give this one a fresh unique one.
   const withSlug = { ...raw, slug: `${slugify(title) || 'recipe'}-${randomSuffix()}` }
 
-  let parsed: AiImportResult
   try {
     const { recipe, warnings } = parseRecipe(withSlug)
-    parsed = { seed: recipe, warnings }
+    return { seed: recipe, warnings }
   } catch (cause) {
     throw new Error(describeInvalid(cause))
   }
-  if ('url' in input) {
-    parsed.link = {
-      via: data.via,
-      photosUnavailable: data.photosUnavailable,
-      retryAfterMs: data.retryAfterMs,
-      photos: data.photos ? await attachLinkPhotos(parsed.seed, data.photos, token) : undefined,
-    }
+}
+
+/** A link's answer → the recipe with its photos downloaded, and a report of
+ * how it went. Shared by "Add from URL" and the import queue, which hands the
+ * app an answer the Worker got earlier. */
+export async function finishLinkImport(data: WorkerAnswer, url: string, token: string): Promise<AiImportResult> {
+  const parsed = seedFromAnswer(data, { url })
+  parsed.link = {
+    via: data.via,
+    photosUnavailable: data.photosUnavailable,
+    retryAfterMs: data.retryAfterMs,
+    photos: data.photos ? await attachLinkPhotos(parsed.seed, data.photos, token) : undefined,
   }
   return parsed
 }

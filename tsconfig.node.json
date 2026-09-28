@@ -29,5 +29,5 @@
     "src/lib/importRecipe.ts"
   ],
   // The Worker's tests are checked with the Worker (worker/tsconfig.json).
-  "exclude": ["scripts/test-worker.ts"]
+  "exclude": ["scripts/test-worker.ts", "scripts/test-queue.ts"]
 }
