@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useGoBack } from '../components/useGoBack'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
 import PlanSheet from '../components/PlanSheet'
@@ -29,6 +30,7 @@ function useToggleSet() {
 export default function RecipePage() {
   const { slug } = useParams<{ slug: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack('/')
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   // This recipe's dish on the cook board, if a solo cook is in progress here.
@@ -85,7 +87,8 @@ export default function RecipePage() {
     if (!confirm(`Delete “${recipe.title}”? This can’t be undone.`)) return
     try {
       await deleteRecipe(recipe.slug)
-      navigate('/')
+      // Back, not a new page: otherwise a swipe would return to the deleted recipe.
+      goBack()
     } catch (cause) {
       alert(describeFirestoreError(cause, 'delete the recipe'))
     }
@@ -301,7 +304,6 @@ export default function RecipePage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 to={`/r/${recipe.slug}/edit`}
-                state={{ fromRecipe: true }}
                 className="min-h-11 grid place-items-center rounded-full border border-line px-4 text-sm text-ink-soft transition active:scale-[0.98]"
               >
                 Edit recipe

@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
+import { useGoBack } from './useGoBack'
 
 interface Props {
   title?: string
-  /** Show a back chevron that returns to the recipe list. */
+  /** Show a back chevron: one step back in history, like the iPhone swipe (the
+   * recipe list if there's nothing in-app to go back to). */
   back?: boolean
-  /** Where the back chevron goes instead of the list — e.g. the editor returns
-   * to the recipe being edited. */
+  /** Override for screens with their own inner steps (Add a recipe's import
+   * screens). */
   onBack?: () => void
   /** Show the "add a recipe" shortcut (members only). */
   add?: boolean
@@ -25,6 +27,7 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
   // shortcuts rather than offer a tap that errors.
   const isMember = !!user && !!household && household.memberUids.includes(user.uid)
   const canAdd = add && isMember
+  const goBack = useGoBack('/')
   const backClass =
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
 
@@ -32,16 +35,11 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
     <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 pb-3">
         <div className="flex min-w-0 items-center gap-2">
-          {back &&
-            (onBack ? (
-              <button type="button" onClick={onBack} aria-label="Back" className={backClass}>
-                <BackChevron />
-              </button>
-            ) : (
-              <Link to="/" aria-label="Back to recipes" className={backClass}>
-                <BackChevron />
-              </Link>
-            ))}
+          {back && (
+            <button type="button" onClick={onBack ?? goBack} aria-label="Back" className={backClass}>
+              <BackChevron />
+            </button>
+          )}
           <Link to="/" className="min-w-0">
             <span className="block truncate font-serif text-xl tracking-tight">
               {title ?? 'Curated Kitchen'}

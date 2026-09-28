@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useGoBack } from '../components/useGoBack'
 import { useRecipe } from '../data/recipes'
 import { useAuth } from '../auth/AuthProvider'
 import {
@@ -318,7 +319,10 @@ function MeanwhileBand({ timer, onJump }: { timer: AwayTimer; onJump: () => void
 export default function CookPage() {
   const { slug } = useParams<{ slug: string }>()
   const [params] = useSearchParams()
-  const navigate = useNavigate()
+  // ✕ and End cooking step back to wherever cooking was started from (the
+  // recipe, the list's resume banner, the timeline) — the same place an iPhone
+  // swipe goes — instead of pushing the recipe page on top of cook mode.
+  const goBack = useGoBack(`/r/${slug ?? ''}`)
   const { recipe, loading } = useRecipe(slug)
   const { user, household, profile } = useAuth()
   const householdId = household?.id ?? null
@@ -558,7 +562,7 @@ export default function CookPage() {
     // takes just this dish off the board (any others keep cooking).
     if (synced && householdId) void endCookSession(householdId)
     else removeDish(recipe.slug)
-    navigate(`/r/${recipe.slug}`)
+    goBack()
   }
 
   const isFirst = index === 0
@@ -576,8 +580,9 @@ export default function CookPage() {
       {/* Top: exit + progress + timer tray */}
       <div className="pad-safe-top sticky top-0 z-10 space-y-3 border-b border-line bg-paper px-4 pb-3">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <Link
-            to={`/r/${recipe.slug}`}
+          <button
+            type="button"
+            onClick={goBack}
             aria-label="Exit cook mode"
             className="grid size-10 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line"
           >
@@ -589,7 +594,7 @@ export default function CookPage() {
                 strokeLinecap="round"
               />
             </svg>
-          </Link>
+          </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{recipe.title}</p>
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-line">

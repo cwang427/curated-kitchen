@@ -1,8 +1,9 @@
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { useRecipe } from '../data/recipes'
+import { useGoBack } from '../components/useGoBack'
 
 /**
  * Edit an existing recipe in place. Loads the recipe, hands it to the same
@@ -11,25 +12,20 @@ import { useRecipe } from '../data/recipes'
  */
 export default function EditRecipePage() {
   const { slug } = useParams<{ slug: string }>()
-  const navigate = useNavigate()
-  const location = useLocation()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
+  // Save, Cancel, the back arrow and the swipe all return to the recipe page
+  // it was opened from (the same slug either way).
+  const goBack = useGoBack(slug ? `/r/${slug}` : '/')
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
 
-  // Leave the editor by stepping back to the recipe page it was opened from,
-  // rather than pushing a second copy of it — otherwise Back (or an iOS swipe)
-  // from the recipe lands on the stale editor. Opened some other way (a
-  // bookmark, a reload), swap the editor out of history instead.
-  const cameFromRecipe = (location.state as { fromRecipe?: boolean } | null)?.fromRecipe === true
-  const leave = (to: string) => (cameFromRecipe ? navigate(-1) : navigate(`/r/${to}`, { replace: true }))
 
   return (
     <div className="min-h-dvh">
       {/* Back returns to the recipe being edited (same as Cancel), not the list. */}
-      <AppHeader title="Edit recipe" back onBack={slug ? () => leave(slug) : undefined} />
+      <AppHeader title="Edit recipe" back />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
         {!isMember ? (
@@ -49,8 +45,8 @@ export default function EditRecipePage() {
           <RecipeEditor
             initial={recipe}
             editingSlug={recipe.slug}
-            onSaved={leave}
-            onCancel={() => leave(recipe.slug)}
+            onSaved={goBack}
+            onCancel={goBack}
           />
         )}
       </main>

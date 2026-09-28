@@ -293,6 +293,19 @@ the deploy and leaves the previous version up.
   shows only the opaque header background, where blur is invisible. The other
   known fix — `apple-mobile-web-app-status-bar-style: default` — works too but
   only after every user deletes and re-adds the home-screen app, so we avoid it.
+- **Back = one step back in history, everywhere** (`useGoBack` in
+  `src/components/useGoBack.ts`). An installed iPhone web app's edge-swipe always
+  goes back one history entry and can't be disabled, so every on-screen back /
+  close / done control does the same — the header ‹, cook mode's ✕ and End
+  cooking, the editor's Save/Cancel, deleting a recipe — falling back to a fixed
+  page (replacing the entry) only when the app was opened straight onto that
+  screen (`historyDepth() === 0`, React Router's `history.state.idx`). Never
+  "go back" by pushing a new page: the button and the swipe would then land in
+  different places (that was the End cooking → swipe → cook mode bug). Add a
+  recipe's screens are history entries (`/add?m=link|text|capture|edit`) on one
+  mounted page, so the swipe steps chooser ← import screen ← editor like ‹ does
+  and pasted text/photos survive; saving unwinds to the chooser and replaces it
+  with the new recipe, so history reads list → recipe.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
@@ -335,17 +348,10 @@ photos/screenshots — several at once, since a long recipe rarely fits one phon
 screenshot, downscaled in-browser via `compressForImport` and combined into one
 recipe — and recipe **PDFs** (Add a recipe → **Add from photo or PDF**; sent as-is
 to Gemini, which reads them natively); a paid Claude route stays available as an
-alternative). Saving a new recipe (or leaving the editor) **replaces** the editor
-in history rather than stacking on it, so Back / an iOS swipe from the saved
-recipe returns to the list, never a stale editor; `/r/:slug/edit` opened from the
-recipe page steps back via `navigate(-1)` (the Edit link passes
-`state.fromRecipe`). Inside Add a recipe, the header Back (and the on-page Back)
-steps within the flow — an import screen returns to the chooser, the preview
-editor to the import screen it came from (pasted text / photos kept, to retry) —
-and only the chooser's Back leaves for the list; the import screens carry no
-explainer text (the chooser's one-line subtitles do that job). Photo/PDF import
-takes up to 12 files — our cap for upload size and the Worker's 30s per-model
-wait, not Gemini's (which accepts far more). And
+alternative). Photo/PDF import takes up to 12 files — our cap for upload size and
+the Worker's 30s per-model wait, not Gemini's (which accepts far more); the
+import screens carry no explainer text (the chooser's one-line subtitles do that
+job). And
 a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result

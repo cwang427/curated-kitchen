@@ -1,6 +1,7 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
+import { historyDepth } from '../components/useGoBack'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'
@@ -11,15 +12,25 @@ import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
 import type { RecipeSeed } from '../lib/types'
 
 type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
+const SCREENS: Mode[] = ['link', 'text', 'capture', 'edit']
 
 export default function AddRecipePage() {
   const { user, household } = useAuth()
   const navigate = useNavigate()
 
-  const [mode, setMode] = useState<Mode>('choose')
-  // Where Back from the preview editor goes: the import screen it came from
-  // (still holding the pasted text / photos, to retry), or the chooser.
+  // Each screen (chooser → import screen → preview editor) is its own history
+  // entry (?m=…), so the iPhone back-swipe steps through them exactly like the
+  // back arrow. It's one mounted page throughout, so the pasted text / photos
+  // survive stepping back from the editor to retry.
+  const [params, setParams] = useSearchParams()
+  const m = params.get('m') as Mode | null
+  const mode: Mode = m && SCREENS.includes(m) ? m : 'choose'
+  const open = (next: Mode) => setParams(next === 'choose' ? {} : { m: next })
+  // Which import screen the editor was opened from ('choose' = from scratch),
+  // i.e. how many entries back the chooser is.
   const [returnTo, setReturnTo] = useState<Mode>('choose')
+  // A saved recipe waiting to replace this whole flow in history (see onSaved).
+  const savedSlug = useRef<string | null>(null)
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
   const [text, setText] = useState('')
   const [link, setLink] = useState('')
@@ -42,7 +53,18 @@ export default function AddRecipePage() {
     return () => clearInterval(id)
   }, [reading])
 
+  // Back at the chooser after a save: swap this entry for the new recipe, so
+  // history reads list → recipe and a swipe back from it lands on the list.
+  useEffect(() => {
+    if (mode !== 'choose' || !savedSlug.current) return
+    const slug = savedSlug.current
+    savedSlug.current = null
+    navigate(`/r/${slug}`, { replace: true })
+  }, [mode, navigate])
+
   if (!user || !household) return null
+  // Mid-hand-off to a just-saved recipe: don't flash the chooser.
+  if (savedSlug.current && mode === 'choose') return null
   const isMember = household.memberUids.includes(user.uid)
 
   // A long recipe rarely fits one phone screenshot, so allow several, read as one.
@@ -98,13 +120,32 @@ export default function AddRecipePage() {
   const openEditor = (seed: RecipeSeed | null, from: Mode) => {
     setInitial(seed)
     setReturnTo(from)
-    setMode('edit')
+    open('edit')
   }
-  // Back steps within Add a recipe (import screen → chooser; editor → the
-  // screen it came from) rather than leaving for the recipe list.
+  // Back = one history step, same as the swipe (import screen → chooser; editor
+  // → the screen it came from). Opened straight onto a screen, go to the chooser.
   const goBack = () => {
     setError(null)
-    setMode(mode === 'edit' ? returnTo : 'choose')
+    if (historyDepth() > 0) navigate(-1)
+    else setParams({}, { replace: true })
+  }
+  // Leave the editor for the chooser: one step back from scratch, two from an
+  // import screen.
+  const stepsToChooser = () => (returnTo === 'choose' ? 1 : 2)
+  const toChooser = () => {
+    setError(null)
+    if (historyDepth() >= stepsToChooser()) navigate(-stepsToChooser())
+    else setParams({}, { replace: true })
+  }
+  const onSaved = (slug: string) => {
+    // Unwind to the chooser, then (effect above) replace it with the recipe —
+    // so the add flow leaves no entries behind for a swipe to land on.
+    if (historyDepth() >= stepsToChooser()) {
+      savedSlug.current = slug
+      navigate(-stepsToChooser())
+    } else {
+      navigate(`/r/${slug}`, { replace: true })
+    }
   }
 
   // Photo(s) / screenshot(s) / PDF(s) → AI (Gemini vision). No on-device fallback.
@@ -209,11 +250,8 @@ export default function AddRecipePage() {
         ) : mode === 'edit' ? (
           <RecipeEditor
             initial={initial}
-            // Replace, don't push: the new recipe takes the editor's place in
-            // history, so Back (or an iOS swipe) returns to the recipe list
-            // instead of a stale editor that then resets to "Add a recipe".
-            onSaved={(slug) => navigate(`/r/${slug}`, { replace: true })}
-            onCancel={() => setMode('choose')}
+            onSaved={onSaved}
+            onCancel={toChooser}
           />
         ) : mode === 'link' ? (
           <div className="space-y-4">
@@ -364,7 +402,7 @@ export default function AddRecipePage() {
             {(aiImportConfigured || urlImportConfigured) && (
               <button
                 type="button"
-                onClick={() => setMode('link')}
+                onClick={() => open('link')}
                 className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
               >
                 <span className="block font-medium">Add from URL</span>
@@ -376,7 +414,7 @@ export default function AddRecipePage() {
 
             <button
               type="button"
-              onClick={() => setMode('text')}
+              onClick={() => open('text')}
               className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
             >
               <span className="block font-medium">Add from pasted text</span>
@@ -388,7 +426,7 @@ export default function AddRecipePage() {
             {aiImportConfigured && (
               <button
                 type="button"
-                onClick={() => setMode('capture')}
+                onClick={() => open('capture')}
                 className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
               >
                 <span className="block font-medium">Add from photo or PDF</span>
