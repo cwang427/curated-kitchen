@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
+import SearchInput from '../components/SearchInput'
 import { useAuth } from '../auth/AuthProvider'
 import { collectTags, setRecipeFavorite, useCoverUpgrade, useRecipeSearch, useRecipes } from '../data/recipes'
 import { endCookSession, useCookSession } from '../data/cooksession'
@@ -238,13 +239,11 @@ export default function RecipeListPage() {
             onDismiss={() => removeDish(board.dishes[0].slug)}
           />
         ) : null}
-        <input
-          type="search"
+        <SearchInput
           value={term}
-          onChange={(event) => setTerm(event.target.value)}
+          onChange={setTerm}
           placeholder="Search recipes, ingredients, sources…"
-          aria-label="Search recipes"
-          className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
+          label="Search recipes"
         />
 
         <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">

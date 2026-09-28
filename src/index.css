@@ -61,6 +61,22 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* No rubber-band bounce past the top or bottom of a page. It has to be on
+   <html> — iOS only honours it on the root, and ignored the body's copy above.
+   The bounce dragged the sticky header up off the screen with the page, so
+   pulling past the bottom showed content where the header should be. (Pull to
+   refresh on the kitchen is our own gesture, not the bounce.) */
+html {
+  overscroll-behavior-y: none;
+}
+
+/* SearchInput draws its own, bigger ✕; hide the browser's small one. */
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /*
  * iOS 26+ (much stronger in 27) draws a "Liquid Glass" progressive blur over
  * the top of an installed web app, reaching ~40pt below the status bar. It's

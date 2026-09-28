@@ -366,6 +366,14 @@ the deploy and leaves the previous version up.
   iPhone app with the edge clearance), and anything that sticks just below it
   uses `top-[calc(var(--app-header-h,4rem)-1px)]` (the recipe page's scale
   bar — a fixed `top-16` slid it under the taller iPhone header).
+- **No rubber-band bounce**: `overscroll-behavior-y: none` must be on `html` —
+  iOS honours it only on the root and ignored the body's copy, so pulling past
+  the bottom of a page bounced it and dragged the sticky header up off the
+  screen with it. (The kitchen's pull-to-refresh is our own touch gesture.)
+- Search fields are `SearchInput` (`src/components/SearchInput.tsx`): our own
+  48pt ✕ at the right once there's text (the browser's is hidden in
+  `index.css` — iOS shows none); it keeps the keyboard up if you were typing
+  and doesn't summon it if you weren't.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 

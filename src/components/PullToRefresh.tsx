@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
  * down and getting nothing back reads as broken, and re-subscribing genuinely
  * helps when an iOS PWA resumes from the background with a stale listener.
  *
- * Body has `overscroll-behavior-y: none`, so there's no native bounce to fight;
+ * The page has `overscroll-behavior-y: none`, so there's no native bounce to fight;
  * this owns the gesture while the page is scrolled to the top.
  */
 

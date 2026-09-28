@@ -4,6 +4,7 @@ import { addPlanEntry } from '../data/plan'
 import { planWindow } from '../lib/plan'
 import { describeFirestoreError } from '../lib/errors'
 import type { Recipe } from '../lib/types'
+import SearchInput from './SearchInput'
 
 /**
  * Add a recipe to the shared meal plan. Two ways in:
@@ -114,14 +115,7 @@ export default function PlanSheet({
           </div>
         ) : !picked ? (
           <div className="px-4 py-3">
-            <input
-              type="search"
-              value={term}
-              onChange={(e) => setTerm(e.target.value)}
-              placeholder="Search recipes…"
-              aria-label="Search recipes"
-              className="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
-            />
+            <SearchInput value={term} onChange={setTerm} placeholder="Search recipes…" label="Search recipes" />
             {matches.length === 0 ? (
               <p className="py-10 text-center text-ink-soft">No recipes match that.</p>
             ) : (
