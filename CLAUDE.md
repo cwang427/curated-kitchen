@@ -126,13 +126,7 @@ confusion:
     Jina / archive.org (public links, no user data). **Order (v0.39):** `handleLink` now
     gets the page itself FIRST (direct → Jina → Archive) and has Gemini read it
     as text; Google's URL-context reader is only the last resort (no page from
-    any route) — first on the link itself, then, if Google can't open that
-    either but the Archive has a copy that just refused *us* (its 429s on
-    Cloudflare's shared addresses; Jina 451s any link naming a site that blocks
-    it, archive links included), on **the Archive's copy**
-    (`seen.archiveCopy` from `fetchRecipePage`, prompt flagged `archivedFrom`
-    so the source stays the original site) — Google fetches from its own
-    servers. Same SUCCESS-status guard; no photos that way (no page HTML). That's so a link import also brings the **page's photos**:
+    any route). That's so a link import also brings the **page's photos**:
     `findLinkPhotos` reads the cover from the recipe data's `image` / `og:image`
     and each HowToStep's `image` (≤3 per step, ≤10 total), and the response
     carries **links only** — `photos: { cover, covers, steps: {index: urls},
