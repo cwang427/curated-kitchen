@@ -12,8 +12,9 @@ and you can use just the first:
   (blog-style pages that the `/url` route can't) and photos/screenshots/PDFs. For
   a **link** (`{ url }`), the Worker fetches the page itself — directly, then
   via **Jina Reader** (`r.jina.ai`, a free page-reading service, no key), then
-  the **Internet Archive's** saved copy (waiting and retrying when the Archive
-  says "too many requests", then asking Jina to fetch the Archive's copy) — and
+  the **Internet Archive's** saved copy (its quick lookup, then its full index
+  when the quick one comes up empty; waiting and retrying when the Archive says
+  "too many requests", then asking Jina to fetch the Archive's copy) — and
   has Gemini read it as text. Only if none of those get the page does Gemini
   try reading the link itself (its URL-context tool). Paywalled pages don't
   work. Only the public

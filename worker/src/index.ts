@@ -337,6 +337,44 @@ type PageSource = 'direct' | 'reader' | 'archive'
  */
 type RecipePage = { html: string; via: PageSource; stamp?: string }
 
+/** The link as the Archive knows it: no #fragment, no tracking parameters
+ * (a link shared from a phone often carries utm_…), which would miss its saves. */
+function archiveKey(url: string): string {
+  try {
+    const u = new URL(url)
+    u.hash = ''
+    for (const key of [...u.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_|ref$|src$)/i.test(key)) u.searchParams.delete(key)
+    }
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
+/** The Archive's latest good (200, HTML) saves of a page, newest first, from its
+ * full capture index — slower than the "available" lookup but reliable. */
+async function archiveCaptures(url: string): Promise<string[]> {
+  const index = await fetchText(
+    `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}&output=json&fl=timestamp` +
+      '&filter=statuscode:200&filter=mimetype:text/html&limit=-3',
+    { Accept: 'application/json' },
+    'archive search',
+    [1500],
+  )
+  try {
+    const rows = JSON.parse(index ?? '[]') as unknown[]
+    return rows
+      .slice(1) // the first row is the field names
+      .map((row) => (Array.isArray(row) ? String(row[0]) : ''))
+      .filter((ts) => /^\d{14}$/.test(ts))
+      .sort()
+      .reverse()
+  } catch {
+    return []
+  }
+}
+
 async function fetchRecipePage(url: string): Promise<RecipePage | null> {
   let fallback: RecipePage | null = null
   let stamp: string | undefined
@@ -363,31 +401,50 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
   if (!isBlockedHost(host) && consider(await fetchText(url, BROWSER_HEADERS, 'direct'), 'direct')) return fallback
   const reader = await fetchText(`https://r.jina.ai/${url}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'reader')
   if (consider(reader, 'reader')) return fallback
+  // The Internet Archive. Its quick "available" lookup sometimes answers "no
+  // copy" for pages it has saved many times (it did for a years-old Serious
+  // Eats recipe), so when it comes up empty — or its copy isn't a recipe —
+  // ask the full capture index (CDX) for the latest good saves too.
+  const lookup = archiveKey(url)
   const avail = await fetchText(
-    `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`,
+    `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
     { Accept: 'application/json' },
     'archive lookup',
     [1500],
   )
+  let quick: string | undefined
   try {
-    stamp = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
+    quick = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
       .archived_snapshots?.closest?.timestamp
   } catch {
-    stamp = undefined
+    quick = undefined
   }
-  if (stamp) {
+  if (!quick) console.log('page archive lookup: nothing — checking the full index')
+  /** Read one saved copy: a recipe, some other page, or refused outright (still
+   * throttled after the retries — then more Archive requests won't help). */
+  const readCopy = async (ts: string): Promise<'recipe' | 'other' | 'refused'> => {
+    stamp = ts
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
-    const copy = `https://web.archive.org/web/${stamp}id_/${url}`
-    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${stamp}`, [1500, 3000])
-    if (consider(archived, 'archive')) return fallback
+    const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
+    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${ts}`, [1500, 3000])
+    if (consider(archived, 'archive')) return 'recipe'
+    if (archived) return 'other'
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
-    if (!archived) {
-      const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
-      if (consider(viaReader, 'archive')) return fallback
-    }
-  } else {
-    console.log('page archive: no saved copy')
+    const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
+    if (consider(viaReader, 'archive')) return 'recipe'
+    return viaReader ? 'other' : 'refused'
+  }
+  if (quick) {
+    const got = await readCopy(quick)
+    if (got === 'recipe') return fallback
+    if (got === 'refused') return fallback // throttled; more Archive requests won't help
+  }
+  const saves = (await archiveCaptures(lookup)).filter((ts) => ts !== quick).slice(0, 2)
+  if (!quick && !saves.length) console.log('page archive: no saved copy')
+  for (const ts of saves) {
+    const got = await readCopy(ts)
+    if (got === 'recipe' || got === 'refused') break
   }
   return fallback
 }

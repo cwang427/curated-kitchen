@@ -110,7 +110,12 @@ confusion:
     Worker gets the page itself via `fetchRecipePage` — direct fetch → **Jina
     Reader** (`r.jina.ai`, free, no key, ~20 req/min; renders in a real browser)
     → the **Internet Archive's** latest saved copy (`archive.org/wayback/available`
-    → `web.archive.org/web/<ts>id_/<url>`) — accepting the first page with
+    → `web.archive.org/web/<ts>id_/<url>`; that quick lookup sometimes says "no
+    copy" for pages saved many times — it did for a years-old Serious Eats
+    recipe — so when it's empty or its copy isn't a recipe, `archiveCaptures`
+    asks the full **CDX index** for the newest 200/HTML saves and tries up to
+    two; lookups use `archiveKey(url)`, the link minus `#fragment` and
+    `utm_`/`fbclid`-style tracking params) — accepting the first page with
     schema.org Recipe data (else the first substantial non-challenge page), and
     has Gemini read `pageForAi` (the JSON-LD + visible page text) as a normal
     text import. Every step logs `page <route>: …` in `wrangler tail`. Only if
