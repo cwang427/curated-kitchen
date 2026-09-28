@@ -188,7 +188,9 @@ export default function RecipePage() {
           </p>
         )}
 
-        <div className="sticky top-16 z-10 -mx-4 mt-6 border-y border-line bg-paper px-4 py-3">
+        {/* Sticks just under the header (overlapping its 1px border), whatever
+            its height — see AppHeader's --app-header-h. */}
+        <div className="sticky top-[calc(var(--app-header-h,4rem)-1px)] z-10 -mx-4 mt-6 border-y border-line bg-paper px-4 py-3">
           <ScaleControl scale={scale} onChange={setScale} recipeYield={recipe.yield} />
         </div>
 

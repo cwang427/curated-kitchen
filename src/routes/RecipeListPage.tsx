@@ -198,7 +198,10 @@ export default function RecipeListPage() {
   }, [])
 
   return (
-    <div className="relative min-h-dvh overflow-hidden">
+    // overflow-clip, not -hidden: it still hides the pull-to-refresh spinner's
+    // resting spot above the page, but -hidden makes this div a scroll box, and
+    // the sticky header then stuck to it instead of the screen (it scrolled away).
+    <div className="relative min-h-dvh overflow-clip">
       <AppHeader add plan cart />
 
       <PullToRefresh onRefresh={refresh}>

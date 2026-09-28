@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { Link, useAppNav } from './nav'
 
@@ -30,8 +31,23 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
   const backClass =
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
 
+  // Publish the header's real height as --app-header-h, so bars that stick
+  // below it (the recipe page's scale bar) sit right under it. It isn't a fixed
+  // number: on an installed iPhone app the top clearance makes it ~150px.
+  const ref = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const publish = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
+    publish()
+    const observer = new ResizeObserver(publish)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <header className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper">
+    // Sticky: the header (with its shortcuts) stays at the top while you scroll.
+    <header ref={ref} className="pad-safe-top sticky top-0 z-20 border-b border-line bg-paper">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           {back && (

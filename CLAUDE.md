@@ -349,6 +349,16 @@ the deploy and leaves the previous version up.
   page **blank until you scrolled** — tappable but unpainted — after Save
   changes. Also: **no `backdrop-blur` on sticky/fixed bars** (all opaque
   `bg-paper`), a classic WebKit paint-glitch trigger.
+- **The `AppHeader` is sticky** (it stays at the top while you scroll, with its
+  shortcuts). Never put `overflow-hidden` on a page's wrapper: it makes the
+  wrapper a scroll box, and a sticky child then sticks to it instead of the
+  screen — the kitchen's header scrolled away for exactly that reason (its
+  pull-to-refresh wrapper). Use `overflow-clip`, which clips the same without
+  becoming a scroll box. The header publishes its real height as
+  `--app-header-h` (ResizeObserver; ~63px in a browser, ~150px as an installed
+  iPhone app with the edge clearance), and anything that sticks just below it
+  uses `top-[calc(var(--app-header-h,4rem)-1px)]` (the recipe page's scale
+  bar — a fixed `top-16` slid it under the taller iPhone header).
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
