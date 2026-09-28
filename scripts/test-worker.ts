@@ -70,6 +70,8 @@ type World = {
   /** Google's reader: which links it can open. */
   googleReads?: (url: string) => boolean
   gemini?: (model: string, body: { tools?: unknown }) => Response
+  /** Firecrawl's /v2/scrape: its answer for a request body. */
+  firecrawl?: (body: { url: string; formats: string[]; proxy?: string }) => Response | Promise<Response>
 }
 
 let calls: Call[] = []
@@ -86,6 +88,13 @@ function install(w: World): void {
     const hang = () =>
       new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
     if (url.startsWith('https://api4.ipify.org')) return new Response('104.28.1.1')
+    if (url === 'https://api.firecrawl.dev/v2/team/credit-usage') {
+      return new Response(JSON.stringify({ success: true, data: { remainingCredits: 987, billingPeriodEnd: '2026-10-27T00:00:00Z' } }))
+    }
+    if (url === 'https://api.firecrawl.dev/v2/scrape') {
+      const body = JSON.parse(String(init.body))
+      return w.firecrawl ? w.firecrawl(body) : new Response('{"success":false}', { status: 500 })
+    }
     if (url.includes('generativelanguage.googleapis.com')) {
       const model = url.match(/models\/([^:]+):/)?.[1] ?? ''
       const body = JSON.parse(String(init.body)) as { tools?: unknown; contents: Array<{ parts: Array<{ text?: string }> }> }
@@ -326,6 +335,108 @@ section('the Archive sign-in keeps itself fresh')
   install({})
   await link()
   check('not set up: no cookie, no sign-in', replayCookie() === null && logs.some((l) => l.includes('archive sign-in off (not set up)')))
+}
+
+// ---------------------------------------------------------------------------
+section('Firecrawl (the unlocker)')
+{
+  const KEY = 'fc-test-key'
+  const unlocked = (html: string, statusCode = 200) =>
+    new Response(JSON.stringify({ success: true, data: { rawHtml: html, metadata: { statusCode } } }))
+  const scrapes = () => calls.filter((c) => c.url === 'https://api.firecrawl.dev/v2/scrape')
+
+  // Not set up: never asked.
+  resetForTests({}, 0.01)
+  install({ replay: refused, googleReads: () => true, firecrawl: () => unlocked(PAGES.recipeData) })
+  await link()
+  check('no key → Firecrawl never asked', scrapes().length === 0)
+
+  // A site that lets us in: Firecrawl isn't needed, so no credit is spent.
+  resetForTests({}, 0.01, KEY)
+  install({ direct: () => new Response(PAGES.recipeData), firecrawl: () => unlocked(PAGES.recipeData) })
+  r = await link(BLOG)
+  check('site reachable → no Firecrawl request', r.body.via === 'direct' && scrapes().length === 0)
+
+  // A real page without recipe data (it mentions ingredients): Firecrawl would
+  // only fetch the same page again, so it isn't asked.
+  resetForTests({}, 0.01, KEY)
+  install({ direct: () => new Response(`<p>the ingredients</p>${filler}`), firecrawl: () => unlocked(PAGES.recipeData), replay: () => new Response(PAGES.plain) })
+  await link(BLOG)
+  check('page with signs of a recipe → no Firecrawl request', scrapes().length === 0)
+
+  // Serious Eats: direct 403, Jina 451, Archive busy — Firecrawl brings the live page.
+  resetForTests({}, 0.01, KEY)
+  install({ replay: refused, firecrawl: () => unlocked(PAGES.recipeData) })
+  r = await link()
+  const photos = r.body.photos as { covers: string[]; stamp?: string; unlocker?: boolean }
+  check('blocked site → imported via Firecrawl', r.status === 200 && r.body.via === 'unlocker', r.body)
+  check('one Firecrawl request', scrapes().length === 1)
+  check('photos can fall back to the Archive copy (stamp from the lookup)', photos.stamp === '20260810220319', photos)
+  check('…and the app may ask Firecrawl for a photo as a last resort', photos.unlocker === true)
+  check('the key goes only to Firecrawl', calls.filter((c) => (c.headers.get('Authorization') ?? '').includes(KEY)).every((c) => c.url.startsWith('https://api.firecrawl.dev/')))
+  check('the tail shows credits left', logs.some((l) => l.includes('firecrawl on (987 credits left until 2026-10-27)')), logs.filter((l) => l.startsWith('link: ran')))
+  check('the import line says Firecrawl brought it', /"firecrawl":"recipe"/.test(importLog()), importLog())
+
+  // What Firecrawl is asked for.
+  let asked: { formats?: string[]; proxy?: string; parsers?: unknown[]; onlyMainContent?: boolean } = {}
+  resetForTests({}, 0.01, KEY)
+  install({ replay: refused, firecrawl: (b) => ((asked = b as typeof asked), unlocked(PAGES.recipeData)) })
+  await link()
+  check('asked for raw HTML, whole page, auto proxy, no PDF parsing', JSON.stringify(asked.formats) === '["rawHtml"]' && asked.proxy === 'auto' && Array.isArray(asked.parsers) && asked.parsers.length === 0 && asked.onlyMainContent === false, asked)
+
+  // The Archive answers first with a recipe: it wins, no waiting on Firecrawl.
+  resetForTests({}, 0.01, KEY)
+  install({ firecrawl: () => new Promise((res) => setTimeout(() => res(unlocked(PAGES.recipeData)), 150)) })
+  r = await link()
+  check('whichever brings a recipe first wins (the Archive here)', r.body.via === 'archive', r.body.via)
+
+  // Firecrawl brings a block page: the Archive's copy is used.
+  resetForTests({}, 0.01, KEY)
+  install({ firecrawl: () => unlocked(PAGES.challenge, 403) })
+  r = await link()
+  check('site refused Firecrawl too → the Archive copy', r.body.via === 'archive' && /"firecrawl":"failed"/.test(importLog()), importLog())
+
+  // Out of credits: the import carries on, and Firecrawl rests for hours.
+  resetForTests({}, 0.01, KEY)
+  install({ firecrawl: () => new Response('{"success":false,"error":"Insufficient credits"}', { status: 402 }) })
+  r = await link()
+  check('402 (out of credits) → import still works via the Archive', r.status === 200 && r.body.via === 'archive')
+  check('…and says so in the tail', logs.some((l) => l.includes('out of free credits for this month')))
+  install({ replay: refused, googleReads: (u) => u.startsWith('https://web.archive.org/'), firecrawl: () => unlocked(PAGES.recipeData) })
+  r = await link()
+  check('next import: Firecrawl not asked while paused', scrapes().length === 0 && r.body.via === 'google-archive', r.body.via)
+  check('…the photo fallback isn’t offered either', !(r.body.photos as { unlocker?: boolean } | undefined)?.unlocker)
+  clockAhead(7 * 60 * 60_000)
+  install({ replay: refused, firecrawl: () => unlocked(PAGES.recipeData) })
+  r = await link()
+  check('hours later it tries again by itself', r.body.via === 'unlocker' && scrapes().length === 1, r.body.via)
+  ;(globalThis as { Date: DateConstructor }).Date = RealDate
+
+  // Too many a minute (free plan: 10/min): paused for a minute only.
+  resetForTests({}, 0.01, KEY)
+  install({ firecrawl: () => new Response('{}', { status: 429 }) })
+  await link()
+  check('429 → paused about a minute', logs.some((l) => l.includes('too many requests a minute') && l.includes('for 1 min')))
+
+  // Wrong key: paused, with what to check.
+  resetForTests({}, 0.01, KEY)
+  install({ firecrawl: () => new Response('{}', { status: 401 }) })
+  await link()
+  check('401 → the tail says to check FIRECRAWL_API_KEY', logs.some((l) => l.includes('check FIRECRAWL_API_KEY')))
+
+  // Photos: the last resort, passed straight through.
+  resetForTests({}, 0.01, KEY)
+  let photoAsk: { formats?: string[]; url?: string } = {}
+  install({ firecrawl: (b) => ((photoAsk = b), new Response('{"success":true,"data":{"rawBase64":"/9j/4AAQ","metadata":{"statusCode":200,"contentType":"image/jpeg"}}}')) })
+  let img2 = await handleImageProxy({ url: 'https://www.seriouseats.com/thmb/cover.jpg', paid: true }, 'https://app.example')
+  const passed = await img2.text()
+  check('paid photo → Firecrawl asked for the raw bytes (base64) of that photo', JSON.stringify(photoAsk.formats) === '["rawBase64"]' && photoAsk.url === 'https://www.seriouseats.com/thmb/cover.jpg', photoAsk)
+  check('…its answer passed through as is, for the app to decode', img2.status === 200 && img2.headers.get('Content-Type') === 'application/json' && passed.includes('"rawBase64":"/9j/4AAQ"'))
+  check('…and no free routes are retried first', calls.filter((c) => !c.url.startsWith('https://api.firecrawl.dev/')).length === 0, calls.map((c) => c.url))
+  resetForTests({}, 0.01)
+  install({})
+  img2 = await handleImageProxy({ url: 'https://www.seriouseats.com/thmb/cover.jpg', paid: true }, 'https://app.example')
+  check('paid photo without a key → 404, nothing fetched', img2.status === 404 && calls.length === 0)
 }
 
 // ---------------------------------------------------------------------------

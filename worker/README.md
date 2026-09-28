@@ -25,7 +25,9 @@ and you can use just the first:
   the site, else the Archive's copy fetched via **wsrv.nl**, a free public image
   proxy — so our own requests don't use up the Archive's allowance for the
   page — else wsrv.nl for the site's image; only public photo links are sent to
-  it). The whole search takes well under a minute: every route has its own
+  it). For sites that refuse all of those, an optional free **Firecrawl** key
+  (below) fetches the page — and, as a last resort, its photos. The whole
+  search takes well under a minute: every route has its own
   time limit, and after the Archive turns us away (it does, for a few minutes
   at a time) the Worker stops asking it for page copies for a while (90 s,
   growing to 10 minutes if it keeps refusing). When only Google's reader could
@@ -124,6 +126,33 @@ weren't set up, it tries again after 10 minutes, and the tail says
 are sent only to the Archive's own sites, never to the image proxy, Jina, or a
 recipe site.
 
+## Add Firecrawl for sites that block everything else (optional, free)
+Some big recipe sites (Serious Eats and the rest of Dotdash Meredith) refuse the
+Worker, Jina and Google alike, and the Internet Archive's copies of them are
+often busy. **Firecrawl** (firecrawl.dev) fetches pages from its own servers,
+retrying through proxies that look like ordinary visitors — so those imports
+come through with their photos. Its **free plan** needs no card: 1,000 credits
+a month, 1 credit per page or photo (plenty for a household). The Worker uses it
+only when the free routes fail, alongside the Archive (whichever brings the
+recipe first wins), and for a photo only after every free route failed.
+When the month's credits run out it just pauses itself and imports carry on
+through the Archive as before — nobody has to do anything.
+
+1. Sign up at **firecrawl.dev** (free plan) and copy your **API key** (it
+   starts with `fc-`) from the dashboard.
+2. From this `worker/` folder:
+   ```
+   npx wrangler secret put FIRECRAWL_API_KEY
+   ```
+   and paste the key when asked (it isn't shown or saved anywhere else).
+3. Import a Serious Eats link with `npx wrangler tail` running: the `link: ran
+   in …` line ends **`firecrawl on (N credits left until …)`**, and the page
+   line reads `page unlocker: recipe data found`.
+
+(Sites that block automated reading generally say so in their terms of use;
+this is for a household's own occasional imports, one page at a time. Only the
+public recipe link goes to Firecrawl.)
+
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
 the Worker code changes, first pull the update to your computer, *then* deploy:
@@ -186,7 +215,8 @@ it to Cloudflare). Run `npm run test:worker` from the repo root after changing i
   So does the Archive sign-in (`ARCHIVE_SESSION`, `ARCHIVE_EMAIL`,
   `ARCHIVE_PASSWORD`) — for an Archive account made just for the app (so its
   password isn't one you use anywhere else), and sent only to archive.org /
-  web.archive.org.
+  web.archive.org — and the Firecrawl key (`FIRECRAWL_API_KEY`), sent only to
+  api.firecrawl.dev.
 - Every request must carry a valid Firebase sign-in token for your project, so
   only people signed into your kitchen can use it.
 - `ALLOWED_ORIGIN` limits browser calls to your app's origin.

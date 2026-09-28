@@ -40,6 +40,11 @@ interface Env {
   ARCHIVE_PASSWORD?: string
   // 0.43's cookie-only sign-in (no expiry, no way to renew). Still honored.
   ARCHIVE_COOKIES?: string
+  // Optional: a Firecrawl API key (free plan, no card: 1,000 credits a month).
+  // Firecrawl fetches pages — and, as a last resort, photos — for sites that
+  // block everything else we have. A secret: `npx wrangler secret put
+  // FIRECRAWL_API_KEY`. Without it, that step is simply skipped.
+  FIRECRAWL_API_KEY?: string
 }
 
 const GROCERY_CATEGORIES = [
@@ -324,6 +329,125 @@ function findRecipe(blocks: unknown[]): Record<string, unknown> | null {
   return null
 }
 
+// ---- Firecrawl: the "unlocker" ----------------------------------------------
+// Firecrawl (firecrawl.dev) fetches a page from its own servers, retrying
+// through proxies that look like ordinary visitors when a site blocks plain
+// fetches — which is what it takes for sites like Serious Eats that refuse
+// our Worker, Jina and Google alike. It's the one step that can cost something,
+// so it runs only when the free routes (direct, Jina) failed, and it pauses
+// itself when the free plan runs out (a month's credits) or is too busy: the
+// import then carries on through the Internet Archive as before, and nobody
+// has to do anything. The key goes only to api.firecrawl.dev.
+let firecrawlKey: string | undefined
+let unlockerOffUntil = 0
+let unlockerOffWhy = ''
+let unlockerCredits: string | null = null
+
+function unlockerReady(): boolean {
+  return !!firecrawlKey && Date.now() >= unlockerOffUntil
+}
+
+/** Pause Firecrawl for `ms`, saying why in the tail. */
+function pauseUnlocker(ms: number, why: string): void {
+  unlockerOffUntil = Date.now() + ms
+  unlockerOffWhy = why
+  console.log(`firecrawl: ${why} — not using it for ${Math.round(ms / 60_000)} min`)
+}
+
+/** Ask Firecrawl for a page (`rawHtml`, exactly as the site sent it) or a
+ * photo (`rawBase64`). The Response on success, else null — having paused
+ * Firecrawl when it's out of credits, rate-limited, or the key is wrong. */
+async function firecrawl(
+  target: string,
+  format: 'rawHtml' | 'rawBase64',
+  label: string,
+  { timeoutMs = 25_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<Response | null> {
+  if (!unlockerReady()) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs * timeScale)
+  const cancel = () => controller.abort()
+  signal?.addEventListener('abort', cancel)
+  try {
+    const res = await fetch('https://api.firecrawl.dev/v2/scrape', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${firecrawlKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: target,
+        formats: [format],
+        onlyMainContent: false,
+        // Plain proxies first, then ones that look like ordinary visitors if
+        // the site blocks those — at no extra cost, per Firecrawl's docs.
+        proxy: 'auto',
+        // Its own limit, a little under ours, so it answers rather than hangs.
+        timeout: Math.max(1_000, timeoutMs - 3_000),
+        parsers: [], // never bill a PDF by the page
+      }),
+      signal: controller.signal,
+    })
+    console.log(`page ${label}: firecrawl ${res.status}`)
+    if (res.ok) return res
+    await res.body?.cancel()
+    if (res.status === 402) pauseUnlocker(6 * 60 * 60_000, 'out of free credits for this month (402)')
+    else if (res.status === 429) pauseUnlocker(60_000, 'too many requests a minute on the free plan (429)')
+    else if (res.status === 401 || res.status === 403) {
+      pauseUnlocker(60 * 60_000, `the key was refused (${res.status}) — check FIRECRAWL_API_KEY`)
+    }
+    return null
+  } catch (e) {
+    console.log(`page ${label}: firecrawl ${signal?.aborted ? 'called off' : controller.signal.aborted ? `no answer in ${timeoutMs / 1000}s` : `failed ${String(e)}`}`)
+    return null
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+  }
+}
+
+/** A page through Firecrawl: its HTML, or null. The site's own status rides
+ * along — a site can refuse Firecrawl too (then it's a refusal page). */
+async function unlockPage(url: string): Promise<string | null> {
+  const res = await firecrawl(url, 'rawHtml', 'unlocker')
+  if (!res) return null
+  const body = (await res.json().catch(() => null)) as {
+    success?: boolean
+    creditsUsed?: number
+    data?: { rawHtml?: string; metadata?: { statusCode?: number; error?: string; creditsUsed?: number; proxyUsed?: string } }
+  } | null
+  const meta = body?.data?.metadata
+  const status = meta?.statusCode
+  // What it cost, so the real price of the tougher proxy shows in the tail.
+  const credits = body?.creditsUsed ?? meta?.creditsUsed
+  if (credits !== undefined || meta?.proxyUsed) {
+    console.log(`page unlocker: ${credits ?? '?'} credit${credits === 1 ? '' : 's'}${meta?.proxyUsed ? `, ${meta.proxyUsed} proxy` : ''}`)
+  }
+  if (status && status >= 400) console.log(`page unlocker: the site answered ${status}`)
+  return body?.success && body.data?.rawHtml && !(status && status >= 400) ? body.data.rawHtml : null
+}
+
+/** Once per Worker copy, for the tail: how many Firecrawl credits are left. */
+async function unlockerStatus(): Promise<string> {
+  if (!firecrawlKey) return 'off (not set up)'
+  if (!unlockerReady()) return `paused (${unlockerOffWhy})`
+  if (unlockerCredits === null) {
+    unlockerCredits = 'credits unknown'
+    try {
+      const res = await fetch('https://api.firecrawl.dev/v2/team/credit-usage', {
+        headers: { Authorization: `Bearer ${firecrawlKey}` },
+        signal: AbortSignal.timeout(3_000),
+      })
+      const usage = (await res.json()) as { data?: { remainingCredits?: number; billingPeriodEnd?: string | null } }
+      const left = usage.data?.remainingCredits
+      if (typeof left === 'number') {
+        const until = usage.data?.billingPeriodEnd?.slice(0, 10)
+        unlockerCredits = `${left} credits left${until ? ` until ${until}` : ''}`
+      }
+    } catch {
+      /* best effort */
+    }
+  }
+  return `on (${unlockerCredits})`
+}
+
 /** How we introduce ourselves — to recipe sites, the reader service and the
  * Internet Archive alike: honestly, as the small app we are, with a link to it.
  * It used to claim to be Chrome for sites, which fooled nobody: a Worker's
@@ -589,7 +713,7 @@ function noteReplay(info: FetchInfo): boolean {
   return true
 }
 
-type PageSource = 'direct' | 'reader' | 'archive'
+type PageSource = 'direct' | 'reader' | 'unlocker' | 'archive'
 
 /**
  * Get a recipe page's HTML, trying routes that get past the bot walls big sites
@@ -695,6 +819,8 @@ type PageLookup = {
   archiveCopy?: string
   readerRefused?: boolean
   archive?: 'recipe' | 'other' | 'missing' | 'refused' | 'skipped' | 'no copy'
+  /** How Firecrawl went (absent = not needed, or not set up). */
+  unlocker?: 'recipe' | 'other' | 'failed' | 'paused'
 }
 
 const READER_HEADERS = { 'X-Return-Format': 'html', 'X-Timeout': '10', Accept: 'text/html', 'User-Agent': APP_UA }
@@ -749,99 +875,142 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   seen.readerRefused = readerInfo.status === 451
   if (found) return best
 
-  // The Internet Archive. Its quick "available" lookup sometimes answers "no
-  // copy" for pages it has saved many times (it did for a years-old Serious
-  // Eats recipe), so when it comes up empty — or its copy isn't a recipe —
-  // ask for the latest save, then the full capture index (CDX).
+  // Blocked on the free routes. Firecrawl (if set up) and the Internet
+  // Archive run side by side, and the first to bring a recipe wins — so a
+  // Firecrawl that's slow or out of credits costs no extra time. It's used
+  // only when no page showed any sign of a recipe: a page that did (it just
+  // lacked recipe data) is the real page, and Firecrawl would fetch it again.
   const lookup = archiveKey(url)
-  const busy = (info: FetchInfo) => info.status === 429 || info.status === 503
   const availInfo: FetchInfo = {}
-  const avail = await fetchText(
-    `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
-    await archiveHeaders('application/json'),
-    'archive lookup',
-    availInfo,
-    { timeoutMs: 6_000 },
-  )
-  let quick: string | undefined
-  try {
-    quick = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
-      .archived_snapshots?.closest?.timestamp
-  } catch {
-    quick = undefined
+  // The Archive's quick lookup: a save's timestamp, or nothing. Firecrawl's
+  // page also uses it — its photos can come from the Archive's copies.
+  const lookedUp = (async () => {
+    const avail = await fetchText(
+      `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
+      await archiveHeaders('application/json'),
+      'archive lookup',
+      availInfo,
+      { timeoutMs: 6_000 },
+    )
+    try {
+      const ts = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { timestamp?: string } } })
+        .archived_snapshots?.closest?.timestamp
+      return ts && /^\d{14}$/.test(ts) ? ts : undefined
+    } catch {
+      return undefined
+    }
+  })()
+  const routes: Promise<boolean>[] = [readArchive()]
+  if (!best || (best as RecipePage).signal <= 0) {
+    if (unlockerReady()) {
+      routes.push(
+        unlockPage(url).then((html) => {
+          const got = consider(html, 'unlocker')
+          seen.unlocker = got ? 'recipe' : html ? 'other' : 'failed'
+          return got
+        }),
+      )
+    } else seen.unlocker = firecrawlKey ? 'paused' : undefined
   }
-  if (quick && !/^\d{14}$/.test(quick)) quick = undefined
-  // Saves we've read, so the index search below doesn't fetch one twice.
-  const tried = new Set<string>()
-  /** Read one saved copy: a recipe, some other page, missing, or refused (then
-   * more Archive requests won't help — the breaker is open). `ts` can be a
-   * moment rather than a save's own timestamp: the Archive redirects to the
-   * save closest to it, and the final address says which save that was. */
-  const readCopy = async (ts: string, label = `archive ${ts}`): Promise<'recipe' | 'other' | 'missing' | 'refused'> => {
-    // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
-    const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
-    seen.archiveCopy ??= copy
-    if (replayWaitMs() > 0) {
-      console.log(`page ${label}: skipped — the Archive refused us moments ago; asking again in ${Math.round(replayWaitMs() / 1000)}s`)
+  await firstTrue(routes)
+  const won = best as RecipePage | null
+  if (won?.via === 'unlocker' && !won.stamp) won.stamp = await lookedUp
+  return won
+
+  /** The Internet Archive's copy: true if it brought a recipe. Its quick
+   * "available" lookup sometimes answers "no copy" for pages it has saved many
+   * times (it did for a years-old Serious Eats recipe), so when it comes up
+   * empty — or its copy isn't a recipe — ask for the latest save, then the
+   * full capture index (CDX). */
+  async function readArchive(): Promise<boolean> {
+    const busy = (info: FetchInfo) => info.status === 429 || info.status === 503
+    const quick = await lookedUp
+    // Saves we've read, so the index search below doesn't fetch one twice.
+    const tried = new Set<string>()
+    /** Read one saved copy: a recipe, some other page, missing, or refused (then
+     * more Archive requests won't help — the breaker is open). `ts` can be a
+     * moment rather than a save's own timestamp: the Archive redirects to the
+     * save closest to it, and the final address says which save that was. */
+    const readCopy = async (ts: string, label = `archive ${ts}`): Promise<'recipe' | 'other' | 'missing' | 'refused'> => {
+      // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
+      const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
+      seen.archiveCopy ??= copy
+      if (replayWaitMs() > 0) {
+        console.log(`page ${label}: skipped — the Archive refused us moments ago; asking again in ${Math.round(replayWaitMs() / 1000)}s`)
+        seen.archiveBusy = true
+        seen.archive = 'skipped'
+        return 'refused'
+      }
+      const copyInfo: FetchInfo = {}
+      const archived = await fetchText(copy, await archiveHeaders(), label, copyInfo, { timeoutMs: 12_000 })
+      const refused = noteReplay(copyInfo)
+      stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
+      if (archived) {
+        tried.add(stamp)
+        if (stamp !== ts) console.log(`page ${label}: the save from ${stamp}`)
+        seen.archive = consider(archived, 'archive') ? 'recipe' : 'other'
+        return seen.archive
+      }
+      if (!refused) {
+        seen.archive = 'missing'
+        return 'missing'
+      }
       seen.archiveBusy = true
-      seen.archive = 'skipped'
-      return 'refused'
+      seen.archive = 'refused'
+      if (archiveSession) console.log(`page archive: busy even though signed in (${archiveSessionNote})`)
+      // The reader fetching the Archive's copy from its own addresses — unless it
+      // already refused this site: it refuses any link naming a site that blocks
+      // it, Archive links included (Serious Eats, 5 of 5 in real logs).
+      if (seen.readerRefused) return 'refused'
+      const viaReader = await fetchText(`https://r.jina.ai/${copy}`, READER_HEADERS, 'archive via reader', {}, { timeoutMs: 12_000 })
+      if (consider(viaReader, 'archive')) {
+        seen.archive = 'recipe'
+        return 'recipe'
+      }
+      return viaReader ? 'other' : 'refused'
     }
-    const copyInfo: FetchInfo = {}
-    const archived = await fetchText(copy, await archiveHeaders(), label, copyInfo, { timeoutMs: 12_000 })
-    const refused = noteReplay(copyInfo)
-    stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
-    if (archived) {
-      tried.add(stamp)
-      if (stamp !== ts) console.log(`page ${label}: the save from ${stamp}`)
-      seen.archive = consider(archived, 'archive') ? 'recipe' : 'other'
-      return seen.archive
+    if (quick) {
+      const got = await readCopy(quick)
+      if (got === 'recipe' || got === 'refused') return got === 'recipe'
+    } else {
+      // The quick lookup says "no copy" at times for pages saved many times (a
+      // years-old Serious Eats recipe, twice). Ask for the save closest to right
+      // now instead — the latest — which is also the page itself, in one request.
+      console.log('page archive lookup: nothing — asking for the latest save')
+      const now = new Date().toISOString().replace(/\D/g, '').slice(0, 14)
+      const got = await readCopy(now, 'archive latest')
+      if (got === 'recipe' || got === 'refused') return got === 'recipe'
     }
-    if (!refused) {
-      seen.archive = 'missing'
-      return 'missing'
+    // The copy we got wasn't a usable recipe page (or there was none): older
+    // saves, from the Archive's full index.
+    const searchInfo: FetchInfo = {}
+    const saves = (await archiveCaptures(lookup, searchInfo)).filter((ts) => !tried.has(ts)).slice(0, 2)
+    if (!tried.size && !saves.length) {
+      // Both lookups throttled: we couldn't even check whether it has a copy.
+      if (busy(availInfo) && busy(searchInfo)) seen.archiveBusy = true
+      if (seen.archive === 'missing' || !seen.archive) seen.archive = 'no copy'
+      console.log(seen.archiveBusy ? 'page archive: too busy to check for a copy' : 'page archive: no saved copy')
     }
-    seen.archiveBusy = true
-    seen.archive = 'refused'
-    if (archiveSession) console.log(`page archive: busy even though signed in (${archiveSessionNote})`)
-    // The reader fetching the Archive's copy from its own addresses — unless it
-    // already refused this site: it refuses any link naming a site that blocks
-    // it, Archive links included (Serious Eats, 5 of 5 in real logs).
-    if (seen.readerRefused) return 'refused'
-    const viaReader = await fetchText(`https://r.jina.ai/${copy}`, READER_HEADERS, 'archive via reader', {}, { timeoutMs: 12_000 })
-    if (consider(viaReader, 'archive')) {
-      seen.archive = 'recipe'
-      return 'recipe'
+    for (const ts of saves) {
+      const got = await readCopy(ts)
+      if (got === 'recipe') return true
+      if (got === 'refused') break
     }
-    return viaReader ? 'other' : 'refused'
+    return false
   }
-  if (quick) {
-    const got = await readCopy(quick)
-    if (got === 'recipe' || got === 'refused') return best
-  } else {
-    // The quick lookup says "no copy" at times for pages saved many times (a
-    // years-old Serious Eats recipe, twice). Ask for the save closest to right
-    // now instead — the latest — which is also the page itself, in one request.
-    console.log('page archive lookup: nothing — asking for the latest save')
-    const now = new Date().toISOString().replace(/\D/g, '').slice(0, 14)
-    const got = await readCopy(now, 'archive latest')
-    if (got === 'recipe' || got === 'refused') return best
-  }
-  // The copy we got wasn't a usable recipe page (or there was none): older
-  // saves, from the Archive's full index.
-  const searchInfo: FetchInfo = {}
-  const saves = (await archiveCaptures(lookup, searchInfo)).filter((ts) => !tried.has(ts)).slice(0, 2)
-  if (!tried.size && !saves.length) {
-    // Both lookups throttled: we couldn't even check whether it has a copy.
-    if (busy(availInfo) && busy(searchInfo)) seen.archiveBusy = true
-    if (seen.archive === 'missing' || !seen.archive) seen.archive = 'no copy'
-    console.log(seen.archiveBusy ? 'page archive: too busy to check for a copy' : 'page archive: no saved copy')
-  }
-  for (const ts of saves) {
-    const got = await readCopy(ts)
-    if (got === 'recipe' || got === 'refused') break
-  }
-  return best
+}
+
+/** Resolves true as soon as one of them does; false once all have said no. */
+function firstTrue(tasks: Promise<boolean>[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    let left = tasks.length
+    for (const task of tasks) {
+      void task.then(
+        (yes) => (yes ? resolve(true) : --left === 0 && resolve(false)),
+        () => --left === 0 && resolve(false),
+      )
+    }
+  })
 }
 
 /** Visible text of a page, roughly: scripts/styles/chrome dropped, tags stripped. */
@@ -1021,7 +1190,42 @@ const viaImageProxy = (link: string) => `https://wsrv.nl/?url=${encodeURICompone
  * itself). Only ever passes images through, so it can't be used as a general
  * proxy; the body is streamed, never buffered.
  */
-async function handleImageProxy(body: { url?: string; stamp?: string }, origin: string): Promise<Response> {
+/** Stream a response body to the app, stopping it past `max` bytes (for a
+ * response that doesn't declare its size up front). */
+function capped(body: ReadableStream<Uint8Array>, max: number): ReadableStream<Uint8Array> {
+  let passed = 0
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, out) {
+        passed += chunk.byteLength
+        if (passed > max) out.error(new Error('too large'))
+        else out.enqueue(chunk)
+      },
+    }),
+  )
+}
+
+/**
+ * A photo through Firecrawl — the last resort, when the site, the Archive's
+ * copy and the image proxy all failed (the app asks for it with `paid: true`,
+ * once per photo). Firecrawl answers JSON with the photo in base64; we pass
+ * that straight through without unpacking it (decoding megabytes would blow
+ * the free plan's CPU budget), and the app decodes it.
+ */
+async function unlockPhoto(site: string, origin: string): Promise<Response> {
+  const res = await firecrawl(site, 'rawBase64', 'photo', { timeoutMs: 12_000 })
+  if (!res?.body) {
+    console.log(`img failed [firecrawl ${res ? 'empty' : unlockerReady() ? 'failed' : 'unavailable'}] ${shortUrl(site)}`)
+    return json({ error: 'Couldn’t get that photo.' }, 404, origin)
+  }
+  console.log(`img via firecrawl ${shortUrl(site)}`)
+  return new Response(capped(res.body, 20_000_000), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders(origin) },
+  })
+}
+
+async function handleImageProxy(body: { url?: string; stamp?: string; paid?: boolean }, origin: string): Promise<Response> {
   let target: URL
   try {
     target = new URL(String(body.url ?? ''))
@@ -1033,6 +1237,7 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
   }
   const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
   const site = target.toString()
+  if (body.paid === true) return unlockPhoto(site, origin)
   const archived = stamp ? `https://web.archive.org/web/${stamp}im_/${site}` : null
   // The site first. Then, when the page itself came from the Archive, the
   // Archive's copy — asked for through the image proxy, which fetches from its
@@ -1089,19 +1294,7 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
       trail.push(`${label} ${res.status}`)
       console.log(`img ok [${trail.join(' → ')}] ${shortUrl(site)}`)
       // No declared size: count the bytes as they pass and stop at the same cap.
-      let passed = 0
-      const capped = declared
-        ? res.body
-        : res.body.pipeThrough(
-            new TransformStream<Uint8Array, Uint8Array>({
-              transform(chunk, out) {
-                passed += chunk.byteLength
-                if (passed > 12_000_000) out.error(new Error('image too large'))
-                else out.enqueue(chunk)
-              },
-            }),
-          )
-      return new Response(capped, {
+      return new Response(declared ? res.body : capped(res.body, 12_000_000), {
         status: 200,
         headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
       })
@@ -1174,7 +1367,14 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
   // One line per import, as fields Workers Logs can filter: which sites friends
   // use, which route worked, how long it took, and whether photos came along.
   const outcome = (fields: Record<string, unknown>) =>
-    console.log({ event: 'import', host, ms: Date.now() - started, archive: seen.archive ?? 'not needed', ...fields })
+    console.log({
+      event: 'import',
+      host,
+      ms: Date.now() - started,
+      archive: seen.archive ?? 'not needed',
+      ...(seen.unlocker ? { firecrawl: seen.unlocker } : {}),
+      ...fields,
+    })
   const seen: PageLookup = {}
 
   const refusal = REFUSING_SITES.find(([pattern]) => pattern.test(host))
@@ -1183,18 +1383,25 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
     return json({ error: refusal[1], code: 'site_refuses' }, 422, origin)
   }
 
-  const address = outgoingAddress() // alongside the page fetches, not before them
+  // Alongside the page fetches, not before them.
+  const address = outgoingAddress()
+  const unlocker = unlockerStatus()
   const page = await fetchRecipePage(url, seen)
   console.log(
     `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
-      `outgoing IPv4 ${await address}, archive sign-in ${archiveSignInStatus()}`,
+      `outgoing IPv4 ${await address}, archive sign-in ${archiveSignInStatus()}, firecrawl ${await unlocker}`,
   )
   if (!page) return readWithGoogle(url, seen, env, origin, outcome)
 
   console.log(`link: reading page via ${page.via} as text`)
   const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
-  const found = findLinkPhotos(page.html, url, page.via === 'archive')
-  const stampField = page.stamp ? { stamp: page.stamp } : {}
+  // The Archive only saved the photo sizes its copy of the page showed, so
+  // those sizes go first whenever the photos may come from the Archive — for
+  // its own copy, and for a Firecrawl page that has a save to fall back on.
+  const found = findLinkPhotos(page.html, url, !!page.stamp)
+  // `unlocker`: this Worker can fetch a photo through Firecrawl as a last
+  // resort (the app asks, with `paid: true`, only after the free routes failed).
+  const stampField = { ...(page.stamp ? { stamp: page.stamp } : {}), ...(unlockerReady() ? { unlocker: true } : {}) }
   if (!res.ok) {
     const body = (await res.clone().json().catch(() => ({}))) as { code?: string }
     // The page we got said it wasn't a recipe, and it showed no recipe signs —
@@ -1607,6 +1814,7 @@ async function handleClaude(input: AiInput, env: Env, origin: string): Promise<R
 export const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
+    firecrawlKey = env.FIRECRAWL_API_KEY?.trim() || undefined
     archiveSecrets = {
       saved: env.ARCHIVE_SESSION,
       legacy: env.ARCHIVE_COOKIES,
@@ -1650,7 +1858,7 @@ export const worker = {
     // Free route: fetch a URL and return its structured data. No API key needed.
     if (path.endsWith('/url')) return handleUrlImport(body, origin)
     // A link import's photos, streamed through (the app can't fetch them itself).
-    if (path.endsWith('/img')) return handleImageProxy(body as { url?: string; stamp?: string }, origin)
+    if (path.endsWith('/img')) return handleImageProxy(body as { url?: string; stamp?: string; paid?: boolean }, origin)
 
     // AI route: turn pasted text / one-or-more photos into a structured recipe.
     // Accept the current `images` array and the legacy single `image`. Prefer
@@ -1688,8 +1896,12 @@ export { handleLink, handleImageProxy, fetchRecipePage, recipeSignal, findRecipe
 export type { PageLookup }
 
 /** Forget everything this copy of the Worker has learned — for tests only. */
-export function resetForTests(secrets: typeof archiveSecrets = {}, scale = 1): void {
+export function resetForTests(secrets: typeof archiveSecrets = {}, scale = 1, firecrawl?: string): void {
   timeScale = scale
+  firecrawlKey = firecrawl
+  unlockerOffUntil = 0
+  unlockerOffWhy = ''
+  unlockerCredits = null
   archiveSecrets = secrets
   archiveSession = null
   archiveSessionNote = ''

@@ -159,7 +159,7 @@ export async function importFromRecipeData(error: ImportError, url: string): Pro
   if (!user) throw new Error('Sign in first.')
   const result: AiImportResult = seedFromJsonLd(error.jsonld, url)
   result.seed.source = { ...result.seed.source, url }
-  const cover = error.photos && { cover: error.photos.cover, covers: error.photos.covers, steps: {}, stamp: error.photos.stamp }
+  const cover = error.photos && { cover: error.photos.cover, covers: error.photos.covers, steps: {}, stamp: error.photos.stamp, unlocker: error.photos.unlocker }
   result.link = { via: 'recipe data', photos: cover ? await attachLinkPhotos(result.seed, cover, await user.getIdToken()) : undefined }
   return result
 }
@@ -176,11 +176,31 @@ type LinkPhotos = {
   /** Each step photo's other sizes to try, best first (Worker 0.42.2+). */
   stepCandidates?: Record<string, string[][]>
   stamp?: string
+  /** The Worker can fetch a photo through Firecrawl, as a last resort (0.47+). */
+  unlocker?: boolean
+}
+
+/** A photo from Firecrawl comes as JSON with the bytes in base64 (the Worker
+ * passes it through untouched — decoding is too heavy for its free plan). */
+async function fileFromUnlocker(res: Response): Promise<File | null> {
+  const body = (await res.json().catch(() => null)) as {
+    success?: boolean
+    data?: { rawBase64?: string; metadata?: { statusCode?: number; contentType?: string } }
+  } | null
+  const data = body?.data
+  const type = data?.metadata?.contentType ?? 'image/jpeg'
+  if (!body?.success || !data?.rawBase64 || (data.metadata?.statusCode ?? 200) >= 400 || !type.startsWith('image/')) return null
+  const bin = atob(data.rawBase64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new File([bytes], 'photo', { type })
 }
 
 /** Photos get this long in all; the editor then opens with whatever arrived
- * (and says what didn't), rather than a slow image host holding the import. */
+ * (and says what didn't), rather than a slow image host holding the import.
+ * A little longer when Firecrawl is the last resort — it's slower. */
 const PHOTO_DEADLINE_MS = 15_000
+const PHOTO_DEADLINE_UNLOCKER_MS = 22_000
 
 /**
  * Bring a link import's photos in as unsaved photos on the preview (data URLs,
@@ -195,11 +215,13 @@ async function attachLinkPhotos(
   photos: LinkPhotos,
   token: string,
 ): Promise<{ wanted: number; got: number }> {
-  const deadline = Date.now() + PHOTO_DEADLINE_MS
+  const allowed = photos.unlocker ? PHOTO_DEADLINE_UNLOCKER_MS : PHOTO_DEADLINE_MS
+  const deadline = Date.now() + allowed
   const inflight = new Set<AbortController>()
   let closed = false
-  const download = async (url: string): Promise<File | null> => {
-    const left = Math.min(deadline - Date.now(), 12_000)
+  /** One photo through the Worker's /img; `paid` = through Firecrawl. */
+  const download = async (url: string, paid = false): Promise<File | null> => {
+    const left = Math.min(deadline - Date.now(), paid ? 15_000 : 12_000)
     if (left <= 0 || closed) return null
     const controller = new AbortController()
     inflight.add(controller)
@@ -208,10 +230,11 @@ async function attachLinkPhotos(
       const res = await fetch(`${AI_IMPORT_URL}/img`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ url, stamp: photos.stamp }),
+        body: JSON.stringify({ url, stamp: photos.stamp, ...(paid ? { paid: true } : {}) }),
         signal: controller.signal,
       })
       if (!res.ok) return null
+      if (paid) return await fileFromUnlocker(res)
       const blob = await res.blob()
       return new File([blob], 'photo', { type: blob.type || 'image/jpeg' })
     } catch {
@@ -244,9 +267,12 @@ async function attachLinkPhotos(
   const run = async (job: Job) => {
     // The first candidate that downloads and decodes wins: each photo comes as
     // a few sizes, because the Archive often lacks the size the recipe data
-    // names (it only saves the sizes a page displayed).
-    for (const url of job.urls) {
-      const file = await download(url)
+    // names (it only saves the sizes a page displayed). If every free route
+    // failed, one last try of the best size through Firecrawl — once per
+    // photo, so a photo costs at most one credit.
+    const tries = [...job.urls.map((url) => ({ url, paid: false })), ...(photos.unlocker && job.urls[0] ? [{ url: job.urls[0], paid: true }] : [])]
+    for (const { url, paid } of tries) {
+      const file = await download(url, paid)
       if (!file) continue
       try {
         if (job.kind === 'cover') {
@@ -278,7 +304,7 @@ async function attachLinkPhotos(
   let stop: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
     Promise.all(Array.from({ length: 3 }, worker)),
-    new Promise<void>((resolve) => (stop = setTimeout(resolve, PHOTO_DEADLINE_MS + 1_500))),
+    new Promise<void>((resolve) => (stop = setTimeout(resolve, allowed + 1_500))),
   ])
   clearTimeout(stop)
   closed = true

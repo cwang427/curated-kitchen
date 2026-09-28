@@ -117,7 +117,34 @@ confusion:
     Worker gets the page itself via `fetchRecipePage` — direct fetch (8 s budget;
     if it hasn't answered in 3 s, **Jina Reader** starts alongside and the first
     recipe wins, the other called off) → **Jina Reader** (`r.jina.ai`, free, no
-    key, ~20 req/min; renders in a real browser; 12 s) → the **Internet
+    key, ~20 req/min; renders in a real browser; 12 s) → **Firecrawl and the
+    Internet Archive side by side** (v0.47; `firstTrue` — the first to bring a
+    recipe wins). **Firecrawl** (`FIRECRAWL_API_KEY`, optional Worker secret;
+    free plan, no card, 1,000 credits/month, 1 credit per page or photo — its
+    docs say the `enhanced` proxy costs the same, some reviews say 5) fetches
+    from its own servers via `POST api.firecrawl.dev/v2/scrape` with
+    `formats: ['rawHtml']`, `proxy: 'auto'` (plain proxies, then ones that look
+    like ordinary visitors), `parsers: []` (never bill a PDF by page), 25 s. It
+    runs only when no page so far showed any sign of a recipe (signal ≤ 0 —
+    a page that did is the real page) and pauses itself (`pauseUnlocker`,
+    module memory): 402 out of credits → 6 h, 429 (free: 10/min) → 1 min,
+    401/403 bad key → 1 h, logged `firecrawl: …`; the import carries on
+    through the Archive meanwhile. The diagnostics line ends `firecrawl on (N
+    credits left until …)` (`/v2/team/credit-usage`, once per Worker copy) /
+    `paused (…)` / `off (not set up)`. A Firecrawl page (`via: 'unlocker'`)
+    takes the Archive lookup's timestamp as its `stamp`, so its photos can
+    still come from the Archive's copies through wsrv.nl (Serious Eats' own
+    image host refuses the Worker and wsrv.nl alike: in real logs photos only
+    ever came via `proxy/archive`, 12 of 20, the rest failed); `photos.unlocker:
+    true` tells the app the Worker can fetch a photo through Firecrawl, and
+    after every free candidate for a photo failed the app asks `/img` once with
+    `paid: true` for its best size (`unlockPhoto`: `formats: ['rawBase64']`,
+    Firecrawl's JSON streamed straight through — decoding base64 would blow the
+    free plan's CPU — and decoded in the app, `fileFromUnlocker`; the photo
+    deadline is 22 s when Firecrawl is available). The key goes only to
+    api.firecrawl.dev. The owner chose Firecrawl knowing sites that block
+    automated reading (Serious Eats) likely forbid it in their terms — it's for
+    a household's occasional imports, one page at a time. The **Internet
     Archive's** latest saved copy (`archive.org/wayback/available`
     → `web.archive.org/web/<ts>id_/<url>`; that quick lookup sometimes says "no
     copy" for pages saved many times — a years-old Serious Eats recipe, twice —
@@ -290,7 +317,8 @@ confusion:
     recipe text instead** / Try again. Paste is offered only when there's no
     text to be had — otherwise it's the same text with more work. Anything the
     import couldn't bring shows as a note above the preview editor (right by
-    the cover-photo button). `isArchiveBusy` / `busyRetryMs`
+    the cover-photo button). With Firecrawl set up these choices become rare
+    (it usually brings the page and its photos). `isArchiveBusy` / `busyRetryMs`
     (`src/lib/archiveBusy.ts`) also read a Worker older than 0.45. `/img` falls back to wsrv.nl (above), and the app downloads photos **three at a time** (v0.42.1; it was
     one at a time for Archive pages while photos still hit the Archive from our
     shared addresses — through wsrv.nl there's no allowance of ours to spend),
@@ -444,7 +472,9 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 - `npm run test:worker` — after any `worker/` change: the link route against a
   fake internet (`scripts/test-worker.ts`) — which routes it asks, how many
   Archive requests, the breaker, the honest name, Google reading the Archive
-  copy, `ai_busy`, the sign-in renewal, the image-size cap.
+  copy, `ai_busy`, the sign-in renewal, the image-size cap, and Firecrawl (when
+  it's asked, what for, racing the Archive, pausing on 402/429/401, the paid
+  photo route).
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
