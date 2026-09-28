@@ -125,8 +125,9 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
       return null
     }
   }
-  // Two at a time, not all at once: the Internet Archive (where a blocked
-  // site's photos often come from) throttles bursts.
+  // Two at a time, not all at once — and one at a time when the page came from
+  // the Internet Archive (`stamp`), where its photos will likely come from too:
+  // the Archive throttles bursts (a third photo at once got a 429).
   type Job = { kind: 'cover'; url: string } | { kind: 'step'; index: number; slot: number; url: string }
   const jobs: Job[] = [
     ...(photos.cover ? [{ kind: 'cover' as const, url: photos.cover }] : []),
@@ -159,7 +160,7 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   const worker = async () => {
     while (next < jobs.length) await run(jobs[next++])
   }
-  await Promise.all([worker(), worker()])
+  await Promise.all(Array.from({ length: photos.stamp ? 1 : 2 }, worker))
   for (const [index, slots] of stepPhotos) {
     const step = seed.steps[index]
     const images = slots.filter((x): x is string => !!x)

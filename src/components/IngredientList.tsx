@@ -5,25 +5,19 @@ interface Props {
   ingredients: Ingredient[]
   groups: string[]
   scale: number
-  /** Ingredient ids to highlight — used when a step is focused. */
-  highlighted?: Set<string>
 }
 
-function IngredientRow({
-  ingredient,
-  scale,
-  highlighted,
-}: {
-  ingredient: Ingredient
-  scale: number
-  highlighted: boolean
-}) {
+// Bulleted like the Equipment list, with the bullet hanging outside so a
+// long line wraps under its text, not under the dot. No checkboxes: gathering
+// has cook mode's per-step checklist, and shopping the "Add to grocery list"
+// picker.
+const LIST = 'list-disc space-y-2 pl-6 marker:text-ink-faint'
+
+function IngredientRow({ ingredient, scale }: { ingredient: Ingredient; scale: number }) {
   const formatted = formatIngredient(ingredient, scale)
 
   return (
-    // A plain list: gathering has cook mode's per-step checklist, and shopping
-    // has the "Add to grocery list" picker.
-    <li className={`rounded-lg px-2 py-1.5 transition ${highlighted ? 'bg-accent-soft' : ''}`}>
+    <li className="pl-1">
       <span>
         {formatted.quantity && (
           <span className="font-medium tabular-nums">
@@ -44,12 +38,7 @@ function IngredientRow({
   )
 }
 
-export default function IngredientList({
-  ingredients,
-  groups,
-  scale,
-  highlighted,
-}: Props) {
+export default function IngredientList({ ingredients, groups, scale }: Props) {
   // Ungrouped ingredients come first, then each declared group in order.
   const ungrouped = ingredients.filter((i) => !i.group)
   const sections = groups
@@ -59,31 +48,21 @@ export default function IngredientList({
   return (
     <div className="space-y-5">
       {ungrouped.length > 0 && (
-        <ul className="-mx-2">
+        <ul className={LIST}>
           {ungrouped.map((ingredient) => (
-            <IngredientRow
-              key={ingredient.id}
-              ingredient={ingredient}
-              scale={scale}
-              highlighted={highlighted?.has(ingredient.id) ?? false}
-            />
+            <IngredientRow key={ingredient.id} ingredient={ingredient} scale={scale} />
           ))}
         </ul>
       )}
 
       {sections.map(({ group, items }) => (
         <div key={group}>
-          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">
             {group}
           </h3>
-          <ul className="-mx-2">
+          <ul className={LIST}>
             {items.map((ingredient) => (
-              <IngredientRow
-                key={ingredient.id}
-                ingredient={ingredient}
-                scale={scale}
-                highlighted={highlighted?.has(ingredient.id) ?? false}
-              />
+              <IngredientRow key={ingredient.id} ingredient={ingredient} scale={scale} />
             ))}
           </ul>
         </div>

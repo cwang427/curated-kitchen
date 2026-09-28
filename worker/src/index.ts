@@ -496,6 +496,22 @@ function findLinkPhotos(html: string, pageUrl: string): LinkPhotos {
  * Archive — the Archive's copy. Only ever passes images through, so it can't be
  * used as a general proxy; the body is streamed, never buffered.
  */
+/** A photo link, short enough for a log line: host + the end of its path. */
+function shortUrl(link: string): string {
+  try {
+    const { hostname, pathname } = new URL(link)
+    return pathname.length > 48 ? `${hostname}/…${pathname.slice(-48)}` : hostname + pathname
+  } catch {
+    return link.slice(0, 80)
+  }
+}
+
+/** wsrv.nl: a long-running free public image proxy (no key). It fetches from
+ * its own servers, so neither a site's bot wall nor the Internet Archive's
+ * throttling of Cloudflare's shared addresses sees our Worker. Capped at
+ * 2048px — the app shrinks photos further anyway. */
+const viaImageProxy = (link: string) => `https://wsrv.nl/?url=${encodeURIComponent(link)}&w=2048&h=2048&we`
+
 async function handleImageProxy(body: { url?: string; stamp?: string }, origin: string): Promise<Response> {
   let target: URL
   try {
@@ -507,31 +523,54 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
     return json({ error: 'Bad image link.' }, 400, origin)
   }
   const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
-  const tries = [target.toString(), ...(stamp ? [`https://web.archive.org/web/${stamp}im_/${target}`] : [])]
-  for (let i = 0; i < tries.length; i++) {
-    const url = tries[i]
-    try {
-      let res = await fetch(url, {
-        headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
-        redirect: 'follow',
-      })
-      if (res.status === 429 && url.startsWith('https://web.archive.org/')) {
-        await sleep(1500) // the Archive throttles bursts; one patient retry
-        res = await fetch(url, { headers: { ...BROWSER_HEADERS, Accept: 'image/*' }, redirect: 'follow' })
+  const site = target.toString()
+  const archived = stamp ? `https://web.archive.org/web/${stamp}im_/${site}` : null
+  // Each route, with the waits (ms) before retrying a 429 / 503. The site
+  // first; then, when the page itself came from the Archive, the Archive's copy
+  // (it throttles bursts, so be patient); then the image proxy — for the
+  // Archive's copy first (a bot-walled site likely blocks the proxy too).
+  const routes: Array<[label: string, url: string, waits: number[]]> = [
+    ['site', site, []],
+    ...(archived
+      ? ([
+          ['archive', archived, [1500, 3000]],
+          ['proxy/archive', viaImageProxy(archived), []],
+        ] as Array<[string, string, number[]]>)
+      : []),
+    ['proxy', viaImageProxy(site), []],
+  ]
+  // One line per photo in `wrangler tail`, e.g.
+  //   img ok [site 403 → archive 429 → archive 200] www.example.com/…/salmon.jpg
+  const trail: string[] = []
+  for (const [label, url, waits] of routes) {
+    for (let attempt = 0; ; attempt++) {
+      let res: Response
+      try {
+        res = await fetch(url, {
+          headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+          redirect: 'follow',
+        })
+      } catch {
+        trail.push(`${label} failed`)
+        break
       }
       const type = res.headers.get('Content-Type') ?? ''
       const size = Number(res.headers.get('Content-Length') ?? 0)
       if (res.ok && type.startsWith('image/') && size <= 12_000_000) {
+        trail.push(`${label} ${res.status}`)
+        console.log(`img ok [${trail.join(' → ')}] ${shortUrl(site)}`)
         return new Response(res.body, {
           status: 200,
           headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
         })
       }
-      console.log(`img ${res.status} ${type || '?'} ${url.slice(0, 120)}`)
-    } catch (e) {
-      console.log(`img failed ${String(e)} ${url.slice(0, 120)}`)
+      trail.push(`${label} ${res.status}${res.ok ? ` ${type || 'no type'}` : ''}`)
+      await res.body?.cancel() // free the connection; Workers cap open ones
+      if ((res.status !== 429 && res.status !== 503) || attempt >= waits.length) break
+      await sleep(waits[attempt])
     }
   }
+  console.log(`img failed [${trail.join(' → ')}] ${shortUrl(site)}`)
   return json({ error: 'Couldn’t get that photo.' }, 404, origin)
 }
 

@@ -19,7 +19,9 @@ and you can use just the first:
   work. Only the public
   recipe link is sent to those services. It also returns the links of the
   page's own photos (the main one, plus any per-step photos), which the app
-  downloads through **`/img`** — a pass-through that streams images only. It uses Gemini's **free tier**
+  downloads through **`/img`** — a pass-through that streams images only (from
+  the site, else the Archive's copy, else via **wsrv.nl**, a free public image
+  proxy; only public photo links are sent to it). It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
   imports. Off in the app until you enable it (below). *(A paid Anthropic Claude
   route is also supported as an alternative — see the end.)*
@@ -119,7 +121,9 @@ Google couldn't read that particular page — normal for paywalled sites; use pa
 or a photo. Worker logs: `wrangler tail` (a link logs `page direct/reader/archive: …` for
 each route it tried — a `429` there is the Archive saying "slow down", which the
 Worker waits out — and `gemini url statuses=…` only if it fell back to Google's
-reader). If a link's tail starts with `gemini url statuses=`, the deployed
+reader). Each photo then logs one line, e.g. `img ok [site 403 → archive 429 →
+archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
+the end of the photo's link (shortened on purpose). If a link's tail starts with `gemini url statuses=`, the deployed
 Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 
 ## Security notes

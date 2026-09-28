@@ -129,16 +129,22 @@ confusion:
     count (the SYSTEM prompt now says keep step boundaries); otherwise just the
     cover. The app downloads each through **`POST /img`** (`handleImageProxy`:
     streams an image straight through, never buffers — the free plan's ~10 ms CPU
-    budget can't base64 megabytes; tries the image directly, then the Archive's
-    `im_` copy when the page came from the Archive; images only, private hosts
-    refused), compresses them like any added photo, and opens the preview editor
+    budget can't base64 megabytes; tries the image from the site, then — when
+    the page came from the Archive — the Archive's `im_` copy (429/503 retried
+    after 1.5 s and 3 s) and **wsrv.nl** (a free public image proxy, no key; it
+    fetches from its own servers, so neither a bot wall nor the Archive's
+    throttling of Cloudflare's shared addresses sees us) for that copy, and
+    finally wsrv.nl for the site's image; images only, private hosts refused;
+    logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
+    host/…end-of-path`), compresses them like any added photo, and opens the preview editor
     with them as unsaved photos, so saving stores them as photo docs.
     **The Archive throttles (429)** the shared addresses Workers fetch from, so
     `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
     3000]`; 429/503 only — waiting costs no Worker CPU), and if the copy is still
     refused, Jina Reader fetches the Archive's copy for us (`r.jina.ai/<archive
-    url>` — its own addresses). `/img` retries an Archive 429 once, and the app
-    downloads photos **two at a time** (a burst of ten is what gets throttled),
+    url>` — its own addresses). `/img` has its own retries + wsrv.nl fallback
+    (above), and the app downloads photos **two at a time — one at a time when
+    the page came from the Archive** (`photos.stamp`; three at once got a 429),
     each into its fixed slot so a step's photos keep their order. An Archive copy
     can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
@@ -463,7 +469,8 @@ viewer: swipe or ‹ › through that step's photos, pinch / double-tap to zoom 
 drag to pan (the app disables page zoom, so the viewer does its own), ✕ / tap
 outside / Escape to close. Photos are data URLs, which iOS won't open in a new
 window — the old `<a target=_blank>` gave a blank white screen. The recipe page's
-ingredient list is plain (no checkboxes): gathering is cook mode's per-step
+ingredient list is **bulleted like Equipment** (no checkboxes; hanging bullets
+so long lines wrap under their text): gathering is cook mode's per-step
 checklist and shopping is the Add-to-grocery-list picker.
 And an **in-app crop tool** (`src/components/PhotoCropper.tsx`, on
 `react-easy-crop`): every photo added in the editor (cover or step) goes

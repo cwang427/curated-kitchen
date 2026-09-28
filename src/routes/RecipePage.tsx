@@ -277,9 +277,11 @@ export default function RecipePage() {
             <h2 id="equipment-heading" className="mb-2 font-serif text-xl tracking-tight">
               Equipment
             </h2>
-            <ul className="list-inside list-disc space-y-1 text-ink-soft">
+            <ul className="list-disc space-y-2 pl-6 text-ink-soft marker:text-ink-faint">
               {recipe.equipment.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item} className="pl-1">
+                  {item}
+                </li>
               ))}
             </ul>
           </section>
