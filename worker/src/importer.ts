@@ -16,6 +16,9 @@
 // The app's fixed tag list — one source of truth. wrangler bundles this file in
 // from the app's src/ (it has no React/DOM dependencies).
 import { ALL_TAGS, TAG_GROUPS } from '../../src/lib/tags'
+// The app's version, bundled in by wrangler, so the tail says which Worker
+// is deployed — a stale local copy is the usual reason a change "didn't work".
+import { version as WORKER_VERSION } from '../../package.json'
 
 interface Env {
   FIREBASE_PROJECT_ID: string
@@ -1311,11 +1314,13 @@ async function handleImageProxy(body: { url?: string; stamp?: string; paid?: boo
 }
 
 // Diagnostics for the Archive's refusals: where the import ran, which copy of
-// the Worker ran it, and the IPv4 address the outside world sees. The Archive
-// has no IPv6 address, so our requests reach it over IPv4; the IPv6 address this
-// used to log was one the Archive never sees. Looked up once per Worker copy
-// (the answer is only a rough guide: Cloudflare may pick a different address
-// per destination).
+// the Worker ran it, and the address a site outside Cloudflare sees. That
+// needs a what's-my-address service that isn't itself on Cloudflare
+// (checkip.amazonaws.com): ipify is, and Cloudflare shows every Worker's
+// requests to its own customers as coming from one fixed address,
+// 2a06:98c0:3600::103 — which is all 0.46 and 0.47 ever logged. The Archive
+// isn't on Cloudflare. Looked up once per Worker copy (a rough guide:
+// Cloudflare may pick a different address per destination).
 const ISOLATE = Math.random().toString(36).slice(2, 6)
 // Set on this copy's first import: at start-up a Worker's clock reads 1970 (it
 // only moves during a request), which logged "started 29842834 min ago".
@@ -1328,7 +1333,7 @@ async function outgoingAddress(): Promise<string> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 3_000)
   try {
-    const res = await fetch('https://api4.ipify.org?format=text', { signal: controller.signal })
+    const res = await fetch('https://checkip.amazonaws.com/', { signal: controller.signal })
     if (res.ok) egressV4 = (await res.text()).trim().slice(0, 45)
   } catch {
     /* best effort */
@@ -1389,7 +1394,8 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
   const page = await fetchRecipePage(url, seen)
   console.log(
     `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
-      `outgoing IPv4 ${await address}, archive sign-in ${archiveSignInStatus()}, firecrawl ${await unlocker}`,
+      `outgoing address ${await address} (outside Cloudflare's view), archive sign-in ${archiveSignInStatus()}, ` +
+      `firecrawl ${await unlocker}, worker ${WORKER_VERSION}`,
   )
   if (!page) return readWithGoogle(url, seen, env, origin, outcome)
 
@@ -1418,8 +1424,22 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
       const trimmed = { ...recipe }
       for (const key of ['review', 'comment', 'aggregateRating', 'video', 'publisher', 'isPartOf', 'mainEntityOfPage']) delete trimmed[key]
       outcome({ via: page.via, status: res.status, ai: 'failed, recipe data handed back' })
+      // Step photos too, keyed by step — the app attaches them only if its
+      // own reading of the recipe data has the same steps (`stepCount`).
+      const steps: Record<number, string[]> = {}
+      const stepCandidates: Record<number, string[][]> = {}
+      found.steps.forEach((photos, i) => {
+        if (!photos.length) return
+        steps[i] = photos.map((c) => c[0])
+        stepCandidates[i] = photos
+      })
       return json(
-        { ...body, code: 'ai_busy', jsonld: [trimmed], photos: { cover: found.covers[0] ?? null, covers: found.covers, steps: {}, ...stampField } },
+        {
+          ...body,
+          code: 'ai_busy',
+          jsonld: [trimmed],
+          photos: { cover: found.covers[0] ?? null, covers: found.covers, steps, stepCandidates, stepCount: found.steps.length, ...stampField },
+        },
         res.status,
         origin,
       )
@@ -1611,9 +1631,9 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
   // Cloudflare 524. A healthy call finishes in a few seconds; 30s is generous
   // (25s for a link — Google's reader is the last of several routes by then,
   // and the whole import should stay well under a minute).
-  const call = async (m: string, useSchema: boolean): Promise<Response | null> => {
+  const call = async (m: string, useSchema: boolean, timeoutMs: number): Promise<Response | null> => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), input.url ? 25_000 : 30_000)
+    const timer = setTimeout(() => controller.abort(), timeoutMs * timeScale)
     try {
       return await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
@@ -1632,20 +1652,37 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     }
   }
 
-  // Try each model in turn. A 5xx (503 overloaded, 524 timeout, 500/502…), a
-  // 429 (free-tier quotas are per model, so the next may have room) or a
-  // missing fallback (404) → skip to the next model; a 400 → retry that model
-  // once without the schema, then use/surface whatever we got.
+  // The plan: the light model; if it says it's overloaded (503 — on the free
+  // tier that comes and goes by the second), the light model once more after
+  // a moment, as Google advises; then the fuller model, with a shorter wait —
+  // it's the more contended one, and when it hangs it hangs until the abort
+  // (a real import waited 30 s on it for nothing). A 429 (free-tier quotas are
+  // per model, so the next may have room), another 5xx, a hang or a missing
+  // fallback (404) → the next model; a 400 → retry that model once without
+  // the schema, then use/surface whatever we got.
+  const firstWait = input.url ? 25_000 : 30_000
+  const fallbackWait = input.images.length ? 30_000 : 20_000
+  const plan: Array<{ m: string; again?: boolean }> = [{ m: primaryModel }, { m: primaryModel, again: true }]
+  if (models.length > 1) plan.push({ m: models[1] })
   let res: Response | null = null
   let model = primaryModel
-  for (const [i, m] of models.entries()) {
-    let r = await call(m, true)
+  let overloaded = false
+  for (const [i, { m, again }] of plan.entries()) {
+    if (again) {
+      if (!overloaded) continue
+      await sleep(1_500 * timeScale)
+      console.log(`gemini trying ${m} once more (it was overloaded a moment ago)`)
+    }
+    overloaded = false
+    let r = await call(m, true, m === primaryModel ? firstWait : fallbackWait)
     if (!r) continue // network failure / timeout; try the next model
     if (r.status >= 500) {
-      console.log(`gemini ${r.status} model=${m}; trying next`)
+      overloaded = r.status === 503
+      console.log(`gemini ${r.status} model=${m}; ${plan[i + 1]?.again && overloaded ? 'trying it again shortly' : 'trying next'}`)
+      await r.body?.cancel()
       continue
     }
-    if (r.status === 429 && i < models.length - 1) {
+    if (r.status === 429 && i < plan.length - 1) {
       console.log(`gemini 429 model=${m} (its free limit); trying next`)
       res = new Response(await r.text().catch(() => ''), { status: 429 }) // reported if every model is out
       continue
@@ -1657,7 +1694,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     if (r.status === 400) {
       const detail = await r.text().catch(() => '')
       console.log(`gemini 400 model=${m}: ${detail.slice(0, 300)} — retrying without schema`)
-      const r2 = await call(m, false)
+      const r2 = await call(m, false, m === primaryModel ? firstWait : fallbackWait)
       if (r2) r = r2
     }
     res = r

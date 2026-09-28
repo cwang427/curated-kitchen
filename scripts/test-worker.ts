@@ -87,7 +87,7 @@ function install(w: World): void {
     calls.push({ url, headers: new Headers(init.headers) })
     const hang = () =>
       new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
-    if (url.startsWith('https://api4.ipify.org')) return new Response('104.28.1.1')
+    if (url.startsWith('https://checkip.amazonaws.com')) return new Response('104.28.1.1\n')
     if (url === 'https://api.firecrawl.dev/v2/team/credit-usage') {
       return new Response(JSON.stringify({ success: true, data: { remainingCredits: 987, billingPeriodEnd: '2026-10-27T00:00:00Z' } }))
     }
@@ -100,6 +100,7 @@ function install(w: World): void {
       const body = JSON.parse(String(init.body)) as { tools?: unknown; contents: Array<{ parts: Array<{ text?: string }> }> }
       if (w.gemini) {
         const r = w.gemini(model, body)
+        if ((r as unknown) === 'hang') return hang()
         if (r) return r
       }
       const prompt = body.contents[0].parts.map((p) => p.text ?? '').join('')
@@ -462,6 +463,57 @@ r = await link(BLOG)
 check('AI down after we got the page: code ai_busy', r.status === 502 && r.body.code === 'ai_busy', r.body)
 check('…with the recipe data and cover to offer a simpler import', Array.isArray(r.body.jsonld) && (r.body.photos as { cover: string }).cover === 'https://img.example/potatoes.jpg', r.body)
 check('…and without fetching the page again', calls.filter((c) => c.url === BLOG).length === 1)
+check('…with step photos and the step count, so "import as listed" gets them too', JSON.stringify((r.body.photos as { steps: unknown }).steps) === '{"0":["https://img.example/step1.jpg"]}' && (r.body.photos as { stepCount: number }).stepCount === 1, r.body.photos)
+
+// The real 0.47 log: the light model overloaded (503), the fuller one hanging.
+// Now the light model gets one more try after a moment, and it answers.
+{
+  let lite = 0
+  resetForTests({}, 0.01)
+  install({
+    direct: () => new Response(PAGES.recipeData),
+    gemini: (model) =>
+      model === 'gemini-3.5-flash-lite'
+        ? ++lite === 1
+          ? new Response('overloaded', { status: 503 })
+          : (undefined as unknown as Response)
+        : ('hang' as unknown as Response),
+  })
+  r = await link(BLOG)
+  check('light model overloaded once → tried again after a moment → imported', r.status === 200 && lite === 2 && googleCalls().length === 2, googleCalls().map((c) => c.url))
+  check('…and the fuller model was never needed', !googleCalls().some((c) => c.url.includes('gemini-3.5-flash:')))
+  check('…the tail says so', logs.some((l) => l.includes('trying it again shortly')) && logs.some((l) => l.includes('once more (it was overloaded')))
+}
+{
+  resetForTests({}, 0.01)
+  const t0 = Date.now()
+  install({
+    direct: () => new Response(PAGES.recipeData),
+    gemini: (model) => (model === 'gemini-3.5-flash-lite' ? new Response('overloaded', { status: 503 }) : ('hang' as unknown as Response)),
+  })
+  r = await link(BLOG)
+  const ms = Date.now() - t0
+  check('both overloaded/hung → ai_busy, having tried light twice then fuller once', r.body.code === 'ai_busy' && googleCalls().length === 3, googleCalls().map((c) => c.url))
+  check('…the fuller model gets 20 s, not 30 (0.2 s at test speed)', ms < 600, ms)
+}
+{
+  // A 429 (its free quota) isn't retried on the same model — straight to the next.
+  let lite = 0
+  resetForTests({}, 0.01)
+  install({
+    direct: () => new Response(PAGES.recipeData),
+    gemini: (model) => (model === 'gemini-3.5-flash-lite' ? (lite++, new Response('quota', { status: 429 })) : (undefined as unknown as Response)),
+  })
+  r = await link(BLOG)
+  check('429 on the light model → no second try of it, the fuller one answers', r.status === 200 && lite === 1)
+}
+{
+  resetForTests({}, 0.01)
+  install({ direct: () => new Response(PAGES.recipeData) })
+  await link(BLOG)
+  const line = logs.find((l) => l.startsWith('link: ran in')) ?? ''
+  check('the tail names the outside view of our address and the Worker version', line.includes('outgoing address 104.28.1.1 (outside Cloudflare') && /worker \d+\.\d+\.\d+/.test(line), line)
+}
 
 resetForTests({}, 0.01)
 install({

@@ -159,8 +159,12 @@ export async function importFromRecipeData(error: ImportError, url: string): Pro
   if (!user) throw new Error('Sign in first.')
   const result: AiImportResult = seedFromJsonLd(error.jsonld, url)
   result.seed.source = { ...result.seed.source, url }
-  const cover = error.photos && { cover: error.photos.cover, covers: error.photos.covers, steps: {}, stamp: error.photos.stamp, unlocker: error.photos.unlocker }
-  result.link = { via: 'recipe data', photos: cover ? await attachLinkPhotos(result.seed, cover, await user.getIdToken()) : undefined }
+  // Step photos only if our reading of the recipe data has the same steps as
+  // the Worker's (so each photo lands on its own step); the cover regardless.
+  const photos = error.photos
+  const sameSteps = photos?.stepCount === result.seed.steps.length
+  const wanted = photos && (sameSteps ? photos : { ...photos, steps: {}, stepCandidates: {} })
+  result.link = { via: 'recipe data', photos: wanted ? await attachLinkPhotos(result.seed, wanted, await user.getIdToken()) : undefined }
   return result
 }
 
@@ -178,6 +182,8 @@ type LinkPhotos = {
   stamp?: string
   /** The Worker can fetch a photo through Firecrawl, as a last resort (0.47+). */
   unlocker?: boolean
+  /** With 'ai_busy': how many steps the page's recipe data has (0.48+). */
+  stepCount?: number
 }
 
 /** A photo from Firecrawl comes as JSON with the bytes in base64 (the Worker

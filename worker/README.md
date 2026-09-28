@@ -204,8 +204,9 @@ reader (`link: asking Google to read the Archive's copy` for a blocked site).
 Every import ends with one `{ event: 'import', host, via, ms, … }` line: which
 site, which route worked, how long it took, and whether photos came. Each photo then logs one line, e.g. `img ok
 [site 403 → proxy/archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
-the end of the photo's link (shortened on purpose). If a link's tail says `outgoing address` (not `outgoing
-IPv4`), the deployed Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
+the end of the photo's link (shortened on purpose). The `link: ran in …` line ends with **`worker 0.x.y`** —
+the version that's deployed. If it's older than the one in your copy (see
+`package.json`), or missing, pull, then `npx wrangler deploy`.
 
 Code changes: the Worker's code is `src/importer.ts` (`src/index.ts` only hands
 it to Cloudflare). Run `npm run test:worker` from the repo root after changing it.

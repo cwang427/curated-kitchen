@@ -97,10 +97,15 @@ confusion:
     `gemini-3.5-flash`: on the free tier the fuller flash models are heavily
     contended (sustained 503s, and sometimes they hang until a Cloudflare 524),
     while `-lite` reliably has capacity and is plenty for structured extraction.
-    Each model call has a 30s abort so a hung model doesn't stall the request;
-    any 5xx (503/524/…) or a 404 skips to the next model, and a 400 retries that
-    model once without the responseSchema (the app's zod schema is the real
-    validator). No `thinkingConfig` — the `-lite` tier 400s on it. Pinning
+    Each model call has an abort so a hung model doesn't stall the request
+    (30 s for the first model — 25 s for Google reading a link — and 20 s for
+    the fallback unless photos/PDFs are attached, v0.47.1: a real import waited
+    30 s on a hung `gemini-3.5-flash`). A **503 from the light model gets one
+    more try after 1.5 s** (on the free tier "overloaded" comes and goes by the
+    second, and Google advises retrying; the same log showed `-lite` 503 then
+    the fuller model hanging); other 5xx, a 429 (quotas are per model), a hang
+    or a 404 skip to the next model, and a 400 retries that model once without
+    the responseSchema (the app's zod schema is the real validator). No `thinkingConfig` — the `-lite` tier 400s on it. Pinning
     `GEMINI_MODEL` forces one model with no fallback (e.g. `gemini-3.6-flash`
     once it settles). A retired id shows up as a 404 "no longer available." It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
@@ -177,7 +182,9 @@ confusion:
     when Gemini fails after the Worker got the page, the Worker answers
     `code: 'ai_busy'` with the page's recipe node (reviews etc. trimmed) and
     cover, and the app offers **"Import it as listed"** (`importFromRecipeData`
-    → `seedFromJsonLd`, with a note) or **Try again**. A page that shows no
+    → `seedFromJsonLd`, with a note) or **Try again**. The `ai_busy` answer
+    carries the step photos too (`stepCount` = the Worker's step count; the app
+    attaches them only when its own reading has the same number of steps). A page that shows no
     recipe signs and that the AI calls `not_a_recipe` (likely a soft block)
     goes to Google's reader instead. The recipe URL is sent to
     Jina / archive.org (public links, no user data). **Order (v0.39):** `handleLink` now
@@ -226,7 +233,10 @@ confusion:
     score as spoofing. It won't get past a site that blocks automated fetches
     (nothing from a Worker does); a site that refuses the honest name still
     comes through Jina and the image proxy, just slower — watch the `import`
-    log lines for sites that stop working directly. The
+    log lines for sites that stop working directly. **Serious Eats let the
+    honest name in** (first 0.47 log: `page direct: 200`, recipe data, after
+    17 of 17 refusals of the Chrome disguise) — one data point, but what the
+    research predicted: the disguise itself scored as a bot. The
     same update says **signed-in users don't get 429s**, so the Worker
     **signs in — and keeps itself signed in** (v0.44; the owner can't be on
     call to fix an expired sign-in for friends). Secrets, all set at once by
@@ -274,9 +284,15 @@ confusion:
     research behind all this is in `docs/research/` (read `HANDOFF.md`'s
     "Revised after review" first). **Diagnostics:** each link import logs
     `link: ran in <colo>, worker copy <id> (import #N since it started M min
-    ago), outgoing IPv4 <ip>` — IPv4 (`api4.ipify.org`, looked up once per
-    Worker copy) because the Archive has no IPv6 address; before v0.46 this
-    logged the IPv6 address, one the Archive never sees — and one structured
+    ago), outgoing address <ip> (outside Cloudflare's view), archive sign-in …,
+    firecrawl …, worker <version>` — the address from
+    `checkip.amazonaws.com` (once per Worker copy). It must be a service NOT on
+    Cloudflare: ipify is, and Cloudflare shows every Worker's requests to its
+    own customers as `2a06:98c0:3600::103` — the "shared egress" address in the
+    research and everything 0.43–0.47 logged was that label, not an address
+    the Archive (not on Cloudflare) ever sees. `worker <version>` is
+    `package.json`'s version bundled in by wrangler, so the tail shows which
+    Worker is deployed. And one structured
     `{ event: 'import', host, via, status, ms, archive, cover, stepPhotos }`
     line per import. **Workers Logs** is on (`[observability]` in
     `wrangler.toml`, free plan: 3 days), so these can be filtered afterwards in
