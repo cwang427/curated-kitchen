@@ -29,10 +29,16 @@ interface Env {
   // not set. Kept so the paid route stays available if ever wanted.
   ANTHROPIC_API_KEY?: string
   ANTHROPIC_MODEL?: string
-  // Optional: the Worker's Internet Archive sign-in — the two session cookies,
-  // as one Cookie header value. A secret, set by `npm run archive:login` (never
-  // by hand, never in wrangler.toml). The Archive's Sept 2026 access update:
-  // signed-in users don't get its 429 "too many requests".
+  // Optional: the Worker's Internet Archive sign-in (the Archive's Sept 2026
+  // access update: signed-in users don't get its 429 "too many requests"). All
+  // secrets, set together by `npm run archive:login` — never by hand, never in
+  // wrangler.toml. ARCHIVE_SESSION = {"cookie", "expires"} (the saved sign-in);
+  // ARCHIVE_EMAIL / ARCHIVE_PASSWORD = the app's Archive account, so the Worker
+  // can sign itself in again when that expires or stops working.
+  ARCHIVE_SESSION?: string
+  ARCHIVE_EMAIL?: string
+  ARCHIVE_PASSWORD?: string
+  // 0.43's cookie-only sign-in (no expiry, no way to renew). Still honored.
   ARCHIVE_COOKIES?: string
 }
 
@@ -312,16 +318,134 @@ const BROWSER_HEADERS = {
  * weren't throttled.) */
 const ARCHIVE_UA = 'CuratedKitchen/1.0 (personal recipe app; fetches one saved page per import)'
 
-// The sign-in cookies (env.ARCHIVE_COOKIES), set at the top of every request —
-// env is the same for a whole deployment. Sent ONLY to the Archive's own hosts
-// (archive.org, web.archive.org): never to the image proxy, Jina, or a recipe
-// site, since they'd let anyone act as the Worker's Archive account.
-let archiveCookie = ''
-const archiveHeaders = (accept = 'text/html,application/xhtml+xml'): Record<string, string> => ({
-  'User-Agent': ARCHIVE_UA,
-  Accept: accept,
-  ...(archiveCookie ? { Cookie: archiveCookie } : {}),
-})
+// ---- The Worker's Internet Archive sign-in ------------------------------------
+// It keeps itself signed in, so nobody ever has to: the saved session is used
+// until a day before it expires (the Archive's last a year); then — or if the
+// Archive refuses a signed-in request — the Worker signs in again with the
+// stored email + password and carries on, so the import still works. The session
+// lives in this copy of the Worker's memory; a new copy starts from the saved one.
+// Sent ONLY to the Archive's own hosts (archive.org, web.archive.org): never to
+// the image proxy, Jina, or a recipe site — it would let them act as the account.
+
+type ArchiveSession = { cookie: string; expires: number; renewedAt?: number }
+/** Set from env at the top of every request (env is the same for a deployment). */
+let archiveSecrets: { saved?: string; legacy?: string; email?: string; password?: string } = {}
+let archiveSession: ArchiveSession | null = null
+let archiveSessionNote = ''
+let signInBlockedUntil = 0
+const DAY = 24 * 60 * 60_000
+
+/** A cookie from a sign-in reply, without its "; path=/…" attributes. */
+const cookieValue = (raw: unknown) => (typeof raw === 'string' ? raw.split(';')[0].trim() : '')
+
+/** How long a cookie from a sign-in reply lasts (its Max-Age / Expires; else a
+ * year, the Archive's usual). */
+function cookieLifetime(raw: unknown): number {
+  const text = typeof raw === 'string' ? raw : ''
+  const maxAge = text.match(/max-age=(\d+)/i)?.[1]
+  if (maxAge) return Number(maxAge) * 1000
+  const at = Date.parse(text.match(/expires=([^;]+)/i)?.[1] ?? '')
+  return Number.isFinite(at) ? at - Date.now() : 365 * DAY
+}
+
+/** The saved sign-in (ARCHIVE_SESSION), or 0.43's cookie-only one. */
+function savedArchiveSession(): ArchiveSession | null {
+  try {
+    const saved = JSON.parse(archiveSecrets.saved ?? '') as { cookie?: string; expires?: string }
+    const expires = Date.parse(saved.expires ?? '')
+    if (saved.cookie && Number.isFinite(expires)) return { cookie: saved.cookie, expires }
+  } catch {
+    /* not set, or not JSON */
+  }
+  const legacy = archiveSecrets.legacy?.trim()
+  return legacy ? { cookie: legacy, expires: Infinity } : null // expiry unknown: trust it until refused
+}
+
+/** Sign in with the stored email + password. After a failure, wait 10 minutes
+ * before trying again rather than hammering the Archive's sign-in; imports carry
+ * on unsigned meanwhile. */
+async function archiveSignIn(why: string): Promise<ArchiveSession | null> {
+  const { email, password } = archiveSecrets
+  if (!email || !password || Date.now() < signInBlockedUntil) return null
+  const failed = (reason: string) => {
+    signInBlockedUntil = Date.now() + 10 * 60_000
+    console.log(
+      `archive sign-in: failed (${reason}) — importing without it; will try again in 10 min. ` +
+        "If the app's Archive password changed, run `npm run archive:login` again.",
+    )
+    return null
+  }
+  try {
+    const res = await fetch('https://archive.org/services/xauthn/?op=login', {
+      method: 'POST',
+      headers: { 'User-Agent': ARCHIVE_UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email, password }),
+    })
+    const reply = (await res.json().catch(() => null)) as {
+      success?: boolean
+      values?: { reason?: string; cookies?: Record<string, string> }
+    } | null
+    const cookies = reply?.values?.cookies ?? {}
+    const user = cookieValue(cookies['logged-in-user'])
+    const sig = cookieValue(cookies['logged-in-sig'])
+    if (!reply?.success || !user || !sig) return failed(reply?.values?.reason ?? `HTTP ${res.status}`)
+    const lifetime = Math.min(cookieLifetime(cookies['logged-in-user']), cookieLifetime(cookies['logged-in-sig']))
+    console.log(`archive sign-in: signed in automatically (${why})`)
+    return { cookie: `logged-in-user=${user}; logged-in-sig=${sig}`, expires: Date.now() + lifetime, renewedAt: Date.now() }
+  } catch (e) {
+    return failed(String(e))
+  }
+}
+
+/** The sign-in to use now: this copy's, else the saved one — renewed a day
+ * before it expires. null = not set up, or signing in isn't working. */
+async function currentArchiveSession(): Promise<ArchiveSession | null> {
+  const soon = Date.now() + DAY
+  if (archiveSession && archiveSession.expires > soon) return archiveSession
+  const saved = archiveSession ? null : savedArchiveSession()
+  if (saved && saved.expires > soon) {
+    archiveSession = saved
+    archiveSessionNote =
+      saved.expires === Infinity ? 'saved' : `saved, until ${new Date(saved.expires).toISOString().slice(0, 10)}`
+    return saved
+  }
+  const current = archiveSession ?? saved
+  const fresh = await archiveSignIn(current ? 'the saved sign-in was about to expire' : 'no saved sign-in')
+  if (fresh) {
+    archiveSession = fresh
+    archiveSessionNote = 'signed in automatically'
+    return fresh
+  }
+  // Couldn't renew: one that hasn't quite expired still beats none.
+  return current && current.expires > Date.now() ? current : null
+}
+
+/** The Archive refused a signed-in request: sign in again, once, and say whether
+ * there's a new sign-in to retry with. Not if we signed in within the last 10
+ * minutes — then the refusal isn't about an old sign-in. */
+async function renewArchiveSession(): Promise<boolean> {
+  if (!archiveSession) return false
+  if (archiveSession.renewedAt && Date.now() - archiveSession.renewedAt < 10 * 60_000) return false
+  const fresh = await archiveSignIn('the Archive refused the saved sign-in')
+  if (!fresh) return false
+  archiveSession = fresh
+  archiveSessionNote = 'signed in automatically'
+  return true
+}
+
+/** For the tail's diagnostics line. */
+function archiveSignInStatus(): string {
+  if (archiveSession) return `on (${archiveSessionNote})`
+  const { saved, legacy, email } = archiveSecrets
+  if (!saved && !legacy && !email) return 'off (not set up)'
+  return Date.now() < signInBlockedUntil ? 'off (signing in failed — see above)' : 'ready (not needed this time)'
+}
+
+/** Headers for a request to the Archive: our honest name, plus the sign-in. */
+async function archiveHeaders(accept = 'text/html,application/xhtml+xml'): Promise<Record<string, string>> {
+  const session = await currentArchiveSession()
+  return { 'User-Agent': ARCHIVE_UA, Accept: accept, ...(session ? { Cookie: session.cookie } : {}) }
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -431,7 +555,7 @@ async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<strin
   const index = await fetchText(
     `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}` +
       '&output=json&fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10',
-    archiveHeaders('application/json'),
+    await archiveHeaders('application/json'),
     'archive search',
     [],
     info,
@@ -490,7 +614,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   const availInfo: FetchInfo = {}
   const avail = await fetchText(
     `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
-    archiveHeaders('application/json'),
+    await archiveHeaders('application/json'),
     'archive lookup',
     [],
     availInfo,
@@ -515,7 +639,12 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     const copyInfo: FetchInfo = {}
     // No quick retries: in every real log, a 429 was still a 429 1.5 s and 3 s
     // later — retrying only added to the count the Archive holds against us.
-    const archived = await fetchText(copy, archiveHeaders(), label, [], copyInfo)
+    let archived = await fetchText(copy, await archiveHeaders(), label, [], copyInfo)
+    // Refused while signed in: maybe the sign-in went stale — sign in again and
+    // retry this once, so the cook never sees it.
+    if (!archived && busy(copyInfo) && (await renewArchiveSession())) {
+      archived = await fetchText(copy, await archiveHeaders(), `${label} (signed in again)`, [], copyInfo)
+    }
     stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
     if (archived) {
       tried.add(stamp)
@@ -524,9 +653,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     }
     if (!busy(copyInfo)) return 'missing'
     seen.archiveBusy = true
-    if (archiveCookie) {
-      console.log('page archive: refused even though signed in — the sign-in may have expired; run `npm run archive:login` again')
-    }
+    if (archiveSession) console.log(`page archive: refused even though signed in (${archiveSessionNote})`)
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
     const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
@@ -785,7 +912,7 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
       res = await fetch(url, {
         // The Archive gets our honest name; the site (and the proxy) the browser's.
         headers: {
-          ...(label === 'archive' ? archiveHeaders() : BROWSER_HEADERS),
+          ...(label === 'archive' ? await archiveHeaders() : BROWSER_HEADERS),
           Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
         },
         redirect: 'follow',
@@ -860,7 +987,7 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
   const page = await fetchRecipePage(url, seen)
   console.log(
     `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
-      `outgoing address ${(await address) ?? 'unknown'}, archive sign-in ${archiveCookie ? 'on' : 'off'}`,
+      `outgoing address ${(await address) ?? 'unknown'}, archive sign-in ${archiveSignInStatus()}`,
   )
   if (!page) {
     const google = await handleGemini({ images: [], url }, env, origin)
@@ -1208,7 +1335,12 @@ async function handleClaude(input: AiInput, env: Env, origin: string): Promise<R
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
-    archiveCookie = env.ARCHIVE_COOKIES?.trim() ?? ''
+    archiveSecrets = {
+      saved: env.ARCHIVE_SESSION,
+      legacy: env.ARCHIVE_COOKIES,
+      email: env.ARCHIVE_EMAIL?.trim(),
+      password: env.ARCHIVE_PASSWORD,
+    }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(origin) })

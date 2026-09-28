@@ -5,11 +5,16 @@
  *
  *   npm run archive:login          (or: node scripts/archive-login.mjs)
  *
- * It asks for the email + password of the app's Archive account, signs in the
- * same way the Archive's own `ia` tool does, and stores ONLY the two session
- * cookies it gets back as the Worker secret ARCHIVE_COOKIES (via `wrangler
- * secret put`). The password is used for that one request and never saved.
- * Run it again if the tail ever says the sign-in may have expired.
+ * It asks for the email + password of the app's Archive account (one made just
+ * for the app — not a personal one), checks them by signing in the way the
+ * Archive's own `ia` tool does, and saves three Worker secrets in one go (via
+ * `wrangler secret bulk`, nothing on screen or in shell history):
+ *   ARCHIVE_SESSION   the sign-in (the two session cookies) + its expiry date
+ *   ARCHIVE_EMAIL,
+ *   ARCHIVE_PASSWORD  so the Worker can sign itself in again when that sign-in
+ *                     nears its expiry (a year) or stops working — nobody has
+ *                     to come back and run this. Run it again only if you
+ *                     change that account's password.
  *
  * Plain Node, no packages — works without `npm install`. Flags:
  *   --dry-run   sign in and check, but don't store anything
@@ -46,6 +51,16 @@ function cookieValue(raw) {
   return typeof raw === 'string' ? raw.split(';')[0].trim() : ''
 }
 
+/** How long a cookie from the reply lasts: its Max-Age / Expires, else a year
+ * (the Archive's usual). */
+function cookieLifetime(raw) {
+  const text = typeof raw === 'string' ? raw : ''
+  const maxAge = text.match(/max-age=(\d+)/i)?.[1]
+  if (maxAge) return Number(maxAge) * 1000
+  const at = Date.parse(text.match(/expires=([^;]+)/i)?.[1] ?? '')
+  return Number.isFinite(at) ? at - Date.now() : 365 * 24 * 60 * 60 * 1000
+}
+
 async function signIn(email, password) {
   const res = await fetch(LOGIN_URL, {
     method: 'POST',
@@ -66,25 +81,31 @@ async function signIn(email, password) {
           : `The Archive didn't accept the sign-in (${code}).`
     throw new Error(why)
   }
-  const user = cookieValue(reply.values?.cookies?.['logged-in-user'])
-  const sig = cookieValue(reply.values?.cookies?.['logged-in-sig'])
+  const cookies = reply.values?.cookies ?? {}
+  const user = cookieValue(cookies['logged-in-user'])
+  const sig = cookieValue(cookies['logged-in-sig'])
   if (!user || !sig) throw new Error('Signed in, but the Archive sent back no session cookies — try again later.')
-  return { cookie: `logged-in-user=${user}; logged-in-sig=${sig}`, name: reply.values?.screenname ?? email }
+  const lifetime = Math.min(cookieLifetime(cookies['logged-in-user']), cookieLifetime(cookies['logged-in-sig']))
+  return {
+    cookie: `logged-in-user=${user}; logged-in-sig=${sig}`,
+    expires: new Date(Date.now() + lifetime),
+    name: reply.values?.screenname ?? email,
+  }
 }
 
-/** Hand the cookie to `wrangler secret put ARCHIVE_COOKIES` on its stdin, so it
- * never appears on screen or in shell history. */
-function storeSecret(value) {
+/** Hand the secrets to `wrangler secret bulk` as JSON on its stdin — one upload
+ * for all three, never on screen or in shell history. */
+function storeSecrets(secrets) {
   return new Promise((resolve, reject) => {
     const windows = process.platform === 'win32'
-    const child = spawn(windows ? 'npx.cmd' : 'npx', ['wrangler', 'secret', 'put', 'ARCHIVE_COOKIES'], {
+    const child = spawn(windows ? 'npx.cmd' : 'npx', ['wrangler', 'secret', 'bulk'], {
       cwd: WORKER_DIR,
       stdio: ['pipe', 'inherit', 'inherit'],
       shell: windows, // Node won't run a .cmd without a shell on Windows
     })
     child.on('error', reject)
     child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`wrangler exited with code ${code}`))))
-    child.stdin.write(value + '\n')
+    child.stdin.write(JSON.stringify(secrets))
     child.stdin.end()
   })
 }
@@ -98,16 +119,21 @@ async function main() {
   if (!email || !password) throw new Error('Need both the email and the password.')
 
   console.log('\nSigning in…')
-  const { cookie, name } = await signIn(email, password)
-  console.log(`Signed in as ${name}.`)
+  const { cookie, expires, name } = await signIn(email, password)
+  console.log(`Signed in as ${name}. This sign-in lasts until ${expires.toDateString()}; the Worker renews it itself.`)
 
   if (dryRun) {
     console.log('Dry run — nothing stored. (Run without --dry-run to save the sign-in to the Worker.)')
     return
   }
-  console.log('Saving the sign-in to the Worker (wrangler may ask you to log in to Cloudflare)…\n')
-  await storeSecret(cookie)
-  console.log('\nDone. The Worker now signs in to the Archive; the tail will say "archive sign-in on".')
+  console.log('Saving it to the Worker (wrangler may ask you to log in to Cloudflare)…\n')
+  await storeSecrets({
+    ARCHIVE_SESSION: JSON.stringify({ cookie, expires: expires.toISOString() }),
+    ARCHIVE_EMAIL: email,
+    ARCHIVE_PASSWORD: password,
+  })
+  console.log('\nDone. The Worker now signs in to the Archive, and signs itself in again whenever it needs to.')
+  console.log('Check: import a link with `npx wrangler tail` running — its "link: ran in" line should end "archive sign-in on (saved, …)".')
 }
 
 main().catch((error) => {

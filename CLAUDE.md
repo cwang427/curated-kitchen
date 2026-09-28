@@ -17,6 +17,13 @@ a web developer**. Two obligations follow:
   assume a config or console step happened on its own.
 - **Explain the "why" briefly, in plain terms.** A one-line reason beats a
   wall of jargon.
+- **Design for the friends, not the developer.** Friends using the app aren't
+  technical, and the owner won't always be around to fix things. Anything
+  that can go wrong for them must heal itself (retry, renew, fall back to an
+  equal-quality route) or fail with a plain message and a clear next step —
+  never rely on the owner running a command to keep it working, and never
+  silently hand them a lower-quality result (e.g. an import without its
+  photos). Owner-only setup is fine as a one-time step.
 
 ## Deploy tracks (the #1 source of "it didn't work")
 
@@ -174,19 +181,29 @@ confusion:
     identify your tool and not spoof browser headers, and our refused requests
     were exactly the disguised ones. Sites still get `BROWSER_HEADERS`. The
     same update says **signed-in users don't get 429s**, so the Worker
-    **signs in** (v0.43): the optional `ARCHIVE_COOKIES` secret holds an
-    Archive account's two session cookies (`logged-in-user`, `logged-in-sig`),
-    sent as a `Cookie` header **only to archive.org / web.archive.org** (the
-    `archiveHeaders()` helper; never to wsrv.nl, Jina, Google or a recipe
-    site). The owner sets it once with `npm run archive:login`
-    (`scripts/archive-login.mjs`, plain Node, no install): it asks for the
-    email + password of an Archive account made just for the app, signs in
-    the way the Archive's `ia` tool does (POST
-    `archive.org/services/xauthn/?op=login` → `values.cookies`), and pipes
-    only the cookies into `wrangler secret put ARCHIVE_COOKIES` — the password
-    is never stored. The diagnostics line ends `archive sign-in on|off`; a 429
-    while signed in logs "the sign-in may have expired; run `npm run
-    archive:login` again".
+    **signs in — and keeps itself signed in** (v0.44; the owner can't be on
+    call to fix an expired sign-in for friends). Secrets, all set at once by
+    `npm run archive:login` (`scripts/archive-login.mjs`, plain Node, no
+    install; it checks the account by signing in the way the Archive's `ia`
+    tool does — POST `archive.org/services/xauthn/?op=login` → `values.cookies`
+    — then `wrangler secret bulk`s): `ARCHIVE_SESSION` = `{cookie, expires}`
+    (the two session cookies `logged-in-user` / `logged-in-sig`, and their own
+    expiry — a year), `ARCHIVE_EMAIL` / `ARCHIVE_PASSWORD` (an Archive account
+    made just for the app). `currentArchiveSession()` uses this Worker copy's
+    session, else the saved one, and **signs in again a day before it
+    expires**; `renewArchiveSession()` signs in again when the Archive refuses a
+    signed-in page request and `readCopy` **retries that page once** — never
+    twice within 10 min of signing in (so a real throttle doesn't loop). A
+    failed sign-in waits 10 min before the next try and imports carry on
+    unsigned (logged `archive sign-in: failed (…)`). The session lives in module
+    memory (a new Worker copy starts from the saved one; no KV — auto-provisioned
+    KV would write its id into the owner's local wrangler.toml and snag the next
+    pull). The cookie is sent **only to archive.org / web.archive.org**
+    (`archiveHeaders()`, async); the password only to the sign-in endpoint.
+    0.43's cookie-only `ARCHIVE_COOKIES` is still honored. The diagnostics line
+    ends `archive sign-in on (saved, until …)` / `on (signed in automatically)`
+    / `off (not set up)` / `off (signing in failed …)` / `ready (not needed this
+    time)`.
     **The Archive throttles (429)** the shared addresses Workers fetch from.
     Archive requests are **not retried** (v0.42.5): in every real log a 429 was
     still a 429 1.5 s and 3 s later, and retries only added to the count held

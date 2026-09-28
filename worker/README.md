@@ -101,16 +101,23 @@ anyone else to do:
    node scripts/archive-login.mjs
    ```
    (or `npm run archive:login`). Enter that account's email and password. It
-   signs in the way the Archive's own `ia` tool does and saves **only the sign-in
-   session** as the Worker secret `ARCHIVE_COOKIES` (via `wrangler secret put` —
-   wrangler may ask you to log in to Cloudflare first). The password is used for
-   that one request and never stored. `--dry-run` just checks the sign-in.
+   checks them by signing in (the way the Archive's own `ia` tool does), then
+   saves three Worker secrets in one go (`wrangler secret bulk` — wrangler may
+   ask you to log in to Cloudflare first): the sign-in with its expiry date,
+   and the account's email + password. `--dry-run` just checks the sign-in.
 3. Import a link and look at `wrangler tail`: the `link: ran in …` line should
-   end with **`archive sign-in on`**.
+   end with **`archive sign-in on (saved, until …)`**.
 
-If the tail ever says *"refused even though signed in — the sign-in may have
-expired"*, run step 2 again. The sign-in is sent only to the Archive's own
-sites, never to the image proxy, Jina, or a recipe site.
+**It keeps itself signed in — nobody needs to come back and run this.** The
+Archive's sign-ins last a year. The Worker uses the saved one until a day before
+it expires, then signs itself in again with the stored email + password; if
+the Archive ever refuses a signed-in request, it signs in again and retries that
+same page once, so the person importing never notices. If signing in ever fails
+(say the account's password was changed), imports simply carry on as if it
+weren't set up, it tries again after 10 minutes, and the tail says
+`archive sign-in: failed (…)` — then run step 2 again. The sign-in and password
+are sent only to the Archive's own sites, never to the image proxy, Jina, or a
+recipe site.
 
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
@@ -164,8 +171,10 @@ Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.
-  So does the Archive sign-in (`ARCHIVE_COOKIES`) — for an Archive account made
-  just for the app, and sent only to archive.org / web.archive.org.
+  So does the Archive sign-in (`ARCHIVE_SESSION`, `ARCHIVE_EMAIL`,
+  `ARCHIVE_PASSWORD`) — for an Archive account made just for the app (so its
+  password isn't one you use anywhere else), and sent only to archive.org /
+  web.archive.org.
 - Every request must carry a valid Firebase sign-in token for your project, so
   only people signed into your kitchen can use it.
 - `ALLOWED_ORIGIN` limits browser calls to your app's origin.
