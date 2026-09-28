@@ -173,9 +173,20 @@ confusion:
     at telling abusive bots from real users, the advice for its 429s is to
     identify your tool and not spoof browser headers, and our refused requests
     were exactly the disguised ones. Sites still get `BROWSER_HEADERS`. The
-    same update says logged-in users don't get 429s — the next lever if honest
-    naming isn't enough (the owner's own free Archive account, as a Worker
-    secret; not built).
+    same update says **signed-in users don't get 429s**, so the Worker
+    **signs in** (v0.43): the optional `ARCHIVE_COOKIES` secret holds an
+    Archive account's two session cookies (`logged-in-user`, `logged-in-sig`),
+    sent as a `Cookie` header **only to archive.org / web.archive.org** (the
+    `archiveHeaders()` helper; never to wsrv.nl, Jina, Google or a recipe
+    site). The owner sets it once with `npm run archive:login`
+    (`scripts/archive-login.mjs`, plain Node, no install): it asks for the
+    email + password of an Archive account made just for the app, signs in
+    the way the Archive's `ia` tool does (POST
+    `archive.org/services/xauthn/?op=login` → `values.cookies`), and pipes
+    only the cookies into `wrangler secret put ARCHIVE_COOKIES` — the password
+    is never stored. The diagnostics line ends `archive sign-in on|off`; a 429
+    while signed in logs "the sign-in may have expired; run `npm run
+    archive:login` again".
     **The Archive throttles (429)** the shared addresses Workers fetch from.
     Archive requests are **not retried** (v0.42.5): in every real log a 429 was
     still a 429 1.5 s and 3 s later, and retries only added to the count held

@@ -29,6 +29,11 @@ interface Env {
   // not set. Kept so the paid route stays available if ever wanted.
   ANTHROPIC_API_KEY?: string
   ANTHROPIC_MODEL?: string
+  // Optional: the Worker's Internet Archive sign-in — the two session cookies,
+  // as one Cookie header value. A secret, set by `npm run archive:login` (never
+  // by hand, never in wrangler.toml). The Archive's Sept 2026 access update:
+  // signed-in users don't get its 429 "too many requests".
+  ARCHIVE_COOKIES?: string
 }
 
 const GROCERY_CATEGORIES = [
@@ -306,7 +311,17 @@ const BROWSER_HEADERS = {
  * page copies and photos sent BROWSER_HEADERS, while the plainly-sent lookups
  * weren't throttled.) */
 const ARCHIVE_UA = 'CuratedKitchen/1.0 (personal recipe app; fetches one saved page per import)'
-const ARCHIVE_HEADERS = { 'User-Agent': ARCHIVE_UA, Accept: 'text/html,application/xhtml+xml' }
+
+// The sign-in cookies (env.ARCHIVE_COOKIES), set at the top of every request —
+// env is the same for a whole deployment. Sent ONLY to the Archive's own hosts
+// (archive.org, web.archive.org): never to the image proxy, Jina, or a recipe
+// site, since they'd let anyone act as the Worker's Archive account.
+let archiveCookie = ''
+const archiveHeaders = (accept = 'text/html,application/xhtml+xml'): Record<string, string> => ({
+  'User-Agent': ARCHIVE_UA,
+  Accept: accept,
+  ...(archiveCookie ? { Cookie: archiveCookie } : {}),
+})
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -416,7 +431,7 @@ async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<strin
   const index = await fetchText(
     `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}` +
       '&output=json&fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10',
-    { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
+    archiveHeaders('application/json'),
     'archive search',
     [],
     info,
@@ -475,7 +490,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   const availInfo: FetchInfo = {}
   const avail = await fetchText(
     `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
-    { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
+    archiveHeaders('application/json'),
     'archive lookup',
     [],
     availInfo,
@@ -500,7 +515,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     const copyInfo: FetchInfo = {}
     // No quick retries: in every real log, a 429 was still a 429 1.5 s and 3 s
     // later — retrying only added to the count the Archive holds against us.
-    const archived = await fetchText(copy, ARCHIVE_HEADERS, label, [], copyInfo)
+    const archived = await fetchText(copy, archiveHeaders(), label, [], copyInfo)
     stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
     if (archived) {
       tried.add(stamp)
@@ -509,6 +524,9 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     }
     if (!busy(copyInfo)) return 'missing'
     seen.archiveBusy = true
+    if (archiveCookie) {
+      console.log('page archive: refused even though signed in — the sign-in may have expired; run `npm run archive:login` again')
+    }
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
     const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
@@ -767,7 +785,7 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
       res = await fetch(url, {
         // The Archive gets our honest name; the site (and the proxy) the browser's.
         headers: {
-          ...(label === 'archive' ? ARCHIVE_HEADERS : BROWSER_HEADERS),
+          ...(label === 'archive' ? archiveHeaders() : BROWSER_HEADERS),
           Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
         },
         redirect: 'follow',
@@ -842,7 +860,7 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
   const page = await fetchRecipePage(url, seen)
   console.log(
     `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
-      `outgoing address ${(await address) ?? 'unknown'}`,
+      `outgoing address ${(await address) ?? 'unknown'}, archive sign-in ${archiveCookie ? 'on' : 'off'}`,
   )
   if (!page) {
     const google = await handleGemini({ images: [], url }, env, origin)
@@ -1190,6 +1208,7 @@ async function handleClaude(input: AiInput, env: Env, origin: string): Promise<R
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
+    archiveCookie = env.ARCHIVE_COOKIES?.trim() ?? ''
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(origin) })

@@ -84,6 +84,34 @@ This is what makes text pastes work on *any* site and reads photos/screenshots:
    In Add a recipe, "Paste text" then uses Gemini (falling back to the on-device
    reader if the free limit is hit), and **"Add from photo or PDF"** appears.
 
+## Sign the Worker in to the Internet Archive (recommended)
+
+Sites like Serious Eats block the Worker, so links from them are read from the
+Internet Archive's saved copy. The Archive answers anonymous requests from
+Cloudflare's shared addresses with "429 too many requests" more and more often,
+and its Sept 2026 access update says **signed-in users don't get that error**.
+So the Worker signs in with an Archive account — one-time setup, nothing for
+anyone else to do:
+
+1. **Make an Archive account just for the app** at archive.org → *Sign up*
+   (free). Give it its own password, and confirm the email it sends. Don't use a
+   personal account: the stored sign-in lets the Worker act as that account.
+2. **Sign the Worker in**, from the repo folder on your computer:
+   ```
+   node scripts/archive-login.mjs
+   ```
+   (or `npm run archive:login`). Enter that account's email and password. It
+   signs in the way the Archive's own `ia` tool does and saves **only the sign-in
+   session** as the Worker secret `ARCHIVE_COOKIES` (via `wrangler secret put` —
+   wrangler may ask you to log in to Cloudflare first). The password is used for
+   that one request and never stored. `--dry-run` just checks the sign-in.
+3. Import a link and look at `wrangler tail`: the `link: ran in …` line should
+   end with **`archive sign-in on`**.
+
+If the tail ever says *"refused even though signed in — the sign-in may have
+expired"*, run step 2 again. The sign-in is sent only to the Archive's own
+sites, never to the image proxy, Jina, or a recipe site.
+
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
 the Worker code changes, first pull the update to your computer, *then* deploy:
@@ -136,6 +164,8 @@ Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.
+  So does the Archive sign-in (`ARCHIVE_COOKIES`) — for an Archive account made
+  just for the app, and sent only to archive.org / web.archive.org.
 - Every request must carry a valid Firebase sign-in token for your project, so
   only people signed into your kitchen can use it.
 - `ALLOWED_ORIGIN` limits browser calls to your app's origin.
