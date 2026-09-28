@@ -487,7 +487,10 @@ before v0.41 carry a 240px square `thumb` (blurry at card size):
 just `cover` (`setRecipeCover`, no `updatedAt` bump) — once per recipe per
 session; guests see the old image until a member's list upgrades it. The recipe
 page shows the full photo (thumb first, swapped in when loaded); cards without a
-cover look as before. Copies duplicate the cover's photo doc like step photos; removing a
+cover look as before. A card's time is the **total** (`effectiveTotalMinutes`:
+total, else prep + cook, else active) — "how long start to finish" is what you
+judge at a glance, and it's the same figure the ≤20/30/45/60-min filter uses
+(it used to show active time, so a 50-min roast read "15 min"). Copies duplicate the cover's photo doc like step photos; removing a
 cover drops the reference only. No `firestore.rules` change (recipe fields
 aren't restricted). Recipe page buttons read "Add to grocery list" / "Add to
 meal plan" (they fit side by side down to 360pt).

@@ -79,7 +79,10 @@ function RecipeCard({
   canFavorite: boolean
   onToggleFavorite: () => void
 }) {
-  const time = formatMinutes(recipe.times.activeMin ?? recipe.times.totalMin)
+  // Total time, start to finish — what "how long will this take?" means at a
+  // glance, and the same figure the time filter uses (active time, if that's
+  // all a recipe has).
+  const time = formatMinutes(effectiveTotalMinutes(recipe.times))
   const servings =
     recipe.yield.amountMax
       ? `${recipe.yield.amount}–${recipe.yield.amountMax} ${recipe.yield.unit}`
