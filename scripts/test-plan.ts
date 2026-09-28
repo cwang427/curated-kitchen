@@ -45,7 +45,7 @@ function recipe(slug: string, ingredients: Ingredient[]): Recipe {
     source: { name: null, author: null, url: null, book: null, note: null },
     yield: { amount: 4, amountMax: null, unit: 'servings' },
     times: { prepMin: null, cookMin: null, totalMin: null, activeMin: null },
-    ingredients, steps: [], groups: [], tags: [], equipment: [], notes: [], images: [],
+    ingredients, steps: [], groups: [], tags: [], equipment: [], notes: [], images: [], cover: null,
     householdId: 'hh', visibility: 'household', favorite: false, createdBy: null, createdAt: null, updatedAt: null,
   }
 }

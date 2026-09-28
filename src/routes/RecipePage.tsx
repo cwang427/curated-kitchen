@@ -11,6 +11,7 @@ import StepList from '../components/StepList'
 import { useAuth } from '../auth/AuthProvider'
 import HeartIcon from '../components/HeartIcon'
 import { deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
+import { photoSrc, usePhotoUrls } from '../data/photos'
 import { getDish, removeDish } from '../data/cookBoard'
 import { describeFirestoreError } from '../lib/errors'
 import { formatMinutes } from '../lib/quantity'
@@ -32,6 +33,7 @@ export default function RecipePage() {
   const { goTo, goUp } = useAppNav()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
+  const coverUrls = usePhotoUrls(recipe?.cover ? [recipe.cover.photo] : [])
   // This recipe's dish on the cook board, if a solo cook is in progress here.
   const dish = useMemo(() => (slug ? getDish(slug) : null), [slug])
   const [scale, setScale] = useState(1)
@@ -98,6 +100,15 @@ export default function RecipePage() {
       <AppHeader title={recipe.title} back plan cart />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
+        {recipe.cover && (
+          // The small inline thumbnail shows instantly; the full photo replaces
+          // it once its doc has loaded.
+          <img
+            src={photoSrc(recipe.cover.photo, coverUrls) ?? recipe.cover.thumb}
+            alt=""
+            className="mb-5 aspect-[3/2] w-full rounded-2xl border border-line object-cover"
+          />
+        )}
         <header className="space-y-3">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -208,7 +219,7 @@ export default function RecipePage() {
               onClick={() => setShowAddToList(true)}
               className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
             >
-              Add to list
+              Add to grocery list
             </button>
             {/* The meal plan is members-only. */}
             {isMember && (
@@ -217,7 +228,7 @@ export default function RecipePage() {
                 onClick={() => setShowAddToPlan(true)}
                 className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
               >
-                Add to plan
+                Add to meal plan
               </button>
             )}
           </div>

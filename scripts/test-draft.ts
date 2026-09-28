@@ -90,5 +90,16 @@ console.log("\nhandsOff tag rides through the draft (editing mustn't drop it)")
   eq('an untagged step stays untagged', r.steps[1].handsOff, undefined)
 }
 
+console.log('\ncover photo rides through the draft')
+{
+  const cover = { photo: 'photo_cover1', thumb: 'data:image/jpeg;base64,AAAA' }
+  const d = seedToDraft({ ...seed, cover })
+  eq('cover survives an edit round trip', parseRecipe({ ...draftToInput(d), slug: 'cacio-cover' }).recipe.cover, cover)
+  eq('no cover stays null', parseRecipe({ ...draftToInput(seedToDraft(seed)), slug: 'cacio-nocover' }).recipe.cover, null)
+  const removed = seedToDraft({ ...seed, cover })
+  removed.cover = null
+  eq('removing the cover saves null', parseRecipe({ ...draftToInput(removed), slug: 'cacio-rm' }).recipe.cover, null)
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

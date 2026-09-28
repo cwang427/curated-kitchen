@@ -25,6 +25,12 @@ const STEP_PHOTO =
   )
 cacioRecipe.steps[0].images = [STEP_PHOTO, STEP_PHOTO]
 cacioRecipe.steps[1].images = [STEP_PHOTO]
+// A stand-in cover photo (golden roast on a board) for the list thumbnail and hero.
+const COVER_PHOTO =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><defs><radialGradient id="g" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#e8a54b"/><stop offset="1" stop-color="#8a4b1c"/></radialGradient></defs><rect width="100%" height="100%" fill="#5b3a26"/><ellipse cx="300" cy="215" rx="230" ry="150" fill="#d9c3a3"/><ellipse cx="300" cy="200" rx="160" ry="105" fill="url(#g)"/><circle cx="170" cy="310" r="22" fill="#6b8e23"/><circle cx="430" cy="300" r="18" fill="#6b8e23"/></svg>',
+  )
 // Members-only, so the guest view hides it and Settings › Guests has something
 // to offer sharing.
 const shortRibsRecipe: Recipe = { ...hydrate(shortRibs), visibility: 'household' }
@@ -44,6 +50,8 @@ const roast: Recipe = {
   visibility: 'friends',
   // A favorite, so the list pins it to the top and the heart shows filled.
   favorite: true,
+  // A cover photo, so the recipe page hero and the list thumbnail render.
+  cover: { photo: COVER_PHOTO, thumb: COVER_PHOTO },
 }
 
 const ALL = [cacioRecipe, shortRibsRecipe, roast]

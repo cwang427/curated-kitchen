@@ -406,6 +406,18 @@ reference from that recipe's step; the app never deletes the `photos` doc**
 unreferenced docs just orphan, which is cheap here (a future reference-aware
 sweep could reclaim them). Each photo must fit a Firestore doc (~1 MB), so
 `compressToDataUrl` downscales + drops quality until it does.
+And a **cover photo** per recipe (`Recipe.cover: { photo, thumb } | null`,
+optional, additive — no migration): added/replaced/removed at the top of the
+editor's Details. `photo` is a `photos` doc id (the full image, same pipeline and
+rules as step photos — members write, members + guests read); `thumb` is a
+~240px square JPEG data URL (`makeCoverThumb`, ~10–20 KB) stored **inline on the
+recipe doc**, so the kitchen list shows every card's thumbnail from the docs it
+already loads instead of fetching a photo doc per card. The recipe page shows
+the full photo (thumb first, swapped in when loaded); cards without a cover look
+as before. Copies duplicate the cover's photo doc like step photos; removing a
+cover drops the reference only. No `firestore.rules` change (recipe fields
+aren't restricted). Recipe page buttons read "Add to grocery list" / "Add to
+meal plan" (they fit side by side down to 360pt).
 And a **free pasted-text importer** (`src/lib/importText.ts`, Add a recipe →
 **Add from pasted text**): the cook copies a recipe — the whole page or just the recipe
 section — and a rule-based, on-device parser (no network, no AI, no cost) anchors

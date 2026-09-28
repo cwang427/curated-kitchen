@@ -105,6 +105,31 @@ export async function compressToDataUrl(file: File): Promise<string> {
 }
 
 /**
+ * The small square thumbnail stored inline on a recipe for its cover photo:
+ * center-cropped, 240px, ~10–20 KB, so the kitchen list can show every card's
+ * photo from the recipe docs it already loads (no photo-doc read per card).
+ */
+const THUMB_EDGE = 240
+export async function makeCoverThumb(file: File): Promise<string> {
+  const source = await loadSource(file)
+  try {
+    const scale = THUMB_EDGE / Math.min(source.width, source.height)
+    const w = Math.round(source.width * scale)
+    const h = Math.round(source.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = THUMB_EDGE
+    canvas.height = THUMB_EDGE
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Couldn’t process that image.')
+    ctx.translate(-(w - THUMB_EDGE) / 2, -(h - THUMB_EDGE) / 2)
+    source.draw(ctx, w, h)
+    return canvas.toDataURL('image/jpeg', 0.72)
+  } finally {
+    source.release()
+  }
+}
+
+/**
  * Downscale a photo for AI import (not for storage). Big enough that small
  * recipe text stays legible to the model, but re-encoded so several screenshots
  * can be sent in one request without a huge payload. Unlike compressToDataUrl

@@ -1,6 +1,7 @@
 import type {
   GroceryCategory,
   Ingredient,
+  RecipeCover,
   RecipeSeed,
   Temperature,
   Timer,
@@ -75,6 +76,8 @@ export interface RecipeDraft {
   equipment: string
   notes: string
   visibility: Visibility
+  /** Cover photo; `photo` is a `data:` URL until the editor saves it as a photo doc. */
+  cover: RecipeCover | null
   ingredients: DraftIngredient[]
   steps: DraftStep[]
   groups: string[]
@@ -125,6 +128,7 @@ export function blankDraft(): RecipeDraft {
     yieldAmount: '4', yieldAmountMax: '', yieldUnit: 'servings',
     prepMin: '', cookMin: '', totalMin: '', activeMin: '',
     tags: '', equipment: '', notes: '', visibility: 'friends',
+    cover: null,
     ingredients: [blankIngredient()],
     steps: [blankStep()],
     groups: [],
@@ -152,6 +156,7 @@ export function seedToDraft(seed: RecipeSeed): RecipeDraft {
     // The editor offers two states now — shared with everyone ('friends') or
     // members-only ('household'). Collapse the legacy 'private' onto members-only.
     visibility: seed.visibility === 'friends' ? 'friends' : 'household',
+    cover: seed.cover ?? null,
     groups: seed.groups,
     ingredients: seed.ingredients.map((i) => ({
       id: i.id,
@@ -255,5 +260,6 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
     equipment: lines(draft.equipment),
     notes: lines(draft.notes),
     visibility: draft.visibility,
+    cover: draft.cover ?? undefined,
   }
 }

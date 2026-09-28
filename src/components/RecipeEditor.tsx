@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { createRecipeInHousehold, updateRecipe } from '../data/recipes'
-import { compressToDataUrl, createPhoto, photoSrc, usePhotoUrls } from '../data/photos'
+import { compressToDataUrl, createPhoto, makeCoverThumb, photoSrc, usePhotoUrls } from '../data/photos'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { categoryLabel } from '../lib/grocery'
@@ -99,7 +99,32 @@ export default function RecipeEditor({
   const [photoError, setPhotoError] = useState<string | null>(null)
   // Resolve saved photo ids to data URLs for the thumbnails (freshly added
   // photos are already data URLs and render straight through).
-  const photoUrls = usePhotoUrls(draft.steps.flatMap((s) => s.images))
+  const photoUrls = usePhotoUrls([
+    ...draft.steps.flatMap((s) => s.images),
+    // An unsaved cover is already a data URL (photoSrc renders it directly);
+    // keep that ~1 MB string out of the hook's per-render key.
+    ...(draft.cover && !draft.cover.photo.startsWith('data:') ? [draft.cover.photo] : []),
+  ])
+  const [coverBusy, setCoverBusy] = useState(false)
+  const [coverError, setCoverError] = useState<string | null>(null)
+
+  const setCoverPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setCoverError(null)
+    setCoverBusy(true)
+    try {
+      // Like step photos, the full image becomes a photo doc on save; the small
+      // thumbnail rides inline on the recipe for the kitchen list.
+      const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
+      set({ cover: { photo, thumb } })
+    } catch (cause) {
+      setCoverError(cause instanceof Error ? cause.message : 'Couldn’t add that photo.')
+    } finally {
+      setCoverBusy(false)
+    }
+  }
 
   const set = (patch: Partial<RecipeDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const patchIng = (i: number, patch: Partial<DraftIngredient>) =>
@@ -164,7 +189,11 @@ export default function RecipeEditor({
           return { ...s, images }
         }),
       )
-      const persisted = { ...draft, steps }
+      const cover =
+        draft.cover && draft.cover.photo.startsWith('data:')
+          ? { ...draft.cover, photo: await createPhoto(household.id, user.uid, draft.cover.photo) }
+          : draft.cover
+      const persisted = { ...draft, steps, cover }
       // Editing keeps the existing slug (the doc id / URL is stable); a new
       // recipe mints one from the title.
       const slug =
@@ -184,6 +213,48 @@ export default function RecipeEditor({
   return (
     <div className="space-y-7 pb-28">
       <Section title="Details">
+        <div>
+          <span className="mb-1 block text-sm text-ink-soft">Cover photo (optional)</span>
+          {draft.cover ? (
+            <div className="relative overflow-hidden rounded-2xl border border-line">
+              <img
+                src={photoSrc(draft.cover.photo, photoUrls) ?? draft.cover.thumb}
+                alt=""
+                className="aspect-[3/2] w-full object-cover"
+              />
+              <div className="absolute right-2 top-2 flex gap-2">
+                <label className="cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-sm font-medium text-white">
+                  <input type="file" accept="image/*" onChange={setCoverPhoto} disabled={coverBusy} className="hidden" />
+                  {coverBusy ? 'Adding…' : 'Replace'}
+                </label>
+                {/* Drops the reference only; the photo doc is never deleted
+                    (same as step photos and recipe deletion). */}
+                <button
+                  type="button"
+                  onClick={() => set({ cover: null })}
+                  aria-label="Remove cover photo"
+                  className="rounded-full bg-black/60 px-3 py-1.5 text-sm font-medium text-white"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            <label
+              className={`grid aspect-[3/1] cursor-pointer place-items-center rounded-2xl border border-dashed border-line text-sm text-ink-soft ${
+                coverBusy ? 'opacity-50' : ''
+              }`}
+            >
+              <input type="file" accept="image/*" onChange={setCoverPhoto} disabled={coverBusy} className="hidden" />
+              {coverBusy ? 'Adding…' : '＋ Add a cover photo'}
+            </label>
+          )}
+          {coverError && (
+            <p role="alert" className="mt-1 text-sm text-red-600 dark:text-red-400">
+              {coverError}
+            </p>
+          )}
+        </div>
         <Labeled label="Title">
           <input className={input} value={draft.title} onChange={(e) => set({ title: e.target.value })} />
         </Labeled>

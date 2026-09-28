@@ -87,56 +87,67 @@ function RecipeCard({
   return (
     <Link
       to={`/r/${recipe.slug}`}
-      className="block rounded-2xl border border-line bg-card p-4 shadow-sm transition active:scale-[0.99]"
+      className="flex gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm transition active:scale-[0.99]"
     >
-      <div className="flex items-start gap-2">
-        <h2 className="min-w-0 flex-1 font-serif text-lg leading-snug tracking-tight">
-          {recipe.title}
-        </h2>
-        {canFavorite ? (
-          <button
-            type="button"
-            aria-pressed={recipe.favorite}
-            aria-label={recipe.favorite ? `Unfavorite ${recipe.title}` : `Favorite ${recipe.title}`}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onToggleFavorite()
-            }}
-            className={`-m-1 grid size-9 shrink-0 place-items-center rounded-full transition active:scale-90 ${
-              recipe.favorite ? 'text-accent' : 'text-ink-faint'
-            }`}
-          >
-            <HeartIcon filled={recipe.favorite} />
-          </button>
-        ) : recipe.favorite ? (
-          <span aria-label="Favorite" className="grid size-9 shrink-0 place-items-center text-accent">
-            <HeartIcon filled />
-          </span>
-        ) : null}
-      </div>
-      {recipe.subtitle && (
-        <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{recipe.subtitle}</p>
+      {/* Cover thumbnail — the small inline copy, so the list never fetches a
+          photo doc per card. */}
+      {recipe.cover && (
+        <img
+          src={recipe.cover.thumb}
+          alt=""
+          className="size-20 shrink-0 rounded-xl border border-line object-cover"
+        />
       )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
-        {time && <span>{time}</span>}
-        <span>{servings}</span>
-        {recipe.source.name && <span>{recipe.source.name}</span>}
-      </div>
-
-      {recipe.tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {recipe.tags.slice(0, 4).map((tag) => (
-            <span
-              key={tag}
-              className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2">
+          <h2 className="min-w-0 flex-1 font-serif text-lg leading-snug tracking-tight">
+            {recipe.title}
+          </h2>
+          {canFavorite ? (
+            <button
+              type="button"
+              aria-pressed={recipe.favorite}
+              aria-label={recipe.favorite ? `Unfavorite ${recipe.title}` : `Favorite ${recipe.title}`}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onToggleFavorite()
+              }}
+              className={`-m-1 grid size-9 shrink-0 place-items-center rounded-full transition active:scale-90 ${
+                recipe.favorite ? 'text-accent' : 'text-ink-faint'
+              }`}
             >
-              {tag}
+              <HeartIcon filled={recipe.favorite} />
+            </button>
+          ) : recipe.favorite ? (
+            <span aria-label="Favorite" className="grid size-9 shrink-0 place-items-center text-accent">
+              <HeartIcon filled />
             </span>
-          ))}
+          ) : null}
         </div>
-      )}
+        {recipe.subtitle && (
+          <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{recipe.subtitle}</p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
+          {time && <span>{time}</span>}
+          <span>{servings}</span>
+          {recipe.source.name && <span>{recipe.source.name}</span>}
+        </div>
+
+        {recipe.tags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {recipe.tags.slice(0, 4).map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </Link>
   )
 }

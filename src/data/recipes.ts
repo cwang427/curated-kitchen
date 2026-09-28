@@ -47,6 +47,10 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     equipment: data.equipment ?? [],
     notes: data.notes ?? [],
     images: data.images ?? [],
+    cover:
+      typeof data.cover?.photo === 'string' && typeof data.cover?.thumb === 'string'
+        ? { photo: data.cover.photo, thumb: data.cover.thumb }
+        : null,
     householdId: data.householdId ?? null,
     visibility: data.visibility ?? 'friends',
     favorite: data.favorite === true,
@@ -237,6 +241,11 @@ export async function copyRecipeToHousehold(
       return { ...step, images: copied.filter((x): x is string => !!x) }
     }),
   )
+  // The cover photo too (its small thumbnail is inline, so it copies as-is).
+  const coverPhoto = recipe.cover
+    ? await copyPhotoToHousehold(recipe.cover.photo, targetHouseholdId, uid)
+    : null
+  const cover = recipe.cover && coverPhoto ? { photo: coverPhoto, thumb: recipe.cover.thumb } : null
   await setDoc(doc(db, 'recipes', slug), {
     schemaVersion: recipe.schemaVersion,
     slug,
@@ -253,6 +262,7 @@ export async function copyRecipeToHousehold(
     equipment: recipe.equipment,
     notes: recipe.notes,
     images: recipe.images,
+    cover,
     visibility: recipe.visibility,
     householdId: targetHouseholdId,
     origin: 'app',

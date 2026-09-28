@@ -119,6 +119,18 @@ export interface Step {
   images: string[]
 }
 
+/**
+ * A recipe's representative photo, shown atop the recipe page and on its card in
+ * the kitchen list. `photo` is a `photos` doc id (the full image, like a step
+ * photo — a `data:` URL only mid-edit, before save). `thumb` is a small square
+ * JPEG data URL stored inline on the recipe, so the list can show every card's
+ * photo without fetching a photo doc per recipe.
+ */
+export interface RecipeCover {
+  photo: string
+  thumb: string
+}
+
 export interface RecipeSource {
   /** "Serious Eats", "Cook's Illustrated", "Apple Notes". */
   name: string | null
@@ -174,6 +186,8 @@ export interface Recipe {
   /** Headnotes and tips, kept separate from steps. */
   notes: string[]
   images: string[]
+  /** Optional cover photo; null when there isn't one. Additive — no migration. */
+  cover: RecipeCover | null
 
   householdId: string | null
   visibility: Visibility

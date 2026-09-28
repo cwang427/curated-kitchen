@@ -105,6 +105,10 @@ export const recipeInputSchema = z.object({
   equipment: z.array(z.string().trim().min(1)).optional(),
   notes: z.array(z.string().trim().min(1)).optional(),
   images: z.array(z.string().trim()).optional(),
+  cover: z
+    .object({ photo: z.string().trim().min(1), thumb: z.string().trim().min(1) })
+    .nullable()
+    .optional(),
   visibility: z.enum(['private', 'household', 'friends']).default('friends'),
 })
 
@@ -347,6 +351,7 @@ export function parseRecipe(raw: unknown): ParseResult {
       equipment: input.equipment ?? [],
       notes: input.notes ?? [],
       images: input.images ?? [],
+      cover: input.cover ?? null,
       visibility: input.visibility,
     },
   }
