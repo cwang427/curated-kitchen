@@ -441,7 +441,7 @@ confusion:
   `/review/:slug` — the recipe page exactly as the kitchen shows it, under an
   "Awaiting review" note (with what the import couldn't bring), and a
   **pinned bottom bar: Delete / Edit / Approve** from the start. Grocery list,
-  meal plan, copy and favorite wait until it's approved (Start cooking
+  copy and favorite wait until it's approved (Start cooking
   doesn't). **Approve** (`approveRecipe`) sets the visibility the import chose
   and deletes the review fields, then back to the list with "Added to your
   kitchen: … Open". **Edit** (`/review/:slug/edit`) saves with **Save & add to
@@ -521,7 +521,7 @@ everything. **Recipes are shared with guests (friends) by default** —
 `visibility` defaults to `'friends'`, and the editor's "Who can see it" offers
 two states: *Everyone in this kitchen* (`'friends'`) or *Members only*
 (`'household'`, the hide option; legacy `'private'` is treated as members-only).
-Guests never see the grocery list, meal plan, or cook session. Rules key on
+Guests never see the grocery list or cook session. Rules key on
 `request.auth.uid`, never the email or provider. Joining is by invite link
 (`src/data/invites.ts`, Settings screen). An import **awaiting review** is
 members-only until a member approves it (then it takes the visibility the
@@ -530,7 +530,7 @@ import chose) — guests never see it, with no rules change.
 What a guest can do with a shared recipe: **view, cook (solo), copy it into
 their own kitchen, and add its ingredients to their own grocery list** — but
 **not edit it in place** (Edit/Delete stay members-only), and not touch the
-kitchen's own list/plan/session. This needed **no rules change**: copy creates a
+kitchen's own list/session. This needed **no rules change**: copy creates a
 recipe in a kitchen the guest is a *member* of, and add-to-list writes that
 *member* kitchen's list — both already allowed. `copyRecipeToHousehold` and
 `AddToListSheet` therefore target one of the guest's own kitchens (a picker when
@@ -540,8 +540,8 @@ A guest's reads must still be **scoped in the client**: a friend may only list
 recipes filtered to `visibility == 'friends'` (Firestore refuses an unfiltered
 household listing for them — it could return docs they can't read), so
 `useRecipes(id, nonce, friendsOnly)` adds that filter for non-members. The
-grocery/plan/session subscriptions and the members-only UI (header cart/plan,
-add-to-plan, cook-together, Edit/Delete) are hidden for guests — a member-only
+grocery/session subscriptions and the members-only UI (header cart,
+cook-together, Edit/Delete) are hidden for guests — a member-only
 read would just permission-deny. `test:rules` locks in the member-lists-all /
 friend-lists-only-friends behavior. Recipes created before share-by-default are
 brought in with one tap: **Settings › Guests › "Make N hidden recipes visible
@@ -615,12 +615,11 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   downloads the CLI + emulator), including the `photos` collection (members
   write, members + guests read).
 - `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
-  `npm run test:plan` / `npm run test:steps` / `npm run test:draft` /
+  `npm run test:steps` / `npm run test:draft` /
   `npm run test:cook` / `npm run test:ai` / `npm run test:units` /
   `npm run test:tags` — pure-logic unit tests for the JSON-LD converter, the
   free pasted-text importer (real full-page fixtures under
-  `scripts/fixtures/text/`), the grocery merge/aisle logic, the meal-plan day
-  window + plan→groceries aggregation, the cook-mode sentence splitter, the
+  `scripts/fixtures/text/`), the grocery merge/aisle logic, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
   timeline (attention/agenda merge + ordering) and the timer notifications
   built from it (`src/lib/timerAlerts.ts`), the import progress wording and
@@ -629,7 +628,7 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   never "leafs"/"leaveses"), and the fixed tag list's normalizing
   ("Main Course" → mains, "roman" → italian, "beef" dropped). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
-  `src/lib/plan.ts`, `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
+  `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`, or
   `src/lib/tags.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
@@ -658,14 +657,14 @@ the deploy and leaves the previous version up.
 - **Back goes to a fixed parent screen, never "wherever you came from"**
   (`src/components/nav.tsx`): kitchen ← recipe ← cook mode / editor; kitchen ←
   Add a recipe ← its import screens (`/add?m=…`) and the imports awaiting
-  review (`/review/:slug` ← its editor); kitchen ← grocery list / meal
-  plan / cooking timeline / settings (`parentOf`). An installed iPhone web app's
+  review (`/review/:slug` ← its editor); kitchen ← grocery list /
+  cooking timeline / settings (`parentOf`). An installed iPhone web app's
   edge-swipe can't be disabled and always steps back one history entry, so the
   app keeps **browser history shaped exactly like the screen's ancestor chain**:
   every in-app link is `nav.tsx`'s `Link` / `goTo(path)` (never React Router's
   `<Link>` or a bare `navigate(path)`), which steps back to the deepest shared
-  ancestor and pushes the rest — so a recipe opened from the meal plan sits
-  directly on the kitchen. Every back / close / done control is `goUp()` (one
+  ancestor and pushes the rest — so a dish opened from the cooking timeline
+  sits directly on its recipe, which sits on the kitchen. Every back / close / done control is `goUp()` (one
   history step = the parent). `HistoryChain` (mounted in `App`) rebuilds the
   chain underneath a screen opened directly (reload / link) and finishes goTo's
   two-phase moves. Add a recipe manages its own inner steps (the editor sits on
@@ -711,8 +710,7 @@ interrupted solo cook — several dishes at once — via the cook board
 pull-to-refresh, screen-name editor, recipe import (paste text; the old
 GitHub Actions URL importer was removed in v0.46),
 the shared grocery list (add-from-recipe, merge by canonical + unit, aisle
-order, realtime check-off, quick-add), the meal plan (plan recipes onto a
-rolling week → one-tap "add the week to groceries"), and two-phone "cook
+order, realtime check-off, quick-add), and two-phone "cook
 together" sync (both phones follow the same step and timers via a shared
 `sessions/{householdId}` doc), and member/role management (owner removes/
 demotes members and promotes friends; either member manages guests; anyone but
@@ -725,7 +723,7 @@ before making a duplicate — copies stay independent forks, no live propagation
 and **share-with-guests-by-default** (recipes default to guest-visible; a member
 can hide one via the editor; guests can view, cook, copy into their own kitchen,
 and add ingredients to their own grocery list, but never edit in place or see the
-kitchen's list/plan — no rules change, since copy/add-to-list act on the guest's
+kitchen's list — no rules change, since copy/add-to-list act on the guest's
 own kitchen; Settings › Guests one-taps pre-existing recipes into the default),
 and recipe import from a link (Add a recipe → **Add from URL** →
 the `worker/` `/url` route fetches the page → `recipeFromJsonLd` reads its
@@ -816,8 +814,8 @@ total, else prep + cook, else active) — "how long start to finish" is what you
 judge at a glance, and it's the same figure the ≤20/30/45/60-min filter uses
 (it used to show active time, so a 50-min roast read "15 min"). Copies duplicate the cover's photo doc like step photos; removing a
 cover drops the reference only. No `firestore.rules` change (recipe fields
-aren't restricted). Recipe page buttons read "Add to grocery list" / "Add to
-meal plan" (they fit side by side down to 360pt).
+aren't restricted). The recipe page's buttons are "Add to grocery list" and
+"Copy to another kitchen", one per row.
 And a **photo viewer** (`src/components/PhotoViewer.tsx`): step photos show large
 on the recipe page and in cook mode (`PhotoStrip`: one photo full width, several
 in a swipeable row — its step column needs `min-w-0` or the row stretches the
@@ -880,6 +878,12 @@ of free text; an older recipe's off-list tags are listed "removed when you
 save". Stored tags aren't migrated — the kitchen's chips (`collectTags`), tag
 filter (`useRecipeSearch`) and cards show the normalized form, so old recipes
 look clean at once and are cleaned in the data when next edited.
+A **meal plan** (recipes onto a rolling week's days → "add the week to
+groceries") shipped early on and was **removed in v0.51** at the owner's call:
+people agree what to cook off the app, favorites already pin what's on the
+cards, and the grocery list merges ingredients across recipes on its own. Its
+rules went too (`plans` falls to the catch-all deny — `test:rules` checks it);
+any old plan data is simply unreachable.
 And **background imports with a review step, and notifications** (v0.50):
 every import (link, pasted text, photos/PDF) runs in the background with live
 progress and lands in "Recipes awaiting review" on Add a recipe, where any

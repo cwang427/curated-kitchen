@@ -3,7 +3,6 @@ import { useLocation, useParams } from 'react-router-dom'
 import { Link, useAppNav } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
-import PlanSheet from '../components/PlanSheet'
 import CopyRecipeSheet from '../components/CopyRecipeSheet'
 import IngredientList from '../components/IngredientList'
 import ScaleControl from '../components/ScaleControl'
@@ -44,7 +43,6 @@ export default function RecipePage() {
   const [scale, setScale] = useState(1)
   const [doneSteps, toggleStep] = useToggleSet()
   const [showAddToList, setShowAddToList] = useState(false)
-  const [showAddToPlan, setShowAddToPlan] = useState(false)
   const [showCopy, setShowCopy] = useState(false)
   const [approving, setApproving] = useState(false)
 
@@ -124,7 +122,7 @@ export default function RecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title={recipe.title} back plan cart />
+      <AppHeader title={recipe.title} back cart />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
         {inReview && (
@@ -258,29 +256,17 @@ export default function RecipePage() {
                 Start cooking →
               </Link>
             ))}
-          {/* Grocery list, meal plan and copying wait until it's approved. */}
+          {/* Grocery list and copying wait until it's approved. */}
           {!inReview && <>
-          <div className="flex gap-3">
-            {/* Add-to-list works for guests too — it goes to one of THEIR own
-                kitchens (the sheet picks), never this shared list. */}
-            <button
-              type="button"
-              onClick={() => setShowAddToList(true)}
-              className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-            >
-              Add to grocery list
-            </button>
-            {/* The meal plan is members-only. */}
-            {isMember && (
-              <button
-                type="button"
-                onClick={() => setShowAddToPlan(true)}
-                className="grid h-14 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
-              >
-                Add to meal plan
-              </button>
-            )}
-          </div>
+          {/* Add-to-list works for guests too — it goes to one of THEIR own
+              kitchens (the sheet picks), never this shared list. */}
+          <button
+            type="button"
+            onClick={() => setShowAddToList(true)}
+            className="grid h-14 w-full place-items-center rounded-2xl border border-line text-base font-semibold text-ink-soft transition active:scale-[0.99]"
+          >
+            Add to grocery list
+          </button>
 
           {/* Copying makes an independent copy in a kitchen you're a member of,
               so guests can save a recipe into their own kitchen too. */}
@@ -296,9 +282,6 @@ export default function RecipePage() {
 
         {showAddToList && (
           <AddToListSheet recipe={recipe} scale={scale} onClose={() => setShowAddToList(false)} />
-        )}
-        {showAddToPlan && (
-          <PlanSheet recipe={recipe} scale={scale} onClose={() => setShowAddToPlan(false)} />
         )}
 
         <section className="mt-6" aria-labelledby="ingredients-heading">

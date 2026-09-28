@@ -7,7 +7,7 @@ import { useHref, useLocation, useNavigate, useNavigationType } from 'react-rout
  *   kitchen (/) ← recipe (/r/x) ← cook mode (/r/x/cook) · editor (/r/x/edit)
  *   kitchen ← Add a recipe (/add) ← its import screens (/add?m=…)
  *   kitchen ← Add a recipe ← an import awaiting review (/review/x) ← its editor
- *   kitchen ← grocery list · meal plan · cooking timeline · settings
+ *   kitchen ← grocery list · cooking timeline · settings
  *
  * Back always goes to the parent. An installed iPhone web app's edge-swipe
  * can't be turned off and always steps back one history entry, so the app keeps
@@ -38,8 +38,8 @@ export function historyDepth(): number {
   return (window.history.state as { idx?: number } | null)?.idx ?? 0
 }
 
-// A goTo that must first step back (meal plan → a recipe: back to the kitchen,
-// then open the recipe) finishes once the browser has landed; see HistoryChain.
+// A goTo that must first step back (cooking timeline → a recipe: back to the
+// kitchen, then open the recipe) finishes once the browser has landed; see HistoryChain.
 let pending: { at: string; push: string[] } | null = null
 
 export function useAppNav(): { goTo: (target: string) => void; goUp: () => void } {

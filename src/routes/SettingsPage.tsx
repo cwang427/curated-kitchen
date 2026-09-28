@@ -448,7 +448,7 @@ function InvitePanel({ role }: { role: HouseholdRole }) {
       <h3 className="font-medium">Invite a {label}</h3>
       <p className="mt-1 text-sm text-ink-soft">
         {role === 'member'
-          ? 'A member shares everything in this kitchen — recipes, the grocery list, and the meal plan. You can add as many as you like.'
+          ? 'A member shares everything in this kitchen — recipes and the grocery list. You can add as many as you like.'
           : 'A guest can view, copy, and cook your recipes (all of them, unless you hide one), but can’t edit them or see your grocery list.'}
       </p>
 

@@ -23,7 +23,6 @@ export default defineConfig({
       { find: /^.*\/data\/invites$/, replacement: stub("invites.ts") },
       { find: /^.*\/data\/household$/, replacement: stub("household.ts") },
       { find: /^.*\/data\/grocery$/, replacement: stub("grocery.ts") },
-      { find: /^.*\/data\/plan$/, replacement: stub("plan.ts") },
       { find: /^.*\/data\/cooksession$/, replacement: stub("cooksession.ts") },
       { find: /^.*\/data\/aiImport$/, replacement: stub("aiImport.ts") },
       { find: /^.*\/data\/urlImport$/, replacement: stub("urlImport.ts") },

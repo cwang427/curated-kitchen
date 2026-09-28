@@ -231,31 +231,15 @@ async function main(): Promise<void> {
     await getDocs(collection(E.db, 'lists', hhA, 'items'))
   })
 
-  console.log('Meal plan')
-  // Same regression guard as the grocery list: the entries subcollection must
-  // read before the parent plan doc exists.
-  await expectAllow('member reads the empty plan entries (no plan doc yet)', () =>
+  console.log('Retired meal plan')
+  // The meal plan was removed in 0.51; its rules went with it, so any data it
+  // left behind falls to the catch-all deny — members included.
+  await expectDeny('nobody reads the old meal plan any more (members included)', () =>
     getDocs(collection(A.db, 'plans', hhA, 'entries')),
   )
-  await expectAllow('member creates the parent plan doc', () =>
-    setDoc(doc(A.db, 'plans', hhA), { householdId: hhA }),
-  )
-  await expectAllow('member adds a plan entry', () =>
+  await expectDeny('nobody writes to it either', () =>
     setDoc(doc(A.db, 'plans', hhA, 'entries', 'p1'), { recipeSlug: 'r1', recipeTitle: 'X', date: null, scale: 1 }),
   )
-  await expectAllow('the other member reads the plan entry', () =>
-    getDoc(doc(B.db, 'plans', hhA, 'entries', 'p1')),
-  )
-  await expectDeny('a friend cannot read the meal plan', () =>
-    getDocs(collection(C.db, 'plans', hhA, 'entries')),
-  )
-  await expectDeny('a friend cannot add a plan entry', () =>
-    setDoc(doc(C.db, 'plans', hhA, 'entries', 'sneaky'), { recipeSlug: 'r2', recipeTitle: 'Y', date: null, scale: 1 }),
-  )
-  await expectDeny('an outsider cannot read the meal plan', async () => {
-    const E = await asUser('e-plan@kitchen.local')
-    await getDocs(collection(E.db, 'plans', hhA, 'entries'))
-  })
 
   console.log('Cook session')
   await expectAllow('member starts a cook session', () =>

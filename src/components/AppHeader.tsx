@@ -13,17 +13,15 @@ interface Props {
   onBack?: () => void
   /** Show the "add a recipe" shortcut (members only). */
   add?: boolean
-  /** Show the meal-plan (calendar) shortcut. */
-  plan?: boolean
   /** Show the grocery-list (cart) shortcut. */
   cart?: boolean
 }
 
-export default function AppHeader({ title, back, onBack, add, plan, cart }: Props) {
+export default function AppHeader({ title, back, onBack, add, cart }: Props) {
   const { user, profile, household } = useAuth()
   // Email/password accounts carry no auth displayName, so prefer the profile's.
   const displayName = profile?.displayName ?? user?.displayName ?? user?.email ?? '?'
-  // Members only: adding recipes, the meal plan, and the grocery list are all
+  // Members only: adding recipes and the grocery list are both
   // member actions — a guest (friend) can't read or write them, so hide the
   // shortcuts rather than offer a tap that errors.
   const isMember = !!user && !!household && household.memberUids.includes(user.uid)
@@ -87,19 +85,6 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
                 {waiting}
               </span>
             )}
-          </Link>
-        )}
-        {plan && isMember && (
-          <Link
-            to="/plan"
-            title="Meal plan"
-            aria-label="Meal plan"
-            className="grid size-9 place-items-center rounded-full border border-line text-ink-soft transition active:bg-line"
-          >
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
-              <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M4 9h16M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
           </Link>
         )}
         {cart && isMember && (

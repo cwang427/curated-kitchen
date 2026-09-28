@@ -1,7 +1,7 @@
 {
   "name": "curated-kitchen",
   "private": true,
-  "version": "0.50.0",
+  "version": "0.51.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,6 @@
     "test:import": "tsx scripts/test-import.ts",
     "test:text": "tsx scripts/test-text-import.ts",
     "test:grocery": "tsx scripts/test-grocery.ts",
-    "test:plan": "tsx scripts/test-plan.ts",
     "test:steps": "tsx scripts/test-steps.ts",
     "test:draft": "tsx scripts/test-draft.ts",
     "test:cook": "tsx scripts/test-cook.ts",

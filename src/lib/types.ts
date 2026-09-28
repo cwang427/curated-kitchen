@@ -272,25 +272,6 @@ export interface GroceryItem {
 }
 
 /**
- * One planned meal. Lives in a subcollection under the household's plan doc so
- * two people planning at once each write their own entry and never clobber each
- * other (same reasoning as GroceryItem). `recipeTitle` is denormalized so the
- * plan renders without loading every recipe, and `scale` remembers the serving
- * multiplier chosen when planning so "the whole week → groceries" is accurate.
- */
-export interface PlanEntry {
-  id: string
-  recipeSlug: string
-  recipeTitle: string
-  /** ISO yyyy-mm-dd for a scheduled day, or null for the "anytime" bucket. */
-  date: string | null
-  /** Serving multiplier, matching the recipe reader's scale (1 = as written). */
-  scale: number
-  addedBy: string | null
-  createdAt: number | null
-}
-
-/**
  * A live, shared cook session — the two-phone "cook together" mode. One doc per
  * household (id = householdId), so both phones follow the same current step and
  * the same timers. Timers are stored endsAt-first (a wall-clock epoch) so each

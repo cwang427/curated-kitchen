@@ -6,7 +6,6 @@ import RecipePage from './routes/RecipePage'
 import CookPage from './routes/CookPage'
 import CookingPage from './routes/CookingPage'
 import GroceryListPage from './routes/GroceryListPage'
-import PlanPage from './routes/PlanPage'
 import AddRecipePage from './routes/AddRecipePage'
 import EditRecipePage from './routes/EditRecipePage'
 import SettingsPage from './routes/SettingsPage'
@@ -62,7 +61,6 @@ export default function App() {
         <Route path="/r/:slug/cook" element={<CookPage />} />
         <Route path="/cooking" element={<CookingPage />} />
         <Route path="/list" element={<GroceryListPage />} />
-        <Route path="/plan" element={<PlanPage />} />
         <Route path="/add" element={<AddRecipePage />} />
         <Route path="/r/:slug/edit" element={<EditRecipePage />} />
         <Route path="/review/:slug" element={<RecipePage />} />

@@ -165,7 +165,7 @@ export default function RecipeListPage() {
   const { household, user } = useAuth()
   const [nonce, setNonce] = useState(0)
   // A guest (friend, not member) may only read recipes shared 'friends', and
-  // the grocery/plan/cook-session data is members-only — so scope their reads.
+  // the grocery list and cook session are members-only — so scope their reads.
   const isMember = !!(user && household && household.memberUids.includes(user.uid))
   const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce, !isMember)
   useCoverUpgrade(recipes, isMember)
@@ -208,7 +208,7 @@ export default function RecipeListPage() {
     // resting spot above the page, but -hidden makes this div a scroll box, and
     // the sticky header then stuck to it instead of the screen (it scrolled away).
     <div className="relative min-h-dvh overflow-clip">
-      <AppHeader add plan cart />
+      <AppHeader add cart />
 
       <PullToRefresh onRefresh={refresh}>
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
