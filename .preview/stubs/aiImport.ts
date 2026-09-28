@@ -18,7 +18,6 @@ export type ImportError = Error & {
   code?: string
   detail?: string
   retryAfterMs?: number
-  jsonld?: unknown
 }
 export type AiPhoto = { data: string; mediaType: string }
 export type AiInput = { text: string } | { images: AiPhoto[] } | { url: string }
@@ -34,7 +33,7 @@ const fail = (message: string, extra: Partial<ImportError>): never => {
  *   blockedphotos recipe but no photos, nothing to wait for (editor + note)
  *   nopics        the photo downloads all failed (choice, Try again now)
  *   somepics      3 of 5 photos in time (editor + note)
- *   aibusy        AI busy, the site's recipe data offered instead
+ *   aibusy        the AI overloaded (Try again only)
  *   nyt           a site that refuses everything */
 export async function importRecipeViaAI(input?: AiInput): Promise<AiImportResult> {
   await new Promise((r) => setTimeout(r, 400))
@@ -46,7 +45,7 @@ export async function importRecipeViaAI(input?: AiInput): Promise<AiImportResult
       retryAfterMs: 90_000,
     })
   }
-  if (url.includes('aibusy')) fail('Gemini is busy right now — please try again in a moment.', { status: 502, code: 'ai_busy', jsonld: [cacio] })
+  if (url.includes('aibusy')) fail('Our recipe reader (Google’s AI) is overloaded right now, so it couldn’t finish this one.', { status: 502, code: 'ai_busy' })
   if (url.includes('nyt')) {
     fail('NYT Cooking recipes are for subscribers only, so the app can’t open the link — copy the recipe text (or take a screenshot) and add it that way.', {
       status: 422,
@@ -66,10 +65,4 @@ export async function importRecipeViaAI(input?: AiInput): Promise<AiImportResult
             ? { via: 'archive', photos: { wanted: 5, got: 3 } }
             : { via: 'direct', photos: { wanted: 2, got: 2 } }
   return { seed: recipe, warnings, link }
-}
-
-export async function importFromRecipeData(): Promise<AiImportResult> {
-  await new Promise((r) => setTimeout(r, 300))
-  const { recipe, warnings } = parseRecipe(cacio)
-  return { seed: recipe, warnings, link: { via: 'recipe data', photos: { wanted: 1, got: 1 } } }
 }

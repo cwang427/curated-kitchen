@@ -4,7 +4,7 @@ import AppHeader from '../components/AppHeader'
 import { historyDepth } from '../components/nav'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
-import { importFromRecipeData, importRecipeViaAI, type AiImportResult, type ImportError } from '../data/aiImport'
+import { importRecipeViaAI, type AiImportResult, type ImportError } from '../data/aiImport'
 import { importRecipeFromUrl } from '../data/urlImport'
 import { importRecipeFromText } from '../lib/importText'
 import { compressForImport, readFileBase64 } from '../data/photos'
@@ -16,12 +16,12 @@ type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
 const SCREENS: Mode[] = ['link', 'text', 'capture', 'edit']
 
 /** A link read that needs the cook's say before the editor opens (readLink):
- * the recipe came but its photos didn't; the AI was busy but the site's own
- * recipe data is here; or nothing could be read while the Archive was busy.
+ * the recipe came but its photos didn't; the recipe reader (the AI) was
+ * overloaded; or nothing could be read while the Archive was busy.
  * `retryAt` = when trying again is worthwhile. */
 type LinkChoice =
   | { kind: 'no-photos'; result: AiImportResult; retryAt: number; blocked: boolean }
-  | { kind: 'simpler'; error: ImportError; retryAt: number }
+  | { kind: 'ai-busy'; retryAt: number }
   | { kind: 'busy'; message: string; retryAt: number }
 
 /** "www.seriouseats.com" → "seriouseats.com", for messages. */
@@ -214,9 +214,9 @@ export default function AddRecipePage() {
   // the Internet Archive's copy — big sites like Serious Eats block plain
   // server fetches) and has the AI read it, photos included. When it can read
   // the recipe but not bring everything, the cook chooses — never a silently
-  // lesser import: continue without photos or try again later; the site's own
-  // recipe data or try again when the AI is busy. Without AI, the Worker's
-  // recipe-data route is the only engine.
+  // lesser import: continue without photos, or try again later. When the AI
+  // itself is overloaded, just Try again (it usually frees up within a
+  // minute). Without AI, the Worker's recipe-data route is the only engine.
   const readLink = async () => {
     const run = ++linkRun.current
     linkActive.current = true
@@ -260,8 +260,8 @@ export default function AddRecipePage() {
       const err = cause as ImportError
       if (isArchiveBusy(err)) {
         setChoice({ kind: 'busy', message: err.message, retryAt: Date.now() + busyRetryMs(err) })
-      } else if (err.code === 'ai_busy' && err.jsonld) {
-        setChoice({ kind: 'simpler', error: err, retryAt: Date.now() + 15_000 })
+      } else if (err.code === 'ai_busy') {
+        setChoice({ kind: 'ai-busy', retryAt: Date.now() + 5_000 })
       } else {
         setError(err instanceof Error ? err.message : 'Couldn’t read that link.')
       }
@@ -276,29 +276,6 @@ export default function AddRecipePage() {
   const continueWithoutPhotos = (result: AiImportResult) => {
     setChoice(null)
     openEditor(result.seed, 'link', 'Imported without photos — add your own with the photo buttons below.')
-  }
-  const importAsListed = async (err: ImportError) => {
-    const run = ++linkRun.current
-    linkActive.current = true
-    setChoice(null)
-    setReading(true)
-    try {
-      const result = await importFromRecipeData(err, link.trim())
-      if (run === linkRun.current) {
-        openEditor(
-          result.seed,
-          'link',
-          'Imported as the site lists it, without the AI: steps are as written, grocery aisles are best guesses, and cook mode splits steps on its own. Check it over before saving.',
-        )
-      }
-    } catch (cause) {
-      if (run === linkRun.current) setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
-    } finally {
-      if (run === linkRun.current) {
-        linkActive.current = false
-        setReading(false)
-      }
-    }
   }
   // Nothing more to get from the link: the pasted-text screen, in its place
   // (so Back still goes to the chooser).
@@ -411,11 +388,10 @@ export default function AddRecipePage() {
                 onRetry={readLink}
               />
             )}
-            {choice?.kind === 'simpler' && (
+            {choice?.kind === 'ai-busy' && (
               <ChoicePanel
-                title="The AI that tidies recipes is busy"
-                body="We can bring the recipe in as the site lists it — you may want to tidy the steps afterwards — or try again in a moment for the full import."
-                primary={{ label: 'Import it as listed', onClick: () => void importAsListed(choice.error) }}
+                title="Couldn’t finish reading this recipe"
+                body="The recipe reader we use (Google’s AI) is overloaded right now. That usually passes within a minute — try again shortly."
                 retryAt={choice.retryAt}
                 onRetry={readLink}
               />
@@ -644,7 +620,8 @@ function ChoicePanel({
 }: {
   title: string
   body: string
-  primary: { label: string; onClick: () => void }
+  /** Go ahead another way. Without it, Try again is the only (main) button. */
+  primary?: { label: string; onClick: () => void }
   retryAt: number
   onRetry: () => void
 }) {
@@ -663,18 +640,24 @@ function ChoicePanel({
         <p className="font-medium text-ink">{title}</p>
         <p className="mt-1 text-sm text-ink-soft">{body}</p>
       </div>
-      <button
-        type="button"
-        onClick={primary.onClick}
-        className="grid h-12 w-full place-items-center rounded-xl bg-accent px-4 text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
-      >
-        {primary.label}
-      </button>
+      {primary && (
+        <button
+          type="button"
+          onClick={primary.onClick}
+          className="grid h-12 w-full place-items-center rounded-xl bg-accent px-4 text-base font-semibold text-white transition active:scale-[0.99] dark:text-stone-900"
+        >
+          {primary.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={onRetry}
         disabled={waiting}
-        className="grid h-12 w-full place-items-center rounded-xl border border-line px-4 text-base font-medium text-ink transition active:scale-[0.99] disabled:opacity-60"
+        className={`grid h-12 w-full place-items-center rounded-xl px-4 text-base transition active:scale-[0.99] disabled:opacity-60 ${
+          primary
+            ? 'border border-line font-medium text-ink'
+            : 'bg-accent font-semibold text-white dark:text-stone-900'
+        }`}
       >
         {waiting ? `Try again in ${clock}` : 'Try again'}
       </button>

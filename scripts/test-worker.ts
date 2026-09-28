@@ -98,27 +98,56 @@ function install(w: World): void {
     if (url.includes('generativelanguage.googleapis.com')) {
       const model = url.match(/models\/([^:]+):/)?.[1] ?? ''
       const body = JSON.parse(String(init.body)) as { tools?: unknown; contents: Array<{ parts: Array<{ text?: string }> }> }
+      if (!url.includes(':streamGenerateContent?alt=sse')) return new Response('wrong endpoint', { status: 404 })
+      // Like a real response, the stream breaks off when the request is called off.
+      const tied = (res: Response): Response => {
+        const signal = init.signal
+        if (!res.body || !signal) return res
+        const reader = res.body.getReader()
+        const aborted = new Promise<never>((_, reject) =>
+          signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+        )
+        aborted.catch(() => {})
+        const body = new ReadableStream<Uint8Array>({
+          async pull(c) {
+            try {
+              const { value, done } = await Promise.race([reader.read(), aborted])
+              if (done) c.close()
+              else c.enqueue(value)
+            } catch (e) {
+              c.error(e)
+            }
+          },
+        })
+        return new Response(body, { status: res.status, headers: res.headers })
+      }
       if (w.gemini) {
         const r = w.gemini(model, body)
         if ((r as unknown) === 'hang') return hang()
-        if (r) return r
+        // A plain JSON answer from a scenario is sent the way Gemini streams:
+        // as server-sent events.
+        if (r && r.ok && r.headers.get('Content-Type') !== 'text/event-stream') return sse([JSON.parse(await r.text())])
+        if (r) return tied(r)
       }
       const prompt = body.contents[0].parts.map((p) => p.text ?? '').join('')
       const link = body.tools ? prompt.match(/web page: (\S+)/)?.[1] ?? '' : ''
       const ok = !body.tools || (w.googleReads?.(link) ?? false)
-      return new Response(
-        JSON.stringify({
+      // The answer in two pieces, the metadata in the last — as Gemini sends it.
+      const half = Math.floor(AI_RECIPE.length / 2)
+      return sse([
+        { candidates: [{ content: { parts: [{ text: AI_RECIPE.slice(0, half) }] } }] },
+        {
           candidates: [
             {
               finishReason: 'STOP',
-              content: { parts: [{ text: AI_RECIPE }] },
+              content: { parts: [{ text: AI_RECIPE.slice(half) }] },
               ...(body.tools
                 ? { urlContextMetadata: { urlMetadata: [{ urlRetrievalStatus: ok ? 'URL_RETRIEVAL_STATUS_SUCCESS' : 'URL_RETRIEVAL_STATUS_ERROR' }] } }
                 : {}),
             },
           ],
-        }),
-      )
+        },
+      ])
     }
     if (url.startsWith('https://r.jina.ai/')) return w.reader ? w.reader(url) : new Response('refused', { status: 451 })
     if (url.startsWith('https://archive.org/wayback/available')) {
@@ -136,6 +165,26 @@ function install(w: World): void {
     return new Response('not found', { status: 404 })
   }) as typeof fetch
 }
+
+/** A streamed Gemini answer: each piece as a server-sent event, `gapMs` apart
+ * (a `stallAfter` piece is followed by silence instead). */
+function sse(pieces: unknown[], gapMs = 0, stallAfter = -1): Response {
+  const enc = new TextEncoder()
+  let i = 0
+  const body = new ReadableStream<Uint8Array>({
+    async pull(c) {
+      if (i > 0 && gapMs) await new Promise((r) => setTimeout(r, gapMs))
+      if (i > stallAfter && stallAfter >= 0) return new Promise<void>(() => {}) // silence
+      if (i >= pieces.length) return c.close()
+      c.enqueue(enc.encode(`data: ${JSON.stringify(pieces[i++])}\r\n\r\n`))
+    },
+  })
+  return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+}
+const slices = (text: string, n: number) =>
+  Array.from({ length: n }, (_, k) => ({
+    candidates: [{ content: { parts: [{ text: text.slice((k * text.length) / n, ((k + 1) * text.length) / n) }] }, ...(k === n - 1 ? { finishReason: 'STOP' } : {}) }],
+  }))
 
 const archiveCalls = () => calls.filter((c) => /(^https:\/\/web\.archive\.org\/)/.test(c.url))
 const replayCalls = () => calls.filter((c) => c.url.startsWith('https://web.archive.org/web/'))
@@ -460,10 +509,47 @@ check('a 429 on the first model tries the next', r.status === 200 && googleCalls
 resetForTests({}, 0.01)
 install({ direct: () => new Response(PAGES.recipeData), gemini: () => new Response('busy', { status: 503 }) })
 r = await link(BLOG)
-check('AI down after we got the page: code ai_busy', r.status === 502 && r.body.code === 'ai_busy', r.body)
-check('…with the recipe data and cover to offer a simpler import', Array.isArray(r.body.jsonld) && (r.body.photos as { cover: string }).cover === 'https://img.example/potatoes.jpg', r.body)
-check('…and without fetching the page again', calls.filter((c) => c.url === BLOG).length === 1)
-check('…with step photos and the step count, so "import as listed" gets them too', JSON.stringify((r.body.photos as { steps: unknown }).steps) === '{"0":["https://img.example/step1.jpg"]}' && (r.body.photos as { stepCount: number }).stepCount === 1, r.body.photos)
+check('AI down after we got the page: code ai_busy, a plain message', r.status === 502 && r.body.code === 'ai_busy' && /overloaded/.test(String(r.body.error)), r.body)
+check('…no "import as listed" payload any more', r.body.jsonld === undefined && r.body.photos === undefined)
+check('…and the page was fetched once', calls.filter((c) => c.url === BLOG).length === 1)
+
+// Slow but steady: the answer takes longer than the old 30 s cut-off (0.3 s
+// here), arriving in pieces — now it's waited for.
+resetForTests({}, 0.01)
+install({ direct: () => new Response(PAGES.recipeData), gemini: () => sse(slices(AI_RECIPE, 6), 70) })
+r = await link(BLOG)
+check('a slow answer that keeps arriving is waited for (the real 31 s case)', r.status === 200 && googleCalls().length === 1, { status: r.status, calls: googleCalls().length, logs: logs.filter((l) => l.startsWith('gemini')) })
+
+// Starts, then goes quiet: given up on after 15 s of silence; the next model answers.
+{
+  let n = 0
+  resetForTests({}, 0.01)
+  install({
+    direct: () => new Response(PAGES.recipeData),
+    gemini: (model) => (model === 'gemini-3.5-flash-lite' ? (n++, sse(slices(AI_RECIPE, 4), 0, 1)) : (undefined as unknown as Response)),
+  })
+  r = await link(BLOG)
+  check('an answer that goes quiet mid-way → the next model', r.status === 200 && n === 1 && logs.some((l) => l.includes('went quiet for 15 s')), logs.filter((l) => l.startsWith('gemini')))
+}
+{
+  // Stream ends with half an answer and no end marker → the next model.
+  let n = 0
+  resetForTests({}, 0.01)
+  install({
+    direct: () => new Response(PAGES.recipeData),
+    gemini: (model) => (model === 'gemini-3.5-flash-lite' ? (n++, sse(slices(AI_RECIPE, 4).slice(0, 2))) : (undefined as unknown as Response)),
+  })
+  r = await link(BLOG)
+  check('an answer cut off half-way → the next model', r.status === 200 && n === 1 && logs.some((l) => l.includes('stopped before it finished')), logs.filter((l) => l.startsWith('gemini')))
+}
+{
+  // Never starts: given up on after 20 s (0.2 s here), not left hanging.
+  resetForTests({}, 0.01)
+  const t0 = Date.now()
+  install({ direct: () => new Response(PAGES.recipeData), gemini: (model) => (model === 'gemini-3.5-flash-lite' ? ('hang' as unknown as Response) : (undefined as unknown as Response)) })
+  r = await link(BLOG)
+  check('an answer that never starts → given up on at 20 s, next model answers', r.status === 200 && Date.now() - t0 < 600 && logs.some((l) => l.includes('no answer started in 20 s')), logs.filter((l) => l.startsWith('gemini')))
+}
 
 // The real 0.47 log: the light model overloaded (503), the fuller one hanging.
 // Now the light model gets one more try after a moment, and it answers.
@@ -494,7 +580,7 @@ check('…with step photos and the step count, so "import as listed" gets them t
   r = await link(BLOG)
   const ms = Date.now() - t0
   check('both overloaded/hung → ai_busy, having tried light twice then fuller once', r.body.code === 'ai_busy' && googleCalls().length === 3, googleCalls().map((c) => c.url))
-  check('…the fuller model gets 20 s, not 30 (0.2 s at test speed)', ms < 600, ms)
+  check('…a model that never starts is given up on at 20 s (0.2 s at test speed)', ms < 600, ms)
 }
 {
   // A 429 (its free quota) isn't retried on the same model — straight to the next.

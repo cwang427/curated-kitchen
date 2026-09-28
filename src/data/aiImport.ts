@@ -4,7 +4,6 @@ import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { sanitizeAiRecipe } from '../lib/aiRecipe'
 import { compressToDataUrl, makeCoverThumb } from './photos'
-import { seedFromJsonLd } from './urlImport'
 import type { RecipeSeed } from '../lib/types'
 
 /**
@@ -48,9 +47,6 @@ export type ImportError = Error & {
   code?: string
   detail?: string
   retryAfterMs?: number
-  /** With 'ai_busy': the page's own recipe data, for a simpler import. */
-  jsonld?: unknown
-  photos?: LinkPhotos
 }
 
 function randomSuffix(): string {
@@ -87,7 +83,6 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     code?: string
     detail?: string
     retryAfterMs?: number
-    jsonld?: unknown
     photos?: LinkPhotos
     via?: string
     photosUnavailable?: boolean
@@ -101,8 +96,6 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
       code: data.code,
       detail: data.detail,
       retryAfterMs: data.retryAfterMs,
-      jsonld: data.jsonld,
-      photos: data.photos,
     })
     throw error
   }
@@ -148,26 +141,6 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   return parsed
 }
 
-/**
- * The AI was busy, but the Worker had the page and handed back its recipe data
- * (error code 'ai_busy'): the recipe as the site lists it — steps as written,
- * aisles guessed, no cook-mode summaries — plus its cover photo. Only when the
- * cook chooses it over trying again.
- */
-export async function importFromRecipeData(error: ImportError, url: string): Promise<AiImportResult> {
-  const user = auth.currentUser
-  if (!user) throw new Error('Sign in first.')
-  const result: AiImportResult = seedFromJsonLd(error.jsonld, url)
-  result.seed.source = { ...result.seed.source, url }
-  // Step photos only if our reading of the recipe data has the same steps as
-  // the Worker's (so each photo lands on its own step); the cover regardless.
-  const photos = error.photos
-  const sameSteps = photos?.stepCount === result.seed.steps.length
-  const wanted = photos && (sameSteps ? photos : { ...photos, steps: {}, stepCandidates: {} })
-  result.link = { via: 'recipe data', photos: wanted ? await attachLinkPhotos(result.seed, wanted, await user.getIdToken()) : undefined }
-  return result
-}
-
 /** Photo links a link import found on the page (see the Worker's findLinkPhotos):
  * the cover — as a few candidates, other sizes of the same photo, best first
  * (`cover` alone from a Worker older than 0.41.4) — and, when the AI kept the
@@ -182,8 +155,6 @@ type LinkPhotos = {
   stamp?: string
   /** The Worker can fetch a photo through Firecrawl, as a last resort (0.47+). */
   unlocker?: boolean
-  /** With 'ai_busy': how many steps the page's recipe data has (0.48+). */
-  stepCount?: number
 }
 
 /** A photo from Firecrawl comes as JSON with the bytes in base64 (the Worker

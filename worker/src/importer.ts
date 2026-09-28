@@ -1037,6 +1037,9 @@ function htmlToText(html: string): string {
  * (precise amounts/steps) plus its visible text (headnote, notes, tips). */
 function pageForAi(html: string, url: string): string {
   const recipe = findRecipe(extractJsonLd(html))
+  // Reviews, ratings, video and publisher blocks aren't the recipe — some
+  // sites carry hundreds of reviews in it — and every word slows the AI.
+  if (recipe) for (const key of ['review', 'comment', 'aggregateRating', 'video', 'publisher', 'isPartOf', 'mainEntityOfPage']) delete recipe[key]
   const text = htmlToText(html).slice(0, 40_000)
   return [
     `Recipe page: ${url}`,
@@ -1330,15 +1333,19 @@ let egressV4: string | null = null
 
 async function outgoingAddress(): Promise<string> {
   if (egressV4) return egressV4
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 3_000)
+  // Two services, first good answer wins (the first one alone came back
+  // empty in a real log). An answer of Cloudflare's own label means the
+  // service is on Cloudflare after all, so it doesn't count.
+  const ask = async (service: string): Promise<string> => {
+    const res = await fetch(service, { signal: AbortSignal.timeout(4_000) })
+    const ip = (await res.text()).trim()
+    if (!res.ok || !/^[0-9a-f.:]{7,45}$/i.test(ip) || ip.startsWith('2a06:98c0:3600')) throw new Error('no')
+    return ip
+  }
   try {
-    const res = await fetch('https://checkip.amazonaws.com/', { signal: controller.signal })
-    if (res.ok) egressV4 = (await res.text()).trim().slice(0, 45)
+    egressV4 = await Promise.any([ask('https://checkip.amazonaws.com/'), ask('https://ifconfig.me/ip')])
   } catch {
     /* best effort */
-  } finally {
-    clearTimeout(timer)
   }
   return egressV4 ?? 'unknown'
 }
@@ -1401,13 +1408,6 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
 
   console.log(`link: reading page via ${page.via} as text`)
   const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
-  // The Archive only saved the photo sizes its copy of the page showed, so
-  // those sizes go first whenever the photos may come from the Archive — for
-  // its own copy, and for a Firecrawl page that has a save to fall back on.
-  const found = findLinkPhotos(page.html, url, !!page.stamp)
-  // `unlocker`: this Worker can fetch a photo through Firecrawl as a last
-  // resort (the app asks, with `paid: true`, only after the free routes failed).
-  const stampField = { ...(page.stamp ? { stamp: page.stamp } : {}), ...(unlockerReady() ? { unlocker: true } : {}) }
   if (!res.ok) {
     const body = (await res.clone().json().catch(() => ({}))) as { code?: string }
     // The page we got said it wasn't a recipe, and it showed no recipe signs —
@@ -1416,37 +1416,35 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
       console.log('link: the page we got wasn’t the recipe — asking Google instead')
       return readWithGoogle(url, seen, env, origin, outcome)
     }
-    // The AI itself failed (busy, over its free limit) but we have the page:
-    // hand back its recipe data and cover, so the app can offer the simpler
-    // import right away instead of fetching the page all over again.
-    const recipe = page.signal === 3 ? findRecipe(extractJsonLd(page.html)) : null
-    if (res.status !== 422 && recipe) {
-      const trimmed = { ...recipe }
-      for (const key of ['review', 'comment', 'aggregateRating', 'video', 'publisher', 'isPartOf', 'mainEntityOfPage']) delete trimmed[key]
-      outcome({ via: page.via, status: res.status, ai: 'failed, recipe data handed back' })
-      // Step photos too, keyed by step — the app attaches them only if its
-      // own reading of the recipe data has the same steps (`stepCount`).
-      const steps: Record<number, string[]> = {}
-      const stepCandidates: Record<number, string[][]> = {}
-      found.steps.forEach((photos, i) => {
-        if (!photos.length) return
-        steps[i] = photos.map((c) => c[0])
-        stepCandidates[i] = photos
-      })
+    // The AI itself failed (overloaded, over its free limit, stuck) after we
+    // got the page. Say so plainly (code ai_busy): the app offers Try again,
+    // which usually works within a minute. (0.46–0.47 also offered importing
+    // the site's own recipe data without the AI — dropped: the difference
+    // wasn't something a friend could judge, and imports should be the same
+    // every time.)
+    if (res.status !== 422) {
+      const { detail } = (await res.clone().json().catch(() => ({}))) as { detail?: string }
+      outcome({ via: page.via, status: res.status, ai: 'busy' })
       return json(
         {
-          ...body,
+          error: 'Our recipe reader (Google’s AI) is overloaded right now, so it couldn’t finish this one.',
           code: 'ai_busy',
-          jsonld: [trimmed],
-          photos: { cover: found.covers[0] ?? null, covers: found.covers, steps, stepCandidates, stepCount: found.steps.length, ...stampField },
+          ...(detail ? { detail } : {}),
         },
-        res.status,
+        502,
         origin,
       )
     }
     outcome({ via: page.via, status: res.status, ai: 'failed' })
     return res
   }
+  // The Archive only saved the photo sizes its copy of the page showed, so
+  // those sizes go first whenever the photos may come from the Archive — for
+  // its own copy, and for a Firecrawl page that has a save to fall back on.
+  const found = findLinkPhotos(page.html, url, !!page.stamp)
+  // `unlocker`: this Worker can fetch a photo through Firecrawl as a last
+  // resort (the app asks, with `paid: true`, only after the free routes failed).
+  const stampField = { ...(page.stamp ? { stamp: page.stamp } : {}), ...(unlockerReady() ? { unlocker: true } : {}) }
   const out = (await res.json()) as { recipe?: { steps?: unknown[] } }
   // Step photos follow the page's steps; attach them only if the AI kept the
   // same steps (it's told to keep the source's step boundaries).
@@ -1627,16 +1625,43 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
       generationConfig,
     })
   }
-  // Abort a model that hangs so we move on instead of waiting for a ~100s
-  // Cloudflare 524. A healthy call finishes in a few seconds; 30s is generous
-  // (25s for a link — Google's reader is the last of several routes by then,
-  // and the whole import should stay well under a minute).
-  const call = async (m: string, useSchema: boolean, timeoutMs: number): Promise<Response | null> => {
+  // The answer streams in piece by piece (streamGenerateContent), so a slow
+  // model and a stuck one look different: a model that's writing keeps its
+  // time, one that hasn't started or has gone quiet is given up on. A fixed
+  // cut-off couldn't tell them apart — at 30 s it stopped a Serious Eats
+  // import whose answer took 31 (the retry succeeded in 28). Limits: nothing
+  // for 20 s (30 s when Google must first fetch a link or look at photos),
+  // then 15 s of silence mid-answer, and 90 s in all.
+  type Answer = {
+    candidates?: Array<{
+      finishReason?: string
+      content?: { parts?: Array<{ text?: string }> }
+      urlContextMetadata?: { urlMetadata?: Array<{ retrievedUrl?: string; urlRetrievalStatus?: string }> }
+    }>
+    promptFeedback?: { blockReason?: string }
+  }
+  const startWait = input.url || input.images.length ? 30_000 : 20_000
+  /** One model's answer: the combined answer, the HTTP error it gave, or null
+   * (couldn't connect, never started, went quiet, or ran out of time). */
+  const call = async (m: string, useSchema: boolean): Promise<{ answer: Answer } | { error: Response } | null> => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs * timeScale)
+    let why = ''
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const wait = (ms: number, reason: string) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        why = reason
+        controller.abort()
+      }, ms * timeScale)
+    }
+    const overall = setTimeout(() => {
+      why = 'over 90 s in all'
+      controller.abort()
+    }, 90_000 * timeScale)
+    wait(startWait, `no answer started in ${startWait / 1000} s`)
     try {
-      return await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
@@ -1644,27 +1669,67 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
           signal: controller.signal,
         },
       )
+      if (!res.ok || !res.body) return { error: res }
+      // Server-sent events: "data: {…}" blocks, each a slice of the answer.
+      const texts: string[] = []
+      const answer: Answer = {}
+      let finish: string | undefined
+      let meta: NonNullable<Answer['candidates']>[number]['urlContextMetadata']
+      let pending = ''
+      const take = (block: string) => {
+        const line = block.split('\n').find((l) => l.startsWith('data:'))
+        if (!line) return
+        const piece = JSON.parse(line.slice(5)) as Answer
+        const cand = piece.candidates?.[0]
+        for (const part of cand?.content?.parts ?? []) if (part.text) texts.push(part.text)
+        finish = cand?.finishReason ?? finish
+        meta = cand?.urlContextMetadata ?? meta
+        if (piece.promptFeedback) answer.promptFeedback = piece.promptFeedback
+      }
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        wait(15_000, 'went quiet for 15 s mid-answer')
+        pending += value.replace(/\r/g, '')
+        let end: number
+        while ((end = pending.indexOf('\n\n')) >= 0) {
+          take(pending.slice(0, end))
+          pending = pending.slice(end + 2)
+        }
+      }
+      if (pending.trim()) take(pending)
+      // Gemini marks its last piece (finishReason). Without that, keep the
+      // answer only if it's complete, readable JSON — else it was cut off.
+      if (!finish && !answer.promptFeedback?.blockReason) {
+        try {
+          JSON.parse(texts.join(''))
+        } catch {
+          console.log(`gemini model=${m}: the answer stopped before it finished`)
+          return null
+        }
+      }
+      answer.candidates = [{ finishReason: finish, content: { parts: [{ text: texts.join('') }] }, urlContextMetadata: meta }]
+      return { answer }
     } catch (e) {
-      console.log(`gemini fetch failed/timeout model=${m}: ${String(e)}`)
+      console.log(`gemini model=${m}: ${why || `failed ${String(e)}`}`)
       return null
     } finally {
       clearTimeout(timer)
+      clearTimeout(overall)
     }
   }
 
   // The plan: the light model; if it says it's overloaded (503 — on the free
   // tier that comes and goes by the second), the light model once more after
-  // a moment, as Google advises; then the fuller model, with a shorter wait —
-  // it's the more contended one, and when it hangs it hangs until the abort
-  // (a real import waited 30 s on it for nothing). A 429 (free-tier quotas are
-  // per model, so the next may have room), another 5xx, a hang or a missing
-  // fallback (404) → the next model; a 400 → retry that model once without
-  // the schema, then use/surface whatever we got.
-  const firstWait = input.url ? 25_000 : 30_000
-  const fallbackWait = input.images.length ? 30_000 : 20_000
+  // a moment, as Google advises; then the fuller model. A 429 (free-tier
+  // quotas are per model, so the next may have room), another 5xx, a stuck
+  // answer or a missing fallback (404) → the next model; a 400 → retry that
+  // model once without the schema, then use/surface whatever we got.
   const plan: Array<{ m: string; again?: boolean }> = [{ m: primaryModel }, { m: primaryModel, again: true }]
   if (models.length > 1) plan.push({ m: models[1] })
-  let res: Response | null = null
+  let data: Answer | null = null
+  let failure: Response | null = null
   let model = primaryModel
   let overloaded = false
   for (const [i, { m, again }] of plan.entries()) {
@@ -1674,40 +1739,46 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
       console.log(`gemini trying ${m} once more (it was overloaded a moment ago)`)
     }
     overloaded = false
-    let r = await call(m, true, m === primaryModel ? firstWait : fallbackWait)
-    if (!r) continue // network failure / timeout; try the next model
-    if (r.status >= 500) {
-      overloaded = r.status === 503
-      console.log(`gemini ${r.status} model=${m}; ${plan[i + 1]?.again && overloaded ? 'trying it again shortly' : 'trying next'}`)
-      await r.body?.cancel()
-      continue
-    }
-    if (r.status === 429 && i < plan.length - 1) {
-      console.log(`gemini 429 model=${m} (its free limit); trying next`)
-      res = new Response(await r.text().catch(() => ''), { status: 429 }) // reported if every model is out
-      continue
-    }
-    if (m !== primaryModel && r.status === 404) {
-      console.log(`gemini fallback ${m} not available (404)`)
-      continue
-    }
-    if (r.status === 400) {
-      const detail = await r.text().catch(() => '')
+    let got = await call(m, true)
+    if (!got) continue // couldn't connect, or stuck; try the next model
+    if ('error' in got && got.error.status === 400) {
+      const detail = await got.error.text().catch(() => '')
       console.log(`gemini 400 model=${m}: ${detail.slice(0, 300)} — retrying without schema`)
-      const r2 = await call(m, false, m === primaryModel ? firstWait : fallbackWait)
-      if (r2) r = r2
+      got = (await call(m, false)) ?? got
     }
-    res = r
+    if ('error' in got) {
+      const r = got.error
+      if (r.status >= 500) {
+        overloaded = r.status === 503
+        console.log(`gemini ${r.status} model=${m}; ${plan[i + 1]?.again && overloaded ? 'trying it again shortly' : 'trying next'}`)
+        await r.body?.cancel()
+        continue
+      }
+      if (r.status === 429 && i < plan.length - 1) {
+        console.log(`gemini 429 model=${m} (its free limit); trying next`)
+        failure = new Response(await r.text().catch(() => ''), { status: 429 }) // reported if every model is out
+        continue
+      }
+      if (m !== primaryModel && r.status === 404) {
+        console.log(`gemini fallback ${m} not available (404)`)
+        continue
+      }
+      failure = r
+      model = m
+      break
+    }
+    data = got.answer
     model = m
     break
   }
 
-  if (!res) {
+  if (!data && !failure) {
     console.log('gemini all models unavailable')
     return json({ error: 'Gemini is busy right now — please try again in a moment.' }, 502, origin)
   }
 
-  if (!res.ok) {
+  if (!data) {
+    const res = failure!
     const detail = await res.text().catch(() => '')
     console.log(`gemini http ${res.status} model=${model}: ${detail.slice(0, 800)}`)
     const msg =
@@ -1717,14 +1788,6 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     return json({ error: msg, detail }, 502, origin)
   }
 
-  const data = (await res.json().catch(() => ({}))) as {
-    candidates?: Array<{
-      finishReason?: string
-      content?: { parts?: Array<{ text?: string }> }
-      urlContextMetadata?: { urlMetadata?: Array<{ retrievedUrl?: string; urlRetrievalStatus?: string }> }
-    }>
-    promptFeedback?: { blockReason?: string }
-  }
   // For a link, only trust the answer if Google actually read the page —
   // otherwise the model can "helpfully" produce a recipe from memory that isn't
   // what's on the page. (If the metadata is missing we can't tell, so we let it

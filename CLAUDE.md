@@ -97,10 +97,18 @@ confusion:
     `gemini-3.5-flash`: on the free tier the fuller flash models are heavily
     contended (sustained 503s, and sometimes they hang until a Cloudflare 524),
     while `-lite` reliably has capacity and is plenty for structured extraction.
-    Each model call has an abort so a hung model doesn't stall the request
-    (30 s for the first model — 25 s for Google reading a link — and 20 s for
-    the fallback unless photos/PDFs are attached, v0.47.1: a real import waited
-    30 s on a hung `gemini-3.5-flash`). A **503 from the light model gets one
+    The answer is **streamed** (`streamGenerateContent?alt=sse`, v0.48) so a
+    slow model and a stuck one look different: a model gets 20 s to start
+    answering (30 s when Google must first fetch a link or look at photos),
+    then 15 s of silence mid-answer, and 90 s in all — a model that's writing
+    keeps its time. The fixed 30 s cut-off it replaced stopped a real Serious
+    Eats import whose answer needed ~31 s (the retry succeeded in ~28 s) — on
+    the free tier, `-lite` writes a long recipe (full step text + cook-mode
+    `brief` + structured ingredients) in 10–30 s depending on load. The
+    pieces (`data: {…}` events) are joined; an answer with no end marker
+    (`finishReason`) is kept only if it's complete JSON. The Recipe node sent
+    to the AI (`pageForAi`) drops `review`/`comment`/`aggregateRating`/`video`/
+    `publisher`/… first. A **503 from the light model gets one
     more try after 1.5 s** (on the free tier "overloaded" comes and goes by the
     second, and Google advises retrying; the same log showed `-lite` 503 then
     the fuller model hanging); other 5xx, a 429 (quotas are per model), a hang
@@ -180,11 +188,13 @@ confusion:
     pasted link. With AI on, the app no longer falls back to the `/url` route
     (it re-ran the whole search, then imported a lesser version silently):
     when Gemini fails after the Worker got the page, the Worker answers
-    `code: 'ai_busy'` with the page's recipe node (reviews etc. trimmed) and
-    cover, and the app offers **"Import it as listed"** (`importFromRecipeData`
-    → `seedFromJsonLd`, with a note) or **Try again**. The `ai_busy` answer
-    carries the step photos too (`stepCount` = the Worker's step count; the app
-    attaches them only when its own reading has the same number of steps). A page that shows no
+    `code: 'ai_busy'` and the app shows "Couldn't finish reading this recipe —
+    the recipe reader we use (Google's AI) is overloaded" with just **Try
+    again** (unlocked after 5 s). 0.46–0.47 also offered "Import it as listed"
+    (the site's recipe data without the AI: steps as written, no cook-mode
+    bullets, aisles guessed) — removed in v0.48 at the owner's call: the
+    difference isn't something a friend can judge, and imports should come out
+    the same every time. A page that shows no
     recipe signs and that the AI calls `not_a_recipe` (likely a soft block)
     goes to Google's reader instead. The recipe URL is sent to
     Jina / archive.org (public links, no user data). **Order (v0.39):** `handleLink` now
@@ -285,9 +295,10 @@ confusion:
     "Revised after review" first). **Diagnostics:** each link import logs
     `link: ran in <colo>, worker copy <id> (import #N since it started M min
     ago), outgoing address <ip> (outside Cloudflare's view), archive sign-in …,
-    firecrawl …, worker <version>` — the address from
-    `checkip.amazonaws.com` (once per Worker copy). It must be a service NOT on
-    Cloudflare: ipify is, and Cloudflare shows every Worker's requests to its
+    firecrawl …, worker <version>` — the address from `checkip.amazonaws.com`
+    or `ifconfig.me`, whichever answers first (once per Worker copy; the first
+    alone came back empty once). It must be a service NOT on Cloudflare (an
+    answer of `2a06:98c0:3600…` is rejected): ipify is, and Cloudflare shows every Worker's requests to its
     own customers as `2a06:98c0:3600::103` — the "shared egress" address in the
     research and everything 0.43–0.47 logged was that label, not an address
     the Archive (not on Cloudflare) ever sees. `worker <version>` is
