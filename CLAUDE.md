@@ -191,9 +191,12 @@ confusion:
     expiry — a year), `ARCHIVE_EMAIL` / `ARCHIVE_PASSWORD` (an Archive account
     made just for the app). `currentArchiveSession()` uses this Worker copy's
     session, else the saved one, and **signs in again a day before it
-    expires**; `renewArchiveSession()` signs in again when the Archive refuses a
-    signed-in page request and `readCopy` **retries that page once** — never
-    twice within 10 min of signing in (so a real throttle doesn't loop). A
+    expires** — by the date only (v0.45): 0.44 also signed in again and retried
+    when the Archive refused a signed-in request, but a sign-in minutes old was
+    refused just the same, so that only cost another request. **Signing in did
+    not stop the 429s** (a fresh sign-in was refused at once, from the same
+    outgoing address that succeeded minutes earlier); it's kept since it costs
+    nothing and may count for something. A
     failed sign-in waits 10 min before the next try and imports carry on
     unsigned (logged `archive sign-in: failed (…)`). The session lives in module
     memory (a new Worker copy starts from the saved one; no KV — auto-provisioned
@@ -228,8 +231,18 @@ confusion:
     can't open the link either**, `handleLink` returns an honest 422: "<site>
     blocks direct imports, and its saved copy at the Internet Archive is busy
     right now — try again in a few minutes, or paste the recipe text instead."
-    (`PageLookup.archiveBusy`; a paywall or a genuinely missing copy keeps its
-    own message.) Deliberately NOT done: silently falling back to a
+    with **`code: 'archive_busy'`** (`PageLookup.archiveBusy`; a paywall or a
+    genuinely missing copy keeps its own message). **The app retries that by
+    itself** (v0.45, `readLink` in `AddRecipePage` + `src/lib/archiveBusy.ts`):
+    the refusals clear within minutes, so rather than hand a friend an error it
+    shows "The Internet Archive is busy — trying again in 40 s" (countdown, a
+    filling bar, Cancel) and tries again after `ARCHIVE_BUSY_WAITS` = 40 / 50 /
+    60 s — four tries over ~3 min — before showing that message. The waits
+    check the clock (not one long timer), so time the phone spends with the app
+    in the background counts; leaving the link screen (Back / swipe) or Cancel
+    stops it (Cancel shows the message, which names the paste-text option).
+    `isArchiveBusy` also accepts `detail` starting "archive busy", from a
+    Worker older than 0.45. Deliberately NOT done: silently falling back to a
     lower-quality import (e.g. Google reading the Archive copy, which brings no
     photos) — the owner wants imports to behave consistently; that was tried
     in v0.41.7 and reverted. `/img` falls back to wsrv.nl instead (above), and the app downloads photos **three at a time** (v0.42.1; it was

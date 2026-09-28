@@ -12,9 +12,9 @@
  *   ARCHIVE_SESSION   the sign-in (the two session cookies) + its expiry date
  *   ARCHIVE_EMAIL,
  *   ARCHIVE_PASSWORD  so the Worker can sign itself in again when that sign-in
- *                     nears its expiry (a year) or stops working — nobody has
- *                     to come back and run this. Run it again only if you
- *                     change that account's password.
+ *                     nears its expiry (a year) — nobody has to come back and
+ *                     run this. Run it again only if you change that
+ *                     account's password.
  *
  * Plain Node, no packages — works without `npm install`. Flags:
  *   --dry-run   sign in and check, but don't store anything

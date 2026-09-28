@@ -9,10 +9,27 @@ import { importRecipeFromUrl } from '../data/urlImport'
 import { importRecipeFromText } from '../lib/importText'
 import { compressForImport, readFileBase64 } from '../data/photos'
 import { aiImportConfigured, urlImportConfigured } from '../lib/aiConfig'
+import { ARCHIVE_BUSY_WAITS, isArchiveBusy } from '../lib/archiveBusy'
 import type { RecipeSeed } from '../lib/types'
 
 type Mode = 'choose' | 'link' | 'text' | 'capture' | 'edit'
 const SCREENS: Mode[] = ['link', 'text', 'capture', 'edit']
+
+/** A link import in progress, so Cancel — or leaving the screen — can stop it. */
+type LinkRun = { stopped: boolean; lastError?: unknown }
+
+/** Resolve at `until` or as soon as the run is stopped. It checks the clock
+ * rather than trusting one long timer, so time an iPhone spends with the app
+ * in the background still counts toward the wait. */
+const waitUntil = (until: number, run: LinkRun) =>
+  new Promise<void>((resolve) => {
+    const id = setInterval(() => {
+      if (run.stopped || Date.now() >= until) {
+        clearInterval(id)
+        resolve()
+      }
+    }, 250)
+  })
 
 export default function AddRecipePage() {
   const { user, household } = useAuth()
@@ -41,6 +58,11 @@ export default function AddRecipePage() {
   const [reading, setReading] = useState(false)
   const [readSeconds, setReadSeconds] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // A link import waiting out a busy Internet Archive (see readLink): the wait
+  // before its next try, and which try is running.
+  const [busyWait, setBusyWait] = useState<{ from: number; until: number } | null>(null)
+  const [tryNo, setTryNo] = useState(1)
+  const linkRun = useRef<LinkRun | null>(null)
 
   // The AI read is a single call with no progress events, so we can't show a
   // real percentage — but a spinner plus an elapsed counter makes clear it's
@@ -52,6 +74,22 @@ export default function AddRecipePage() {
     const id = setInterval(() => setReadSeconds(Math.round((Date.now() - started) / 1000)), 500)
     return () => clearInterval(id)
   }, [reading])
+
+  // Leaving the link screen (Back, or the swipe) abandons its import: stop any
+  // wait or retry, and ignore a read still in flight.
+  useEffect(() => {
+    if (mode === 'link' || !linkRun.current) return
+    linkRun.current.stopped = true
+    linkRun.current = null
+    setBusyWait(null)
+    setReading(false)
+  }, [mode])
+  useEffect(
+    () => () => {
+      if (linkRun.current) linkRun.current.stopped = true
+    },
+    [],
+  )
 
   // Back at the chooser after a save: swap this entry for the new recipe, so
   // history reads list → recipe and a swipe back from it lands on the list.
@@ -172,35 +210,72 @@ export default function AddRecipePage() {
   // Eats block plain server fetches) and handles blog-style pages with no
   // structured data. The Worker's JSON-LD route is the fallback when Gemini is
   // busy (and the only engine without AI).
+  const readLinkOnce = async (url: string): Promise<RecipeSeed> => {
+    if (!aiImportConfigured) return (await importRecipeFromUrl(url)).seed
+    try {
+      return (await importRecipeViaAI({ url })).seed
+    } catch (aiErr) {
+      // 422 = the Worker already tried every way to read the page (Google,
+      // a reader service, the Internet Archive); the JSON-LD route would
+      // only repeat those. It's for when Gemini itself is busy or down.
+      if (!urlImportConfigured || (aiErr as { status?: number }).status === 422) throw aiErr
+      try {
+        return (await importRecipeFromUrl(url)).seed
+      } catch {
+        throw aiErr
+      }
+    }
+  }
+  // When the only problem was the Internet Archive being busy (it turns our
+  // requests away for a few minutes at a time), wait and try again by itself —
+  // a countdown the cook can cancel, instead of an error they'd have to act on.
+  // Only after the last try does the error show.
   const readLink = async () => {
+    const run: LinkRun = { stopped: false }
+    linkRun.current = run
     setError(null)
     setReading(true)
     const url = link.trim()
     try {
-      let seed: RecipeSeed
-      if (aiImportConfigured) {
+      for (let retry = 0; ; retry++) {
+        setTryNo(retry + 1)
         try {
-          seed = (await importRecipeViaAI({ url })).seed
-        } catch (aiErr) {
-          // 422 = the Worker already tried every way to read the page (Google,
-          // a reader service, the Internet Archive); the JSON-LD route would
-          // only repeat those. It's for when Gemini itself is busy or down.
-          if (!urlImportConfigured || (aiErr as { status?: number }).status === 422) throw aiErr
-          try {
-            seed = (await importRecipeFromUrl(url)).seed
-          } catch {
-            throw aiErr
-          }
+          const seed = await readLinkOnce(url)
+          if (!run.stopped) openEditor(seed, 'link')
+          return
+        } catch (cause) {
+          if (run.stopped || !isArchiveBusy(cause) || retry >= ARCHIVE_BUSY_WAITS.length) throw cause
+          run.lastError = cause
+          const from = Date.now()
+          const until = from + ARCHIVE_BUSY_WAITS[retry] * 1000
+          setReading(false)
+          setBusyWait({ from, until })
+          await waitUntil(until, run)
+          if (run.stopped) return
+          setBusyWait(null)
+          setReading(true)
         }
-      } else {
-        seed = (await importRecipeFromUrl(url)).seed
       }
-      openEditor(seed, 'link')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
+      if (!run.stopped) setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
     } finally {
-      setReading(false)
+      if (linkRun.current === run) {
+        linkRun.current = null
+        setBusyWait(null)
+        setReading(false)
+      }
     }
+  }
+  // Stop waiting: say why it stopped (the Archive's message, with the paste-
+  // text alternative) so the cook knows what they can do instead.
+  const cancelBusyWait = () => {
+    const run = linkRun.current
+    if (!run) return
+    run.stopped = true
+    linkRun.current = null
+    setBusyWait(null)
+    setReading(false)
+    setError(run.lastError instanceof Error ? run.lastError.message : null)
   }
   const canReadLink = /^https?:\/\/\S+/i.test(link.trim())
 
@@ -272,15 +347,18 @@ export default function AddRecipePage() {
               </p>
             )}
 
-            {reading && <ReadingIndicator seconds={readSeconds} />}
+            {reading && (
+              <ReadingIndicator seconds={readSeconds} title={tryNo > 1 ? 'Trying again…' : undefined} />
+            )}
+            {busyWait && <ArchiveBusyWait {...busyWait} onCancel={cancelBusyWait} />}
 
             <button
               type="button"
               onClick={readLink}
-              disabled={!canReadLink || reading}
+              disabled={!canReadLink || reading || !!busyWait}
               className="grid h-14 w-full place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
             >
-              {reading ? 'Reading…' : 'Read recipe'}
+              {busyWait ? 'Waiting to try again…' : reading ? 'Reading…' : 'Read recipe'}
             </button>
             <button
               type="button"
@@ -455,7 +533,7 @@ export default function AddRecipePage() {
 /** Indeterminate progress for an AI read: a spinner plus an elapsed counter, so
  * a multi-second wait doesn't feel frozen. After a while it reassures rather
  * than worries. */
-function ReadingIndicator({ seconds }: { seconds: number }) {
+function ReadingIndicator({ seconds, title = 'Reading your recipe…' }: { seconds: number; title?: string }) {
   return (
     <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-2xl border border-line bg-card p-4">
       <span
@@ -463,13 +541,49 @@ function ReadingIndicator({ seconds }: { seconds: number }) {
         className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-line border-t-accent"
       />
       <div className="text-sm">
-        <p className="font-medium text-ink">Reading your recipe…{seconds >= 3 ? ` (${seconds}s)` : ''}</p>
+        <p className="font-medium text-ink">
+          {title}
+          {seconds >= 3 ? ` (${seconds}s)` : ''}
+        </p>
         <p className="text-ink-soft">
           {seconds >= 12
             ? 'Still going — a long recipe can take a little while. Hang tight.'
             : 'This usually takes a few seconds.'}
         </p>
       </div>
+    </div>
+  )
+}
+
+/** A link import waiting out a busy Internet Archive: a countdown to the next
+ * try (with a bar filling toward it) and a way to stop. */
+function ArchiveBusyWait({ from, until, onCancel }: { from: number; until: number; onCancel: () => void }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(id)
+  }, [])
+  const left = Math.max(0, Math.ceil((until - now) / 1000))
+  const done = Math.min(1, Math.max(0, (now - from) / (until - from)))
+  return (
+    <div className="rounded-2xl border border-line bg-card p-4">
+      <p role="status" className="font-medium text-ink">
+        The Internet Archive is busy — trying again in&nbsp;{left}&nbsp;s
+      </p>
+      <p className="mt-1 text-sm text-ink-soft">
+        This site opens through its saved copy at the Archive, which turns requests away now and then. It
+        usually clears up within a couple of minutes, so we&rsquo;ll keep trying.
+      </p>
+      <div aria-hidden className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${done * 100}%` }} />
+      </div>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="mt-3 h-12 w-full rounded-xl border border-line text-base font-medium text-ink transition active:scale-[0.99]"
+      >
+        Cancel
+      </button>
     </div>
   )
 }

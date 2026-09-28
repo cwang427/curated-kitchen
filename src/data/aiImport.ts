@@ -57,12 +57,19 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   const data = (await res.json().catch(() => ({}))) as {
     recipe?: unknown
     error?: string
+    code?: string
+    detail?: string
     photos?: LinkPhotos
   }
   if (!res.ok) {
     // Keep the status: a 422 means the Worker already tried everything it could
-    // for that input, so the caller shouldn't retry another way.
-    throw Object.assign(new Error(data.error || `Import failed (${res.status}).`), { status: res.status })
+    // for that input, so the caller shouldn't retry another way. `code` / `detail`
+    // say why — e.g. the Internet Archive was only busy, worth a retry shortly.
+    throw Object.assign(new Error(data.error || `Import failed (${res.status}).`), {
+      status: res.status,
+      code: data.code,
+      detail: data.detail,
+    })
   }
   if (!data.recipe) throw new Error('The AI didn’t return a recipe.')
 

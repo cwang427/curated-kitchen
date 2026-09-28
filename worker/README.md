@@ -25,8 +25,10 @@ and you can use just the first:
   the site, else the Archive's copy fetched via **wsrv.nl**, a free public image
   proxy — so our own requests don't use up the Archive's allowance for the
   page — else wsrv.nl for the site's image; only public photo links are sent to
-  it). If the Archive is too busy for us right now, the app says so ("…busy
-  right now — try again in a few minutes"). Tags come only from the app's fixed
+  it). If the Archive is too busy for us right now (it turns requests away
+  for a few minutes at a time), the app waits and tries again by itself, with a
+  countdown, for about three minutes before saying so ("…busy right now — try
+  again in a few minutes"). Tags come only from the app's fixed
   list (`src/lib/tags.ts`, bundled into the Worker by wrangler — it's in the
   repo, so a normal pull brings it). It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
@@ -110,9 +112,10 @@ anyone else to do:
 
 **It keeps itself signed in — nobody needs to come back and run this.** The
 Archive's sign-ins last a year. The Worker uses the saved one until a day before
-it expires, then signs itself in again with the stored email + password; if
-the Archive ever refuses a signed-in request, it signs in again and retries that
-same page once, so the person importing never notices. If signing in ever fails
+it expires, then signs itself in again with the stored email + password. (It
+doesn't sign in again when the Archive turns a request away: that's the Archive
+being busy, not the sign-in going stale — the app waits and retries instead.)
+If signing in ever fails
 (say the account's password was changed), imports simply carry on as if it
 weren't set up, it tries again after 10 minutes, and the tail says
 `archive sign-in: failed (…)` — then run step 2 again. The sign-in and password

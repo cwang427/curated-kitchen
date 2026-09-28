@@ -320,14 +320,16 @@ const ARCHIVE_UA = 'CuratedKitchen/1.0 (personal recipe app; fetches one saved p
 
 // ---- The Worker's Internet Archive sign-in ------------------------------------
 // It keeps itself signed in, so nobody ever has to: the saved session is used
-// until a day before it expires (the Archive's last a year); then — or if the
-// Archive refuses a signed-in request — the Worker signs in again with the
-// stored email + password and carries on, so the import still works. The session
-// lives in this copy of the Worker's memory; a new copy starts from the saved one.
+// until a day before it expires (the Archive's last a year); then the Worker
+// signs in again with the stored email + password and carries on. It renews by
+// the date only — not when the Archive refuses a request: a sign-in minutes old
+// was refused just the same, so signing in again only cost another request.
+// (The app waits and retries a busy Archive itself.) The session lives in this
+// copy of the Worker's memory; a new copy starts from the saved one.
 // Sent ONLY to the Archive's own hosts (archive.org, web.archive.org): never to
 // the image proxy, Jina, or a recipe site — it would let them act as the account.
 
-type ArchiveSession = { cookie: string; expires: number; renewedAt?: number }
+type ArchiveSession = { cookie: string; expires: number }
 /** Set from env at the top of every request (env is the same for a deployment). */
 let archiveSecrets: { saved?: string; legacy?: string; email?: string; password?: string } = {}
 let archiveSession: ArchiveSession | null = null
@@ -358,7 +360,7 @@ function savedArchiveSession(): ArchiveSession | null {
     /* not set, or not JSON */
   }
   const legacy = archiveSecrets.legacy?.trim()
-  return legacy ? { cookie: legacy, expires: Infinity } : null // expiry unknown: trust it until refused
+  return legacy ? { cookie: legacy, expires: Infinity } : null // expiry unknown: trust it (0.44+'s setup saves one)
 }
 
 /** Sign in with the stored email + password. After a failure, wait 10 minutes
@@ -391,7 +393,7 @@ async function archiveSignIn(why: string): Promise<ArchiveSession | null> {
     if (!reply?.success || !user || !sig) return failed(reply?.values?.reason ?? `HTTP ${res.status}`)
     const lifetime = Math.min(cookieLifetime(cookies['logged-in-user']), cookieLifetime(cookies['logged-in-sig']))
     console.log(`archive sign-in: signed in automatically (${why})`)
-    return { cookie: `logged-in-user=${user}; logged-in-sig=${sig}`, expires: Date.now() + lifetime, renewedAt: Date.now() }
+    return { cookie: `logged-in-user=${user}; logged-in-sig=${sig}`, expires: Date.now() + lifetime }
   } catch (e) {
     return failed(String(e))
   }
@@ -418,19 +420,6 @@ async function currentArchiveSession(): Promise<ArchiveSession | null> {
   }
   // Couldn't renew: one that hasn't quite expired still beats none.
   return current && current.expires > Date.now() ? current : null
-}
-
-/** The Archive refused a signed-in request: sign in again, once, and say whether
- * there's a new sign-in to retry with. Not if we signed in within the last 10
- * minutes — then the refusal isn't about an old sign-in. */
-async function renewArchiveSession(): Promise<boolean> {
-  if (!archiveSession) return false
-  if (archiveSession.renewedAt && Date.now() - archiveSession.renewedAt < 10 * 60_000) return false
-  const fresh = await archiveSignIn('the Archive refused the saved sign-in')
-  if (!fresh) return false
-  archiveSession = fresh
-  archiveSessionNote = 'signed in automatically'
-  return true
 }
 
 /** For the tail's diagnostics line. */
@@ -639,12 +628,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     const copyInfo: FetchInfo = {}
     // No quick retries: in every real log, a 429 was still a 429 1.5 s and 3 s
     // later — retrying only added to the count the Archive holds against us.
-    let archived = await fetchText(copy, await archiveHeaders(), label, [], copyInfo)
-    // Refused while signed in: maybe the sign-in went stale — sign in again and
-    // retry this once, so the cook never sees it.
-    if (!archived && busy(copyInfo) && (await renewArchiveSession())) {
-      archived = await fetchText(copy, await archiveHeaders(), `${label} (signed in again)`, [], copyInfo)
-    }
+    const archived = await fetchText(copy, await archiveHeaders(), label, [], copyInfo)
     stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
     if (archived) {
       tried.add(stamp)
@@ -653,7 +637,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     }
     if (!busy(copyInfo)) return 'missing'
     seen.archiveBusy = true
-    if (archiveSession) console.log(`page archive: refused even though signed in (${archiveSessionNote})`)
+    if (archiveSession) console.log(`page archive: busy even though signed in (${archiveSessionNote})`)
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
     const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
@@ -1001,10 +985,12 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
     const body = (await google.clone().json().catch(() => ({}))) as { detail?: string }
     if (!body.detail?.includes('URL_RETRIEVAL_STATUS') || body.detail.includes('PAYWALL')) return google
     const site = new URL(url).hostname.replace(/^www\./, '')
-    console.log('link: archive busy — told the cook to try again shortly')
+    console.log('link: archive busy — the app will try again shortly')
     return json(
       {
         error: `${site} blocks direct imports, and its saved copy at the Internet Archive is busy right now — try again in a few minutes, or paste the recipe text instead.`,
+        // The app waits and tries again by itself on this code (0.45+).
+        code: 'archive_busy',
         detail: `archive busy; ${body.detail}`,
       },
       422,
