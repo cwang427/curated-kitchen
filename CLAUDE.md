@@ -82,7 +82,7 @@ confusion:
     reading structured data is deterministic. Fragile per-site (bot walls / no
     JSON-LD), so it degrades to paste/photo; that's expected. Most big sites
     (Serious Eats, Smitten Kitchen, …) block this fetch, so with AI enabled it's
-    now only the **fallback** for "Paste a link" — see the AI route's `{ url }`.
+    now only the **fallback** for "Add from URL" — see the AI route's `{ url }`.
   - **root (FREE with Gemini) — paste text or a photo → AI.** Uses Google
     Gemini's **free tier** (an AI Studio key with no billing) by default —
     `GEMINI_API_KEY`, a Worker secret, never in the public app; `GEMINI_MODEL`
@@ -98,8 +98,8 @@ confusion:
     once it settles). A retired id shows up as a 404 "no longer available." It reads any layout (blog-style pages the
     `/url` route can't) and photos/screenshots — the app posts `{ images: [...] }`
     (one or several photos of the SAME recipe, read together; the legacy single
-    `{ image }` is still accepted). **A link** (`{ url }`, Add a recipe → **Paste
-    a link**, first in the chooser) is read by Gemini itself via its
+    `{ image }` is still accepted). **A link** (`{ url }`, Add a recipe → **Add from
+    URL**, first in the chooser) is read by Gemini itself via its
     **URL-context tool** (`tools: [{ url_context: {} }]`, combined with the same
     structured output): Google serves the page from its own search index first,
     so small sites come through (paywalled pages don't). The Worker only trusts
@@ -322,7 +322,7 @@ can hide one via the editor; guests can view, cook, copy into their own kitchen,
 and add ingredients to their own grocery list, but never edit in place or see the
 kitchen's list/plan — no rules change, since copy/add-to-list act on the guest's
 own kitchen; Settings › Guests one-taps pre-existing recipes into the default),
-and recipe import from a link (Add a recipe → **Paste a link** →
+and recipe import from a link (Add a recipe → **Add from URL** →
 the `worker/` `/url` route fetches the page → `recipeFromJsonLd` reads its
 schema.org JSON-LD → validated by the same `parseRecipe` → editable preview →
 save as `origin: 'app'`; free/no-key, degrades to paste/photo on sites that block
@@ -333,13 +333,19 @@ save as `origin: 'app'`; when enabled, the default engine for text with the
 on-device parser as the offline/rate-limit fallback, and the only engine for
 photos/screenshots — several at once, since a long recipe rarely fits one phone
 screenshot, downscaled in-browser via `compressForImport` and combined into one
-recipe — and recipe **PDFs** (Add a recipe → **Scan a photo or PDF**; sent as-is
+recipe — and recipe **PDFs** (Add a recipe → **Add from photo or PDF**; sent as-is
 to Gemini, which reads them natively); a paid Claude route stays available as an
 alternative). Saving a new recipe (or leaving the editor) **replaces** the editor
 in history rather than stacking on it, so Back / an iOS swipe from the saved
 recipe returns to the list, never a stale editor; `/r/:slug/edit` opened from the
 recipe page steps back via `navigate(-1)` (the Edit link passes
-`state.fromRecipe`). And
+`state.fromRecipe`). Inside Add a recipe, the header Back (and the on-page Back)
+steps within the flow — an import screen returns to the chooser, the preview
+editor to the import screen it came from (pasted text / photos kept, to retry) —
+and only the chooser's Back leaves for the list; the import screens carry no
+explainer text (the chooser's one-line subtitles do that job). Photo/PDF import
+takes up to 12 files — our cap for upload size and the Worker's 30s per-model
+wait, not Gemini's (which accepts far more). And
 a full in-app recipe editor (`RecipeEditor` +
 `src/lib/recipeDraft.ts`: edit overall details, the ingredient list, and each
 step's text + cook-mode `brief`; start from scratch, edit an ingestion result
@@ -393,7 +399,7 @@ unreferenced docs just orphan, which is cheap here (a future reference-aware
 sweep could reclaim them). Each photo must fit a Firestore doc (~1 MB), so
 `compressToDataUrl` downscales + drops quality until it does.
 And a **free pasted-text importer** (`src/lib/importText.ts`, Add a recipe →
-**Paste text**): the cook copies a recipe — the whole page or just the recipe
+**Add from pasted text**): the cook copies a recipe — the whole page or just the recipe
 section — and a rule-based, on-device parser (no network, no AI, no cost) anchors
 on the "Ingredients"/"Directions" headings to pull out the title, times,
 ingredients, and steps, discarding nav/headnotes/photo credits/captions/reviews,
@@ -420,7 +426,7 @@ fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated
 Kitchen") is **not possible on iPhone**: WebKit still doesn't implement the Web
 Share Target API (bug 194593), and iOS doesn't route links into a home-screen
 app (Safari and the installed app have separate storage). The iPhone flow for
-links is Share → Copy in Safari, then Paste a link. Next: ownership transfer /
+links is Share → Copy in Safari, then Add from URL. Next: ownership transfer /
 co-owner. The cook log is intentionally skipped —
 journaling lives in ConsoliDated; this app stays focused on planning and
 executing.

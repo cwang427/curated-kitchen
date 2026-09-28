@@ -17,6 +17,9 @@ export default function AddRecipePage() {
   const navigate = useNavigate()
 
   const [mode, setMode] = useState<Mode>('choose')
+  // Where Back from the preview editor goes: the import screen it came from
+  // (still holding the pasted text / photos, to retry), or the chooser.
+  const [returnTo, setReturnTo] = useState<Mode>('choose')
   const [initial, setInitial] = useState<RecipeSeed | null>(null)
   const [text, setText] = useState('')
   const [link, setLink] = useState('')
@@ -42,8 +45,10 @@ export default function AddRecipePage() {
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
 
-  // A long recipe rarely fits one phone screenshot, so allow a few, read as one.
-  const MAX_PHOTOS = 6
+  // A long recipe rarely fits one phone screenshot, so allow several, read as one.
+  // Our cap, not Gemini's (it takes far more): it bounds the upload on cell data
+  // and keeps the read inside the Worker's 30s per-model wait.
+  const MAX_PHOTOS = 12
   // A PDF isn't downscaled like a photo (the AI reads it as-is), so cap its size
   // — and the whole request — to stay well under the AI's per-request limit.
   const MAX_PDF_MB = 10
@@ -90,6 +95,18 @@ export default function AddRecipePage() {
 
   const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, n) => n !== i))
 
+  const openEditor = (seed: RecipeSeed | null, from: Mode) => {
+    setInitial(seed)
+    setReturnTo(from)
+    setMode('edit')
+  }
+  // Back steps within Add a recipe (import screen → chooser; editor → the
+  // screen it came from) rather than leaving for the recipe list.
+  const goBack = () => {
+    setError(null)
+    setMode(mode === 'edit' ? returnTo : 'choose')
+  }
+
   // Photo(s) / screenshot(s) / PDF(s) → AI (Gemini vision). No on-device fallback.
   const readPhoto = async () => {
     if (photos.length === 0) return
@@ -101,8 +118,7 @@ export default function AddRecipePage() {
     setReading(true)
     try {
       const res = await importRecipeViaAI({ images: photos.map((p) => ({ data: p.data, mediaType: p.mediaType })) })
-      setInitial(res.seed)
-      setMode('edit')
+      openEditor(res.seed, 'capture')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t read those photos.')
     } finally {
@@ -138,8 +154,7 @@ export default function AddRecipePage() {
       } else {
         seed = (await importRecipeFromUrl(url)).seed
       }
-      setInitial(seed)
-      setMode('edit')
+      openEditor(seed, 'link')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t read that link.')
     } finally {
@@ -174,8 +189,7 @@ export default function AddRecipePage() {
       } else {
         seed = importRecipeFromText(text).seed
       }
-      setInitial(seed)
-      setMode('edit')
+      openEditor(seed, 'text')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t read that recipe.')
     } finally {
@@ -185,7 +199,7 @@ export default function AddRecipePage() {
 
   return (
     <div className="min-h-dvh">
-      <AppHeader title="Add a recipe" back />
+      <AppHeader title="Add a recipe" back onBack={mode === 'choose' ? undefined : goBack} />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-4">
         {!isMember ? (
@@ -214,12 +228,6 @@ export default function AddRecipePage() {
               aria-label="Recipe link"
               className="min-h-14 w-full rounded-2xl border border-line bg-card px-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
-            <p className="text-sm text-ink-soft">
-              In Safari, tap Share → Copy on the recipe page, then paste the link here. We’ll pull
-              the ingredients and steps for you to review before saving. If a site won’t open, copy
-              its text or take a screenshot instead.
-            </p>
-
             {error && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
                 {error}
@@ -238,7 +246,7 @@ export default function AddRecipePage() {
             </button>
             <button
               type="button"
-              onClick={() => { setMode('choose'); setError(null) }}
+              onClick={goBack}
               className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
             >
               Back
@@ -249,16 +257,10 @@ export default function AddRecipePage() {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Paste a recipe here — copy the whole page or just the recipe section. From a website, Apple Notes, a message, anywhere."
+              placeholder="Paste the recipe here"
               aria-label="Recipe text"
               className="min-h-64 w-full rounded-2xl border border-line bg-card p-4 text-base outline-none placeholder:text-ink-faint focus:border-accent"
             />
-            <p className="text-sm text-ink-soft">
-              Works great for sites that block the link import: open the recipe, select all
-              (⌘/Ctrl+A) and copy, then paste here. We’ll pull out the ingredients and steps for you
-              to review — extra bits are easy to delete before saving.
-            </p>
-
             {error && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
                 {error}
@@ -277,7 +279,7 @@ export default function AddRecipePage() {
             </button>
             <button
               type="button"
-              onClick={() => { setMode('choose'); setError(null) }}
+              onClick={goBack}
               className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
             >
               Back
@@ -324,18 +326,10 @@ export default function AddRecipePage() {
                     <span className="mt-1 block text-xs">{photos.length} of {MAX_PHOTOS} added</span>
                   </span>
                 ) : (
-                  <span>
-                    Tap to take photos, or choose screenshots or a PDF
-                    <span className="mt-1 block text-xs">add several of one recipe — we read them together</span>
-                  </span>
+                  <span>Tap to add photos or a PDF</span>
                 )}
               </label>
             )}
-            <p className="text-sm text-ink-soft">
-              A long recipe rarely fits one screenshot — add each part (in order) and we’ll combine
-              them into one recipe for you to review before saving. A recipe PDF works too.
-            </p>
-
             {error && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
                 {error}
@@ -358,7 +352,7 @@ export default function AddRecipePage() {
             </button>
             <button
               type="button"
-              onClick={() => { setMode('choose'); setError(null) }}
+              onClick={goBack}
               className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
             >
               Back
@@ -373,10 +367,9 @@ export default function AddRecipePage() {
                 onClick={() => setMode('link')}
                 className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
               >
-                <span className="block font-medium">Paste a link</span>
+                <span className="block font-medium">Add from URL</span>
                 <span className="mt-0.5 block text-sm text-ink-soft">
-                  From Serious Eats, a food blog, most recipe sites. We read the page and pull the
-                  recipe in for you. (Paywalled sites need a screenshot.)
+                  Paste a link to a recipe. Works for most recipe sites. (Paywalled sites won’t work.)
                 </span>
               </button>
             )}
@@ -386,10 +379,9 @@ export default function AddRecipePage() {
               onClick={() => setMode('text')}
               className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
             >
-              <span className="block font-medium">Paste text</span>
+              <span className="block font-medium">Add from pasted text</span>
               <span className="mt-0.5 block text-sm text-ink-soft">
-                Copy a recipe from anywhere — a website, Apple Notes, a message — and we’ll read it
-                in for you. Free, works offline.
+                Copy a recipe in text format from anywhere, and paste here
               </span>
             </button>
 
@@ -399,10 +391,9 @@ export default function AddRecipePage() {
                 onClick={() => setMode('capture')}
                 className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
               >
-                <span className="block font-medium">Scan a photo or PDF</span>
+                <span className="block font-medium">Add from photo or PDF</span>
                 <span className="mt-0.5 block text-sm text-ink-soft">
-                  Snap a cookbook page, a recipe card, or a screenshot — or pick a recipe PDF — and
-                  we’ll read it in for you.
+                  Upload screenshots/pictures of a recipe or a PDF
                 </span>
               </button>
             )}
@@ -410,11 +401,11 @@ export default function AddRecipePage() {
             {/* Manual entry is the last resort, below the import options. */}
             <button
               type="button"
-              onClick={() => { setInitial(null); setMode('edit') }}
+              onClick={() => openEditor(null, 'choose')}
               className="w-full rounded-2xl border border-line bg-card p-4 text-left transition active:scale-[0.99]"
             >
               <span className="block font-medium">Start from scratch</span>
-              <span className="mt-0.5 block text-sm text-ink-soft">Type the recipe in yourself.</span>
+              <span className="mt-0.5 block text-sm text-ink-soft">Type in the recipe yourself</span>
             </button>
           </div>
         )}

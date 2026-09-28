@@ -56,7 +56,7 @@ From a computer with Node installed, in this `worker/` folder:
 
 4. **Tell the app the URL.** Put that URL into `src/lib/aiConfig.ts`
    (`IMPORT_WORKER_URL`), commit, and push. The app redeploys automatically
-   (~2 min), and **"Paste a link"** turns on in Add a recipe.
+   (~2 min), and **"Add from URL"** turns on in Add a recipe.
 
 ## Turn on the AI route (paste text / a photo) — free with Gemini
 
@@ -69,7 +69,7 @@ This is what makes text pastes work on *any* site and reads photos/screenshots:
    Paste the AI Studio key at the prompt, then `wrangler deploy` again.
 2. In `src/lib/aiConfig.ts`, set `AI_IMPORT_ENABLED = true`, commit, and push.
    In Add a recipe, "Paste text" then uses Gemini (falling back to the on-device
-   reader if the free limit is hit), and **"Scan a photo"** appears.
+   reader if the free limit is hit), and **"Add from photo or PDF"** appears.
 
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
@@ -108,7 +108,7 @@ there — switch the request to structured outputs (`output_config.format`); pin
 me and I'll make that change.
 
 ## Testing it worked
-Open the app → Recipes → **Add** → **Paste a link**, paste a recipe URL, and tap
+Open the app → Recipes → **Add** → **Add from URL**, paste a recipe URL, and tap
 **Read recipe**. If you get "Not signed in", the token check is failing (check
 `FIREBASE_PROJECT_ID`). "Couldn't open that page" or "behind a paywall" means
 Google couldn't read that particular page — normal for paywalled sites; use paste
