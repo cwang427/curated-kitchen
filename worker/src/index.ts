@@ -298,6 +298,16 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 }
 
+/** How we introduce ourselves to the Internet Archive: honestly, as the small
+ * app we are — never in a browser disguise. Its Sept 2026 access update says
+ * it's getting better at telling abusive bots from real users, and the advice
+ * to developers hitting its 429s is to identify your tool and not spoof
+ * browser headers. (Our refused requests were exactly the disguised ones: the
+ * page copies and photos sent BROWSER_HEADERS, while the plainly-sent lookups
+ * weren't throttled.) */
+const ARCHIVE_UA = 'CuratedKitchen/1.0 (personal recipe app; fetches one saved page per import)'
+const ARCHIVE_HEADERS = { 'User-Agent': ARCHIVE_UA, Accept: 'text/html,application/xhtml+xml' }
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** How long a 429/503 asks us to wait (its Retry-After: seconds or a date), in
@@ -406,7 +416,7 @@ async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<strin
   const index = await fetchText(
     `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}` +
       '&output=json&fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10',
-    { Accept: 'application/json' },
+    { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
     'archive search',
     [1500],
     info,
@@ -465,7 +475,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   const availInfo: FetchInfo = {}
   const avail = await fetchText(
     `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
-    { Accept: 'application/json' },
+    { 'User-Agent': ARCHIVE_UA, Accept: 'application/json' },
     'archive lookup',
     [1500],
     availInfo,
@@ -488,7 +498,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
     const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
     const copyInfo: FetchInfo = {}
-    const archived = await fetchText(copy, BROWSER_HEADERS, label, [1500, 3000], copyInfo)
+    const archived = await fetchText(copy, ARCHIVE_HEADERS, label, [1500, 3000], copyInfo)
     stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
     if (archived) {
       tried.add(stamp)
@@ -753,7 +763,11 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
     let res: Response
     try {
       res = await fetch(url, {
-        headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+        // The Archive gets our honest name; the site (and the proxy) the browser's.
+        headers: {
+          ...(label === 'archive' ? ARCHIVE_HEADERS : BROWSER_HEADERS),
+          Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
+        },
         redirect: 'follow',
         signal: controller.signal,
       })

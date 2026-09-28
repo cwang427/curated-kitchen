@@ -167,6 +167,15 @@ confusion:
     logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
     host/…end-of-path`), compresses them like any added photo, and opens the preview editor
     with them as unsaved photos, so saving stores them as photo docs.
+    **Every Archive request identifies us honestly** (`ARCHIVE_UA`,
+    "CuratedKitchen/1.0 (personal recipe app…)"), never in `BROWSER_HEADERS`
+    (v0.42.4): the Archive's Sept 2026 access update says it's getting better
+    at telling abusive bots from real users, the advice for its 429s is to
+    identify your tool and not spoof browser headers, and our refused requests
+    were exactly the disguised ones. Sites still get `BROWSER_HEADERS`. The
+    same update says logged-in users don't get 429s — the next lever if honest
+    naming isn't enough (the owner's own free Archive account, as a Worker
+    secret; not built).
     **The Archive throttles (429)** the shared addresses Workers fetch from, so
     `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
     3000]`; 429/503 only — waiting costs no Worker CPU), **but the response's
