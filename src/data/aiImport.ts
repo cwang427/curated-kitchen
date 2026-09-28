@@ -100,8 +100,10 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
 }
 
 /** Photo links a link import found on the page (see the Worker's findLinkPhotos):
- * the cover and, when the AI kept the page's steps, photos per step index. */
-type LinkPhotos = { cover: string | null; steps: Record<string, string[]>; stamp?: string }
+ * the cover — as a few candidates, other sizes of the same photo, best first
+ * (`cover` alone from a Worker older than 0.41.4) — and, when the AI kept the
+ * page's steps, photos per step index. */
+type LinkPhotos = { cover: string | null; covers?: string[]; steps: Record<string, string[]>; stamp?: string }
 
 /**
  * Bring a link import's photos in as unsaved photos on the preview (data URLs,
@@ -128,32 +130,38 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   // Two at a time, not all at once — and one at a time when the page came from
   // the Internet Archive (`stamp`), where its photos will likely come from too:
   // the Archive throttles bursts (a third photo at once got a 429).
-  type Job = { kind: 'cover'; url: string } | { kind: 'step'; index: number; slot: number; url: string }
+  type Job = { kind: 'cover'; urls: string[] } | { kind: 'step'; index: number; slot: number; urls: string[] }
+  const covers = photos.covers?.length ? photos.covers.slice(0, 4) : photos.cover ? [photos.cover] : []
   const jobs: Job[] = [
-    ...(photos.cover ? [{ kind: 'cover' as const, url: photos.cover }] : []),
+    ...(covers.length ? [{ kind: 'cover' as const, urls: covers }] : []),
     ...Object.entries(photos.steps ?? {}).flatMap(([index, urls]) =>
-      urls.slice(0, 3).map((url, slot) => ({ kind: 'step' as const, index: Number(index), slot, url })),
+      urls.slice(0, 3).map((url, slot) => ({ kind: 'step' as const, index: Number(index), slot, urls: [url] })),
     ),
   ]
   // Each photo keeps its slot, so two parallel downloads can't swap a step's order.
   const stepPhotos = new Map<number, (string | undefined)[]>()
   const run = async (job: Job) => {
-    const file = await download(job.url)
-    if (!file) return
-    try {
-      if (job.kind === 'cover') {
-        const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
-        seed.cover = { photo, thumb }
-      } else {
-        const image = await compressToDataUrl(file)
-        // Look the list up only after the await, or two downloads for one step
-        // could each start a fresh list and the second would drop the first.
-        const list = stepPhotos.get(job.index) ?? []
-        list[job.slot] = image
-        stepPhotos.set(job.index, list)
+    // The first candidate that downloads and decodes wins (only the cover has
+    // more than one: the Archive often lacks the size the recipe data names).
+    for (const url of job.urls) {
+      const file = await download(url)
+      if (!file) continue
+      try {
+        if (job.kind === 'cover') {
+          const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
+          seed.cover = { photo, thumb }
+        } else {
+          const image = await compressToDataUrl(file)
+          // Look the list up only after the await, or two downloads for one step
+          // could each start a fresh list and the second would drop the first.
+          const list = stepPhotos.get(job.index) ?? []
+          list[job.slot] = image
+          stepPhotos.set(job.index, list)
+        }
+        return
+      } catch {
+        /* unreadable image — try the next candidate, if any */
       }
-    } catch {
-      /* unreadable image — skip it */
     }
   }
   let next = 0

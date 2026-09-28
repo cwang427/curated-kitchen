@@ -527,32 +527,69 @@ function flattenSteps(instructions: unknown): Record<string, unknown>[] {
   return out
 }
 
-type LinkPhotos = { cover: string | null; steps: string[][] }
+type LinkPhotos = { covers: string[]; steps: string[][] }
 
-/** Photo links the page publishes in its recipe data: the main photo (else its
- * og:image) and up to 3 per step, capped at 10 in all. URLs only — the app
- * downloads them through /img, so this Worker never holds the bytes. */
-function findLinkPhotos(html: string, pageUrl: string): LinkPhotos {
+/** A photo's name without its extension or a WordPress-style size suffix, so
+ * every size of one photo compares equal ("salmon-1024x683.jpg" → "salmon"). */
+function photoStem(link: string): string {
+  try {
+    const name = decodeURIComponent(new URL(link).pathname.split('/').pop() ?? '')
+    return name.replace(/\.[a-z0-9]+$/i, '').replace(/-\d{2,4}x\d{2,4}$/, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/** Every size of a photo that the page itself shows — its <img>/<source> src,
+ * srcset, and lazy-load data-src/-srcset — widest first. */
+function pageImageVariants(html: string, stem: string, base: string): string[] {
+  const found = new Map<string, number>()
+  for (const tag of html.match(/<(?:img|source)\b[^>]*>/gi) ?? []) {
+    for (const attr of tag.matchAll(/\b(?:data-(?:lazy-)?)?(?:srcset|src)=["']([^"']+)["']/gi)) {
+      for (const part of attr[1].split(/,\s+/)) {
+        const [raw, descriptor] = part.trim().split(/\s+/)
+        if (!raw || raw.startsWith('data:')) continue
+        try {
+          const u = new URL(raw.replace(/&amp;/g, '&'), base)
+          if ((u.protocol !== 'https:' && u.protocol !== 'http:') || photoStem(u.toString()) !== stem) continue
+          const width =
+            Number(descriptor?.match(/^(\d+)w$/)?.[1]) || Number(u.pathname.match(/\/(\d{2,4})x\d*\//)?.[1]) || 0
+          found.set(u.toString(), Math.max(found.get(u.toString()) ?? 0, width))
+        } catch {
+          /* not a URL */
+        }
+      }
+    }
+  }
+  return [...found].sort((a, b) => b[1] - a[1]).map(([u]) => u)
+}
+
+/** Photo links the page publishes in its recipe data: the main photo and up to
+ * 3 per step, capped at 10 in all. URLs only — the app downloads them through
+ * /img, so this Worker never holds the bytes.
+ *
+ * The cover comes as a few candidates, best first, which the app tries in turn.
+ * Recipe data often names a big size of the main photo that the page never
+ * shows — and the Internet Archive only saves the images a page shows — so for
+ * a page read from the Archive, the sizes the page itself displays go first. */
+function findLinkPhotos(html: string, pageUrl: string, fromArchive: boolean): LinkPhotos {
   const recipe = findRecipe(extractJsonLd(html))
   const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]
-  const cover = imageUrls(recipe?.image, pageUrl)[0] ?? (og ? imageUrls(og, pageUrl)[0] ?? null : null)
+  const listed = [...imageUrls(recipe?.image, pageUrl), ...(og ? imageUrls(og.replace(/&amp;/g, '&'), pageUrl) : [])]
+  const stem = listed.length ? photoStem(listed[0]) : ''
+  const shown = stem.length >= 4 ? pageImageVariants(html, stem, pageUrl) : []
+  const covers = [...new Set(fromArchive ? [...shown, ...listed] : [...listed, ...shown])].slice(0, 4)
   let budget = 9
   const steps = flattenSteps(recipe?.recipeInstructions).map((step) => {
     const take = imageUrls(step.image, pageUrl)
-      .filter((u) => u !== cover)
+      .filter((u) => !covers.includes(u))
       .slice(0, Math.min(3, budget))
     budget -= take.length
     return take
   })
-  return { cover, steps }
+  return { covers, steps }
 }
 
-/**
- * Stream one photo to the app (the browser can't fetch another site's image
- * itself). Tries the image directly, then — for a page read from the Internet
- * Archive — the Archive's copy. Only ever passes images through, so it can't be
- * used as a general proxy; the body is streamed, never buffered.
- */
 /** A photo link, short enough for a log line: host + the end of its path. */
 function shortUrl(link: string): string {
   try {
@@ -569,6 +606,11 @@ function shortUrl(link: string): string {
  * 2048px — the app shrinks photos further anyway. */
 const viaImageProxy = (link: string) => `https://wsrv.nl/?url=${encodeURIComponent(link)}&w=2048&h=2048&we`
 
+/**
+ * Stream one photo to the app (the browser can't fetch another site's image
+ * itself). Only ever passes images through, so it can't be used as a general
+ * proxy; the body is streamed, never buffered.
+ */
 async function handleImageProxy(body: { url?: string; stamp?: string }, origin: string): Promise<Response> {
   let target: URL
   try {
@@ -582,50 +624,54 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
   const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
   const site = target.toString()
   const archived = stamp ? `https://web.archive.org/web/${stamp}im_/${site}` : null
-  // Each route, with the waits (ms) before retrying a 429 / 503. The site
-  // first; then, when the page itself came from the Archive, the Archive's copy
-  // (it throttles bursts, so be patient); then the image proxy — for the
-  // Archive's copy first (a bot-walled site likely blocks the proxy too).
-  const routes: Array<[label: string, url: string, waits: number[]]> = [
-    ['site', site, []],
+  // The site first; then, when the page itself came from the Archive, the
+  // Archive's copy; then the image proxy — for the Archive's copy first (a
+  // bot-walled site likely blocks the proxy too). No waiting out an Archive
+  // 429: retrying it never once helped in practice (~4.5 s a photo), while the
+  // proxy, fetching from its own servers, gets the same copy straight away.
+  const routes: Array<[label: string, url: string]> = [
+    ['site', site],
     ...(archived
       ? ([
-          ['archive', archived, [1500, 3000]],
-          ['proxy/archive', viaImageProxy(archived), []],
-        ] as Array<[string, string, number[]]>)
+          ['archive', archived],
+          ['proxy/archive', viaImageProxy(archived)],
+        ] as Array<[string, string]>)
       : []),
-    ['proxy', viaImageProxy(site), []],
+    ['proxy', viaImageProxy(site)],
   ]
   // One line per photo in `wrangler tail`, e.g.
   //   img ok [site 403 → archive 429 → archive 200] www.example.com/…/salmon.jpg
   const trail: string[] = []
-  for (const [label, url, waits] of routes) {
-    for (let attempt = 0; ; attempt++) {
-      let res: Response
-      try {
-        res = await fetch(url, {
-          headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
-          redirect: 'follow',
-        })
-      } catch {
-        trail.push(`${label} failed`)
-        break
-      }
-      const type = res.headers.get('Content-Type') ?? ''
-      const size = Number(res.headers.get('Content-Length') ?? 0)
-      if (res.ok && type.startsWith('image/') && size <= 12_000_000) {
-        trail.push(`${label} ${res.status}`)
-        console.log(`img ok [${trail.join(' → ')}] ${shortUrl(site)}`)
-        return new Response(res.body, {
-          status: 200,
-          headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
-        })
-      }
-      trail.push(`${label} ${res.status}${res.ok ? ` ${type || 'no type'}` : ''}`)
-      await res.body?.cancel() // free the connection; Workers cap open ones
-      if ((res.status !== 429 && res.status !== 503) || attempt >= waits.length) break
-      await sleep(waits[attempt])
+  for (const [label, url] of routes) {
+    // Give up on a route that hasn't started answering in 15 s (the timer only
+    // guards the wait for headers; it's cleared before the body streams).
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15_000)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+        redirect: 'follow',
+        signal: controller.signal,
+      })
+    } catch {
+      trail.push(`${label} ${controller.signal.aborted ? 'timed out' : 'failed'}`)
+      continue
+    } finally {
+      clearTimeout(timer)
     }
+    const type = res.headers.get('Content-Type') ?? ''
+    const size = Number(res.headers.get('Content-Length') ?? 0)
+    if (res.ok && type.startsWith('image/') && size <= 12_000_000) {
+      trail.push(`${label} ${res.status}`)
+      console.log(`img ok [${trail.join(' → ')}] ${shortUrl(site)}`)
+      return new Response(res.body, {
+        status: 200,
+        headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
+      })
+    }
+    trail.push(`${label} ${res.status}${res.ok ? ` ${type || 'no type'}` : ''}`)
+    await res.body?.cancel() // free the connection; Workers cap open ones
   }
   console.log(`img failed [${trail.join(' → ')}] ${shortUrl(site)}`)
   return json({ error: 'Couldn’t get that photo.' }, 404, origin)
@@ -644,7 +690,7 @@ async function handleLink(url: string, env: Env, origin: string): Promise<Respon
   const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
   if (!res.ok) return res
   const out = (await res.json()) as { recipe?: { steps?: unknown[] } }
-  const found = findLinkPhotos(page.html, url)
+  const found = findLinkPhotos(page.html, url, page.via === 'archive')
   // Step photos follow the page's steps; attach them only if the AI kept the
   // same steps (it's told to keep the source's step boundaries).
   const aiSteps = Array.isArray(out.recipe?.steps) ? out.recipe!.steps!.length : 0
@@ -652,10 +698,12 @@ async function handleLink(url: string, env: Env, origin: string): Promise<Respon
   const steps: Record<number, string[]> = {}
   if (aiSteps === found.steps.length) found.steps.forEach((p, i) => p.length && (steps[i] = p))
   console.log(
-    `link photos: cover=${found.cover ? 'yes' : 'no'} stepPhotos=${withPhotos}/${found.steps.length} steps` +
+    `link photos: cover=${found.covers.length ? `yes (${found.covers.length} to try)` : 'no'} stepPhotos=${withPhotos}/${found.steps.length} steps` +
       (withPhotos && aiSteps !== found.steps.length ? ` (AI made ${aiSteps} steps — step photos skipped)` : ''),
   )
-  return json({ ...out, photos: { cover: found.cover, steps, ...(page.stamp ? { stamp: page.stamp } : {}) } }, 200, origin)
+  // `cover` (the first candidate) stays for an app that predates `covers`.
+  const photos = { cover: found.covers[0] ?? null, covers: found.covers, steps, ...(page.stamp ? { stamp: page.stamp } : {}) }
+  return json({ ...out, photos }, 200, origin)
 }
 
 async function handleUrlImport(

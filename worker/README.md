@@ -19,7 +19,8 @@ and you can use just the first:
   try reading the link itself (its URL-context tool). Paywalled pages don't
   work. Only the public
   recipe link is sent to those services. It also returns the links of the
-  page's own photos (the main one, plus any per-step photos), which the app
+  page's own photos (the main one — a few sizes of it, tried in turn — plus
+  any per-step photos), which the app
   downloads through **`/img`** — a pass-through that streams images only (from
   the site, else the Archive's copy, else via **wsrv.nl**, a free public image
   proxy; only public photo links are sent to it). It uses Gemini's **free tier**
@@ -123,7 +124,7 @@ or a photo. Worker logs: `wrangler tail` (a link logs `page direct/reader/archiv
 each route it tried — a `429` there is the Archive saying "slow down", which the
 Worker waits out — and `gemini url statuses=…` only if it fell back to Google's
 reader). Each photo then logs one line, e.g. `img ok [site 403 → archive 429 →
-archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
+proxy/archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
 the end of the photo's link (shortened on purpose). If a link's tail starts with `gemini url statuses=`, the deployed
 Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 

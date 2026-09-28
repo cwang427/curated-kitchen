@@ -127,19 +127,27 @@ confusion:
     gets the page itself FIRST (direct → Jina → Archive) and has Gemini read it
     as text; Google's URL-context reader is only the last resort (no page from
     any route). That's so a link import also brings the **page's photos**:
-    `findLinkPhotos` reads the recipe data's `image` (widest; else `og:image`)
-    as the cover and each HowToStep's `image` (≤3 per step, ≤10 total), and the
-    response carries **links only** — `photos: { cover, steps: {index: urls},
-    stamp }`. Step photos are attached only when the AI kept the page's step
+    `findLinkPhotos` reads the cover from the recipe data's `image` / `og:image`
+    and each HowToStep's `image` (≤3 per step, ≤10 total), and the response
+    carries **links only** — `photos: { cover, covers, steps: {index: urls},
+    stamp }`. **The cover is a few candidates** (`covers`, ≤4, best first;
+    `cover` = the first, for older apps): recipe data often names a big size of
+    the main photo the page never shows, and the Archive only saves images a
+    page shows, so `pageImageVariants` adds every size of that photo the page's
+    own `<img>`/`<source>` src/srcset/data-src shows (matched by `photoStem`: file
+    name minus extension and `-1024x683`-style suffix), widest first — and puts
+    them FIRST for an Archive-read page (listed sizes first otherwise). The app
+    tries them in turn until one downloads and decodes. Step photos are attached only when the AI kept the page's step
     count (the SYSTEM prompt now says keep step boundaries); otherwise just the
     cover. The app downloads each through **`POST /img`** (`handleImageProxy`:
     streams an image straight through, never buffers — the free plan's ~10 ms CPU
     budget can't base64 megabytes; tries the image from the site, then — when
-    the page came from the Archive — the Archive's `im_` copy (429/503 retried
-    after 1.5 s and 3 s) and **wsrv.nl** (a free public image proxy, no key; it
+    the page came from the Archive — the Archive's `im_` copy (once: retrying
+    its 429s never helped and cost ~4.5 s a photo) and **wsrv.nl** (a free public image proxy, no key; it
     fetches from its own servers, so neither a bot wall nor the Archive's
     throttling of Cloudflare's shared addresses sees us) for that copy, and
-    finally wsrv.nl for the site's image; images only, private hosts refused;
+    finally wsrv.nl for the site's image; 15 s cap per route for headers;
+    images only, private hosts refused;
     logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
     host/…end-of-path`), compresses them like any added photo, and opens the preview editor
     with them as unsaved photos, so saving stores them as photo docs.
@@ -147,8 +155,7 @@ confusion:
     `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
     3000]`; 429/503 only — waiting costs no Worker CPU), and if the copy is still
     refused, Jina Reader fetches the Archive's copy for us (`r.jina.ai/<archive
-    url>` — its own addresses). `/img` has its own retries + wsrv.nl fallback
-    (above), and the app downloads photos **two at a time — one at a time when
+    url>` — its own addresses). `/img` falls back to wsrv.nl instead (above), and the app downloads photos **two at a time — one at a time when
     the page came from the Archive** (`photos.stamp`; three at once got a 429),
     each into its fixed slot so a step's photos keep their order. An Archive copy
     can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
