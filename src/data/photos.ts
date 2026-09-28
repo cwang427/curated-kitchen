@@ -231,8 +231,10 @@ export function usePhotoUrls(ids: string[]): Record<string, string> {
   // Tolerate a nullish argument (a legacy step with no images) rather than
   // throwing mid-render.
   const list = ids ?? []
-  // Only re-run when the actual set of ids changes, not on every render.
-  const key = JSON.stringify(list)
+  // Only re-run when the actual set of ids changes, not on every render. An
+  // unsaved photo is a ~1 MB data URL, so it's keyed by a short fingerprint —
+  // rebuilding megabytes of key on every keystroke in the editor would lag.
+  const key = list.map((id) => (id?.startsWith('data:') ? `data:${id.length}:${id.slice(-32)}` : id)).join('|')
 
   useEffect(() => {
     let alive = true

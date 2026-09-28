@@ -147,6 +147,7 @@ Rules:
 - Ingredients are structured: split each line into quantity, unit, item (singular), and prep. Use standard unit abbreviations (tsp, tbsp, cup, g, kg, oz, lb, ml, l, clove). For a countable thing ("2 eggs"), give quantity 2 and no unit. For "salt to taste", set quantity null and scalable false. Ranges like "2–3 cloves" → quantity 2, quantityMax 3.
 - A parenthetical second measurement ("340 g bucatini (12 oz)") goes in "alt" so it scales too.
 - Every ingredient needs a "category" (supermarket aisle) from the allowed list.
+- Keep the source's step boundaries: each numbered or separate step in the source becomes exactly one step, in order — never merge steps together or split one apart.
 - In step text, wrap amounts that should scale with servings in {{ }} (e.g. "Add {{2 tbsp}} of the butter"). Leave times and temperatures as plain text. Put oven temps in the step's temperature field as well.
 - For EVERY step, also fill "brief": a scannable cook-mode version of that same step, one action per line (an array of short lines). Reuse the same {{ }} tokens for scalable amounts. This is a condensed restatement of the step's own text — keep the full prose in "text"; never let an instruction appear only in "brief".
 - Set "handsOff" true on a step that's a mostly-unattended wait the cook can step away from (simmer, bake, roast, braise, chill, rest, marinate, proof, reduce), and false on one that needs active attention (stir/whisk constantly, watch closely) or is a quick action. Omit if unclear.
@@ -320,19 +321,22 @@ type PageSource = 'direct' | 'reader' | 'archive'
  * first substantial page that isn't a bot challenge is returned for the AI to
  * read as text. Each step logs to `wrangler tail`.
  */
-async function fetchRecipePage(url: string): Promise<{ html: string; via: PageSource } | null> {
-  let fallback: { html: string; via: PageSource } | null = null
+type RecipePage = { html: string; via: PageSource; stamp?: string }
+
+async function fetchRecipePage(url: string): Promise<RecipePage | null> {
+  let fallback: RecipePage | null = null
+  let stamp: string | undefined
   const consider = (html: string | null, via: PageSource): boolean => {
     if (!html) return false
     if (findRecipe(extractJsonLd(html))) {
       console.log(`page ${via}: recipe data found`)
-      fallback = { html, via }
+      fallback = { html, via, ...(via === 'archive' && stamp ? { stamp } : {}) }
       return true
     }
     const head = html.slice(0, 5000)
     const challenge = /access denied|just a moment|are you a robot|captcha|enable javascript and cookies/i.test(head)
     console.log(`page ${via}: no recipe data${challenge ? ' (bot challenge)' : ''}, ${html.length} chars`)
-    if (!fallback && !challenge && html.length > 5000) fallback = { html, via }
+    if (!fallback && !challenge && html.length > 5000) fallback = { html, via, ...(via === 'archive' && stamp ? { stamp } : {}) }
     return false
   }
 
@@ -350,7 +354,6 @@ async function fetchRecipePage(url: string): Promise<{ html: string; via: PageSo
     { Accept: 'application/json' },
     'archive lookup',
   )
-  let stamp: string | undefined
   try {
     stamp = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
       .archived_snapshots?.closest?.timestamp
@@ -396,6 +399,140 @@ function pageForAi(html: string, url: string): string {
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/* ---- Photos from a link import ---- */
+
+/** Absolute http(s) image URLs from a schema.org `image` value (a URL, an
+ * ImageObject, or a list of either), largest first when widths are given. */
+function imageUrls(value: unknown, base: string): string[] {
+  const items = Array.isArray(value) ? value : value ? [value] : []
+  const found: { url: string; width: number }[] = []
+  for (const item of items) {
+    const raw =
+      typeof item === 'string'
+        ? item
+        : item && typeof item === 'object'
+          ? ((item as Record<string, unknown>).url ?? (item as Record<string, unknown>).contentUrl)
+          : undefined
+    if (typeof raw !== 'string') continue
+    try {
+      const u = new URL(raw, base)
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') continue
+      const width = Number((item as Record<string, unknown>)?.width) || 0
+      found.push({ url: u.toString(), width })
+    } catch {
+      /* not a URL */
+    }
+  }
+  return found.sort((a, b) => b.width - a.width).map((f) => f.url)
+}
+
+/** The recipe's steps in order (sections flattened), as the AI sees them — a
+ * bare string counts as a step too, so indexes line up with the AI's steps. */
+function flattenSteps(instructions: unknown): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  const walk = (node: unknown) => {
+    if (Array.isArray(node)) node.forEach(walk)
+    else if (typeof node === 'string') {
+      if (node.trim()) out.push({ text: node })
+    } else if (node && typeof node === 'object') {
+      const obj = node as Record<string, unknown>
+      const type = obj['@type']
+      const isSection = type === 'HowToSection' || (Array.isArray(type) && type.includes('HowToSection'))
+      if (isSection || (obj.itemListElement && !obj.text)) walk(obj.itemListElement)
+      else out.push(obj)
+    }
+  }
+  walk(instructions)
+  return out
+}
+
+type LinkPhotos = { cover: string | null; steps: string[][] }
+
+/** Photo links the page publishes in its recipe data: the main photo (else its
+ * og:image) and up to 3 per step, capped at 10 in all. URLs only — the app
+ * downloads them through /img, so this Worker never holds the bytes. */
+function findLinkPhotos(html: string, pageUrl: string): LinkPhotos {
+  const recipe = findRecipe(extractJsonLd(html))
+  const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]
+  const cover = imageUrls(recipe?.image, pageUrl)[0] ?? (og ? imageUrls(og, pageUrl)[0] ?? null : null)
+  let budget = 9
+  const steps = flattenSteps(recipe?.recipeInstructions).map((step) => {
+    const take = imageUrls(step.image, pageUrl)
+      .filter((u) => u !== cover)
+      .slice(0, Math.min(3, budget))
+    budget -= take.length
+    return take
+  })
+  return { cover, steps }
+}
+
+/**
+ * Stream one photo to the app (the browser can't fetch another site's image
+ * itself). Tries the image directly, then — for a page read from the Internet
+ * Archive — the Archive's copy. Only ever passes images through, so it can't be
+ * used as a general proxy; the body is streamed, never buffered.
+ */
+async function handleImageProxy(body: { url?: string; stamp?: string }, origin: string): Promise<Response> {
+  let target: URL
+  try {
+    target = new URL(String(body.url ?? ''))
+  } catch {
+    return json({ error: 'Bad image link.' }, 400, origin)
+  }
+  if ((target.protocol !== 'https:' && target.protocol !== 'http:') || isBlockedHost(target.hostname)) {
+    return json({ error: 'Bad image link.' }, 400, origin)
+  }
+  const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
+  const tries = [target.toString(), ...(stamp ? [`https://web.archive.org/web/${stamp}im_/${target}`] : [])]
+  for (const url of tries) {
+    try {
+      const res = await fetch(url, {
+        headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+        redirect: 'follow',
+      })
+      const type = res.headers.get('Content-Type') ?? ''
+      const size = Number(res.headers.get('Content-Length') ?? 0)
+      if (res.ok && type.startsWith('image/') && size <= 12_000_000) {
+        return new Response(res.body, {
+          status: 200,
+          headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
+        })
+      }
+      console.log(`img ${res.status} ${type || '?'} ${url.slice(0, 120)}`)
+    } catch (e) {
+      console.log(`img failed ${String(e)} ${url.slice(0, 120)}`)
+    }
+  }
+  return json({ error: 'Couldn’t get that photo.' }, 404, origin)
+}
+
+/**
+ * A link: get the page ourselves (direct → Jina Reader → Internet Archive) so
+ * we have its HTML — the recipe data AND its photos — and have Gemini read it
+ * as text. Only when no route gets the page do we let Google read it (Gemini's
+ * URL-context tool; no photos that way).
+ */
+async function handleLink(url: string, env: Env, origin: string): Promise<Response> {
+  const page = await fetchRecipePage(url)
+  if (!page) return handleGemini({ images: [], url }, env, origin)
+  console.log(`link: reading page via ${page.via} as text`)
+  const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
+  if (!res.ok) return res
+  const out = (await res.json()) as { recipe?: { steps?: unknown[] } }
+  const found = findLinkPhotos(page.html, url)
+  // Step photos follow the page's steps; attach them only if the AI kept the
+  // same steps (it's told to keep the source's step boundaries).
+  const aiSteps = Array.isArray(out.recipe?.steps) ? out.recipe!.steps!.length : 0
+  const withPhotos = found.steps.filter((p) => p.length > 0).length
+  const steps: Record<number, string[]> = {}
+  if (aiSteps === found.steps.length) found.steps.forEach((p, i) => p.length && (steps[i] = p))
+  console.log(
+    `link photos: cover=${found.cover ? 'yes' : 'no'} stepPhotos=${withPhotos}/${found.steps.length} steps` +
+      (withPhotos && aiSteps !== found.steps.length ? ` (AI made ${aiSteps} steps — step photos skipped)` : ''),
+  )
+  return json({ ...out, photos: { cover: found.cover, steps, ...(page.stamp ? { stamp: page.stamp } : {}) } }, 200, origin)
 }
 
 async function handleUrlImport(
@@ -573,13 +710,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
     )
     console.log(`gemini url statuses=${statuses.join(',') || 'none'}`)
     if (statuses.length > 0 && !statuses.includes('URL_RETRIEVAL_STATUS_SUCCESS')) {
-      // Google couldn't open it (big sites block its AI reader too). Get the
-      // page another way and have Gemini read it as text instead.
-      const page = await fetchRecipePage(input.url)
-      if (page) {
-        console.log(`gemini reading page via ${page.via} as text`)
-        return handleGemini({ images: [], text: pageForAi(page.html, input.url) }, env, origin)
-      }
+      // Google couldn't open it either (handleLink already tried our own routes).
       return json(
         {
           error: statuses.some((st) => st.includes('PAYWALL'))
@@ -722,10 +853,11 @@ export default {
       return json({ error: 'Bad request body.' }, 400, origin)
     }
 
+    const path = new URL(request.url).pathname.replace(/\/+$/, '')
     // Free route: fetch a URL and return its structured data. No API key needed.
-    if (new URL(request.url).pathname.replace(/\/+$/, '').endsWith('/url')) {
-      return handleUrlImport(body, origin)
-    }
+    if (path.endsWith('/url')) return handleUrlImport(body, origin)
+    // A link import's photos, streamed through (the app can't fetch them itself).
+    if (path.endsWith('/img')) return handleImageProxy(body as { url?: string; stamp?: string }, origin)
 
     // AI route: turn pasted text / one-or-more photos into a structured recipe.
     // Accept the current `images` array and the legacy single `image`. Prefer
@@ -748,7 +880,7 @@ export default {
       return json({ error: 'Paste a recipe or attach a photo.' }, 400, origin)
     }
     const input: AiInput = { text: body.text, images, url }
-    if (env.GEMINI_API_KEY) return handleGemini(input, env, origin)
+    if (env.GEMINI_API_KEY) return url && !input.text && images.length === 0 ? handleLink(url, env, origin) : handleGemini(input, env, origin)
     if (url) return json({ error: 'Reading links needs the Gemini key on the server.' }, 501, origin)
     if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
     return json({ error: 'AI import isn’t set up on the server.' }, 501, origin)

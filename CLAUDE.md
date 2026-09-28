@@ -118,7 +118,21 @@ confusion:
     `/url` JSON-LD route uses the same chain. The app sets `source.url` to the
     pasted link and falls back to the `/url` route only when Gemini itself
     failed (not on a 422 — the chain already ran). The recipe URL is sent to
-    Jina / archive.org (public links, no user data). **PDFs ride the same `images` array** with
+    Jina / archive.org (public links, no user data). **Order (v0.39):** `handleLink` now
+    gets the page itself FIRST (direct → Jina → Archive) and has Gemini read it
+    as text; Google's URL-context reader is only the last resort (no page from
+    any route). That's so a link import also brings the **page's photos**:
+    `findLinkPhotos` reads the recipe data's `image` (widest; else `og:image`)
+    as the cover and each HowToStep's `image` (≤3 per step, ≤10 total), and the
+    response carries **links only** — `photos: { cover, steps: {index: urls},
+    stamp }`. Step photos are attached only when the AI kept the page's step
+    count (the SYSTEM prompt now says keep step boundaries); otherwise just the
+    cover. The app downloads each through **`POST /img`** (`handleImageProxy`:
+    streams an image straight through, never buffers — the free plan's ~10 ms CPU
+    budget can't base64 megabytes; tries the image directly, then the Archive's
+    `im_` copy when the page came from the Archive; images only, private hosts
+    refused), compresses them like any added photo, and opens the preview editor
+    with them as unsaved photos, so saving stores them as photo docs. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
     through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
     pages too), so PDF import needed no Worker change. The app sends a PDF as-is

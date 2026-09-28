@@ -3,6 +3,7 @@ import { AI_IMPORT_URL } from '../lib/aiConfig'
 import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { sanitizeAiRecipe } from '../lib/aiRecipe'
+import { compressToDataUrl, makeCoverThumb } from './photos'
 import type { RecipeSeed } from '../lib/types'
 
 /**
@@ -53,7 +54,11 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(input),
   })
-  const data = (await res.json().catch(() => ({}))) as { recipe?: unknown; error?: string }
+  const data = (await res.json().catch(() => ({}))) as {
+    recipe?: unknown
+    error?: string
+    photos?: LinkPhotos
+  }
   if (!res.ok) {
     // Keep the status: a 422 means the Worker already tried everything it could
     // for that input, so the caller shouldn't retry another way.
@@ -83,10 +88,64 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
   // Recipes are keyed by a global slug; give this one a fresh unique one.
   const withSlug = { ...raw, slug: `${slugify(title) || 'recipe'}-${randomSuffix()}` }
 
+  let parsed: AiImportResult
   try {
     const { recipe, warnings } = parseRecipe(withSlug)
-    return { seed: recipe, warnings }
+    parsed = { seed: recipe, warnings }
   } catch (cause) {
     throw new Error(describeInvalid(cause))
   }
+  if (data.photos) await attachLinkPhotos(parsed.seed, data.photos, token)
+  return parsed
+}
+
+/** Photo links a link import found on the page (see the Worker's findLinkPhotos):
+ * the cover and, when the AI kept the page's steps, photos per step index. */
+type LinkPhotos = { cover: string | null; steps: Record<string, string[]>; stamp?: string }
+
+/**
+ * Bring a link import's photos in as unsaved photos on the preview (data URLs,
+ * compressed like any photo you add), so the cook sees them in the editor and
+ * saving stores them as photo docs. Each photo streams through the Worker's
+ * /img route — the browser can't fetch another site's image itself. Best-effort:
+ * a photo that won't come through is just left out.
+ */
+async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: string): Promise<void> {
+  const download = async (url: string): Promise<File | null> => {
+    try {
+      const res = await fetch(`${AI_IMPORT_URL}/img`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ url, stamp: photos.stamp }),
+      })
+      if (!res.ok) return null
+      const blob = await res.blob()
+      return new File([blob], 'photo', { type: blob.type || 'image/jpeg' })
+    } catch {
+      return null
+    }
+  }
+  const coverJob = photos.cover
+    ? download(photos.cover).then(async (file) => {
+        if (!file) return
+        const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
+        seed.cover = { photo, thumb }
+      }).catch(() => {})
+    : Promise.resolve()
+  const stepJobs = Object.entries(photos.steps ?? {}).map(async ([index, urls]) => {
+    const step = seed.steps[Number(index)]
+    if (!step) return
+    const images: string[] = []
+    for (const url of urls.slice(0, 3)) {
+      const file = await download(url)
+      if (!file) continue
+      try {
+        images.push(await compressToDataUrl(file))
+      } catch {
+        /* unreadable image — skip it */
+      }
+    }
+    if (images.length) step.images = images
+  })
+  await Promise.all([coverJob, ...stepJobs])
 }
