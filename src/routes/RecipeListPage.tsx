@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'

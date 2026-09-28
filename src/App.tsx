@@ -11,6 +11,7 @@ import AddRecipePage from './routes/AddRecipePage'
 import EditRecipePage from './routes/EditRecipePage'
 import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
+import { HistoryChain } from './components/nav'
 
 function Loading() {
   return (
@@ -47,17 +48,22 @@ export default function App() {
   if (!household) return <Loading />
 
   return (
-    <Routes>
-      <Route path="/" element={<RecipeListPage />} />
-      <Route path="/r/:slug" element={<RecipePage />} />
-      <Route path="/r/:slug/cook" element={<CookPage />} />
-      <Route path="/cooking" element={<CookingPage />} />
-      <Route path="/list" element={<GroceryListPage />} />
-      <Route path="/plan" element={<PlanPage />} />
-      <Route path="/add" element={<AddRecipePage />} />
-      <Route path="/r/:slug/edit" element={<EditRecipePage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      {/* Keeps browser history shaped like the screen hierarchy, so the
+          iPhone back-swipe matches the app's back buttons. */}
+      <HistoryChain />
+      <Routes>
+        <Route path="/" element={<RecipeListPage />} />
+        <Route path="/r/:slug" element={<RecipePage />} />
+        <Route path="/r/:slug/cook" element={<CookPage />} />
+        <Route path="/cooking" element={<CookingPage />} />
+        <Route path="/list" element={<GroceryListPage />} />
+        <Route path="/plan" element={<PlanPage />} />
+        <Route path="/add" element={<AddRecipePage />} />
+        <Route path="/r/:slug/edit" element={<EditRecipePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }

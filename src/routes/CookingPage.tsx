@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useAppNav } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import { useAuth } from '../auth/AuthProvider'
 import { useRecipes } from '../data/recipes'
@@ -60,7 +60,7 @@ function currentLine(recipe: Recipe | undefined, stepIndex: number): string | nu
 }
 
 export default function CookingPage() {
-  const navigate = useNavigate()
+  const { goTo } = useAppNav()
   const { household } = useAuth()
   const householdId = household?.id ?? null
   const { recipes } = useRecipes(householdId)
@@ -235,7 +235,7 @@ export default function CookingPage() {
                     timeline.statuses.find((s) => s.slug === item.dishSlug)?.stepIndex ?? 0
                   }
                   scale={scaleBySlug.get(item.dishSlug) ?? 1}
-                  onOpen={() => navigate(cookHref(item.dishSlug))}
+                  onOpen={() => goTo(cookHref(item.dishSlug))}
                 />
               ))}
             </ul>

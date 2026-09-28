@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
-import { historyDepth } from '../components/useGoBack'
+import { historyDepth } from '../components/nav'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { importRecipeViaAI } from '../data/aiImport'

@@ -1,9 +1,9 @@
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { useRecipe } from '../data/recipes'
-import { useGoBack } from '../components/useGoBack'
+import { Link, useAppNav } from '../components/nav'
 
 /**
  * Edit an existing recipe in place. Loads the recipe, hands it to the same
@@ -14,9 +14,8 @@ export default function EditRecipePage() {
   const { slug } = useParams<{ slug: string }>()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
-  // Save, Cancel, the back arrow and the swipe all return to the recipe page
-  // it was opened from (the same slug either way).
-  const goBack = useGoBack(slug ? `/r/${slug}` : '/')
+  // Save, Cancel, the back arrow and the swipe all return to the recipe.
+  const { goUp } = useAppNav()
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
@@ -45,8 +44,8 @@ export default function EditRecipePage() {
           <RecipeEditor
             initial={recipe}
             editingSlug={recipe.slug}
-            onSaved={goBack}
-            onCancel={goBack}
+            onSaved={goUp}
+            onCancel={goUp}
           />
         )}
       </main>

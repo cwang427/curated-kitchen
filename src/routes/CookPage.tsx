@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useGoBack } from '../components/useGoBack'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { Link, useAppNav } from '../components/nav'
 import { useRecipe } from '../data/recipes'
 import { useAuth } from '../auth/AuthProvider'
 import {
@@ -319,10 +319,9 @@ function MeanwhileBand({ timer, onJump }: { timer: AwayTimer; onJump: () => void
 export default function CookPage() {
   const { slug } = useParams<{ slug: string }>()
   const [params] = useSearchParams()
-  // ✕ and End cooking step back to wherever cooking was started from (the
-  // recipe, the list's resume banner, the timeline) — the same place an iPhone
-  // swipe goes — instead of pushing the recipe page on top of cook mode.
-  const goBack = useGoBack(`/r/${slug ?? ''}`)
+  // ✕ and End cooking go up to the recipe — wherever cooking was started from
+  // (the list's resume banner, the timeline), and the same place a swipe goes.
+  const { goUp } = useAppNav()
   const { recipe, loading } = useRecipe(slug)
   const { user, household, profile } = useAuth()
   const householdId = household?.id ?? null
@@ -562,7 +561,7 @@ export default function CookPage() {
     // takes just this dish off the board (any others keep cooking).
     if (synced && householdId) void endCookSession(householdId)
     else removeDish(recipe.slug)
-    goBack()
+    goUp()
   }
 
   const isFirst = index === 0
@@ -582,7 +581,7 @@ export default function CookPage() {
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <button
             type="button"
-            onClick={goBack}
+            onClick={goUp}
             aria-label="Exit cook mode"
             className="grid size-10 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line"
           >

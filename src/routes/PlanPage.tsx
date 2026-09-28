@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import PlanSheet from '../components/PlanSheet'
 import { useAuth } from '../auth/AuthProvider'

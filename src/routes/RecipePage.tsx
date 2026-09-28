@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useGoBack } from '../components/useGoBack'
+import { useParams } from 'react-router-dom'
+import { Link, useAppNav } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
 import PlanSheet from '../components/PlanSheet'
@@ -29,8 +29,7 @@ function useToggleSet() {
 
 export default function RecipePage() {
   const { slug } = useParams<{ slug: string }>()
-  const navigate = useNavigate()
-  const goBack = useGoBack('/')
+  const { goTo, goUp } = useAppNav()
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   // This recipe's dish on the cook board, if a solo cook is in progress here.
@@ -87,8 +86,8 @@ export default function RecipePage() {
     if (!confirm(`Delete “${recipe.title}”? This can’t be undone.`)) return
     try {
       await deleteRecipe(recipe.slug)
-      // Back, not a new page: otherwise a swipe would return to the deleted recipe.
-      goBack()
+      // Up to the kitchen, not a new page: a swipe mustn't land on the deleted recipe.
+      goUp()
     } catch (cause) {
       alert(describeFirestoreError(cause, 'delete the recipe'))
     }
@@ -186,7 +185,7 @@ export default function RecipePage() {
                   type="button"
                   onClick={() => {
                     removeDish(recipe.slug)
-                    navigate(`/r/${recipe.slug}/cook?x=${scale}`)
+                    goTo(`/r/${recipe.slug}/cook?x=${scale}`)
                   }}
                   className="w-full text-center text-sm text-ink-faint underline underline-offset-2"
                 >

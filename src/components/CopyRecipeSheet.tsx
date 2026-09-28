@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from './nav'
 import { useAuth } from '../auth/AuthProvider'
 import { copyRecipeToHousehold, fetchHouseholdRecipes, recipeLineage } from '../data/recipes'
 import { fetchHouseholds } from '../data/household'

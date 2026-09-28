@@ -1,11 +1,10 @@
-import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
-import { useGoBack } from './useGoBack'
+import { Link, useAppNav } from './nav'
 
 interface Props {
   title?: string
-  /** Show a back chevron: one step back in history, like the iPhone swipe (the
-   * recipe list if there's nothing in-app to go back to). */
+  /** Show a back chevron to this screen's parent (a recipe → the kitchen, cook
+   * mode → its recipe; see components/nav.tsx) — the same place a swipe goes. */
   back?: boolean
   /** Override for screens with their own inner steps (Add a recipe's import
    * screens). */
@@ -27,7 +26,7 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
   // shortcuts rather than offer a tap that errors.
   const isMember = !!user && !!household && household.memberUids.includes(user.uid)
   const canAdd = add && isMember
-  const goBack = useGoBack('/')
+  const { goUp } = useAppNav()
   const backClass =
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
 
@@ -36,7 +35,7 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           {back && (
-            <button type="button" onClick={onBack ?? goBack} aria-label="Back" className={backClass}>
+            <button type="button" onClick={onBack ?? goUp} aria-label="Back" className={backClass}>
               <BackChevron />
             </button>
           )}

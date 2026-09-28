@@ -293,19 +293,21 @@ the deploy and leaves the previous version up.
   shows only the opaque header background, where blur is invisible. The other
   known fix — `apple-mobile-web-app-status-bar-style: default` — works too but
   only after every user deletes and re-adds the home-screen app, so we avoid it.
-- **Back = one step back in history, everywhere** (`useGoBack` in
-  `src/components/useGoBack.ts`). An installed iPhone web app's edge-swipe always
-  goes back one history entry and can't be disabled, so every on-screen back /
-  close / done control does the same — the header ‹, cook mode's ✕ and End
-  cooking, the editor's Save/Cancel, deleting a recipe — falling back to a fixed
-  page (replacing the entry) only when the app was opened straight onto that
-  screen (`historyDepth() === 0`, React Router's `history.state.idx`). Never
-  "go back" by pushing a new page: the button and the swipe would then land in
-  different places (that was the End cooking → swipe → cook mode bug). Add a
-  recipe's screens are history entries (`/add?m=link|text|capture|edit`) on one
-  mounted page, so the swipe steps chooser ← import screen ← editor like ‹ does
-  and pasted text/photos survive; saving unwinds to the chooser and replaces it
-  with the new recipe, so history reads list → recipe.
+- **Back goes to a fixed parent screen, never "wherever you came from"**
+  (`src/components/nav.tsx`): kitchen ← recipe ← cook mode / editor; kitchen ←
+  Add a recipe ← its import screens (`/add?m=…`); kitchen ← grocery list / meal
+  plan / cooking timeline / settings (`parentOf`). An installed iPhone web app's
+  edge-swipe can't be disabled and always steps back one history entry, so the
+  app keeps **browser history shaped exactly like the screen's ancestor chain**:
+  every in-app link is `nav.tsx`'s `Link` / `goTo(path)` (never React Router's
+  `<Link>` or a bare `navigate(path)`), which steps back to the deepest shared
+  ancestor and pushes the rest — so a recipe opened from the meal plan sits
+  directly on the kitchen. Every back / close / done control is `goUp()` (one
+  history step = the parent). `HistoryChain` (mounted in `App`) rebuilds the
+  chain underneath a screen opened directly (reload / link) and finishes goTo's
+  two-phase moves. Add a recipe manages its own inner steps (the editor sits on
+  its import screen so Back keeps the paste) and, on save, unwinds to the
+  chooser and replaces it with the new recipe, so history reads kitchen → recipe.
 - Never commit secrets. The service-account key lives only in the GitHub
   secret; `./secrets/` is gitignored.
 
