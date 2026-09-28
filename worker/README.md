@@ -19,8 +19,8 @@ and you can use just the first:
   try reading the link itself (its URL-context tool). Paywalled pages don't
   work. Only the public
   recipe link is sent to those services. It also returns the links of the
-  page's own photos (the main one — a few sizes of it, tried in turn — plus
-  any per-step photos), which the app
+  page's own photos (the main one plus any per-step photos — each as a few
+  sizes, tried in turn), which the app
   downloads through **`/img`** — a pass-through that streams images only (from
   the site, else the Archive's copy fetched via **wsrv.nl**, a free public image
   proxy — so our own requests don't use up the Archive's allowance for the

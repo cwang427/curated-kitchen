@@ -137,7 +137,13 @@ confusion:
     own `<img>`/`<source>` src/srcset/data-src shows (matched by `photoStem`: file
     name minus extension and `-1024x683`-style suffix), widest first — and puts
     them FIRST for an Archive-read page (listed sizes first otherwise). The app
-    tries them in turn until one downloads and decodes. Step photos are attached only when the AI kept the page's step
+    tries them in turn until one downloads and decodes. **Step photos get the
+    same treatment** (v0.42.2 — a cacio e pepe import got its cover but none of
+    its step photos, each of which had only its one recipe-data link, a size
+    the Archive never saved): `stepCandidates: {index: [[sizes…], …]}` (≤3
+    sizes per photo), from one pass over the page (`pageImageIndex`, photos
+    grouped by stem — the free plan's ~10 ms CPU can't rescan the page per
+    photo). `steps` (each photo's first link) stays for older apps. Step photos are attached only when the AI kept the page's step
     count (the SYSTEM prompt now says keep step boundaries); otherwise just the
     cover. The app downloads each through **`POST /img`** (`handleImageProxy`:
     streams an image straight through, never buffers — the free plan's ~10 ms CPU

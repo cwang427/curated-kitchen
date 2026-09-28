@@ -580,7 +580,9 @@ function flattenSteps(instructions: unknown): Record<string, unknown>[] {
   return out
 }
 
-type LinkPhotos = { covers: string[]; steps: string[][] }
+/** Each photo comes as a few candidate links (other sizes of the same photo),
+ * best first; the app tries them in turn. `steps[i][j]` = step i's j-th photo. */
+type LinkPhotos = { covers: string[]; steps: string[][][] }
 
 /** A photo's name without its extension or a WordPress-style size suffix, so
  * every size of one photo compares equal ("salmon-1024x683.jpg" → "salmon"). */
@@ -593,10 +595,11 @@ function photoStem(link: string): string {
   }
 }
 
-/** Every size of a photo that the page itself shows — its <img>/<source> src,
- * srcset, and lazy-load data-src/-srcset — widest first. */
-function pageImageVariants(html: string, stem: string, base: string): string[] {
-  const found = new Map<string, number>()
+/** Every photo the page itself shows — its <img>/<source> src, srcset, and
+ * lazy-load data-src/-srcset — grouped by photo (photoStem), each photo's sizes
+ * widest first. One pass over the page, however many photos we look up. */
+function pageImageIndex(html: string, base: string): Map<string, string[]> {
+  const found = new Map<string, Map<string, number>>()
   for (const tag of html.match(/<(?:img|source)\b[^>]*>/gi) ?? []) {
     for (const attr of tag.matchAll(/\b(?:data-(?:lazy-)?)?(?:srcset|src)=["']([^"']+)["']/gi)) {
       for (const part of attr[1].split(/,\s+/)) {
@@ -604,44 +607,56 @@ function pageImageVariants(html: string, stem: string, base: string): string[] {
         if (!raw || raw.startsWith('data:')) continue
         try {
           const u = new URL(raw.replace(/&amp;/g, '&'), base)
-          if ((u.protocol !== 'https:' && u.protocol !== 'http:') || photoStem(u.toString()) !== stem) continue
+          if (u.protocol !== 'https:' && u.protocol !== 'http:') continue
+          const stem = photoStem(u.toString())
+          if (stem.length < 4) continue
           const width =
             Number(descriptor?.match(/^(\d+)w$/)?.[1]) || Number(u.pathname.match(/\/(\d{2,4})x\d*\//)?.[1]) || 0
-          found.set(u.toString(), Math.max(found.get(u.toString()) ?? 0, width))
+          const sizes = found.get(stem) ?? new Map<string, number>()
+          sizes.set(u.toString(), Math.max(sizes.get(u.toString()) ?? 0, width))
+          found.set(stem, sizes)
         } catch {
           /* not a URL */
         }
       }
     }
   }
-  return [...found].sort((a, b) => b[1] - a[1]).map(([u]) => u)
+  return new Map([...found].map(([stem, sizes]) => [stem, [...sizes].sort((a, b) => b[1] - a[1]).map(([u]) => u)]))
 }
 
 /** Photo links the page publishes in its recipe data: the main photo and up to
- * 3 per step, capped at 10 in all. URLs only — the app downloads them through
- * /img, so this Worker never holds the bytes.
+ * 3 per step, capped at 10 photos in all. URLs only — the app downloads them
+ * through /img, so this Worker never holds the bytes.
  *
- * The cover comes as a few candidates, best first, which the app tries in turn.
- * Recipe data often names a big size of the main photo that the page never
- * shows — and the Internet Archive only saves the images a page shows — so for
- * a page read from the Archive, the sizes the page itself displays go first. */
+ * Every photo comes as a few candidates, best first, which the app tries in
+ * turn. Recipe data often names a size of a photo that the page never shows —
+ * and the Internet Archive only saves the images a page shows — so each photo
+ * also gets the sizes of it the page itself displays: first for a page read
+ * from the Archive, after the listed size otherwise. (A Serious Eats import got
+ * its cover this way but none of its step photos, which had only one link.) */
 function findLinkPhotos(html: string, pageUrl: string, fromArchive: boolean): LinkPhotos {
   const recipe = findRecipe(extractJsonLd(html))
   const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]
-  const listed = [...imageUrls(recipe?.image, pageUrl), ...(og ? imageUrls(og.replace(/&amp;/g, '&'), pageUrl) : [])]
-  const stem = listed.length ? photoStem(listed[0]) : ''
-  const shown = stem.length >= 4 ? pageImageVariants(html, stem, pageUrl) : []
-  const covers = [...new Set(fromArchive ? [...shown, ...listed] : [...listed, ...shown])].slice(0, 4)
+  const index = pageImageIndex(html, pageUrl)
+  const candidates = (listed: string[], max: number): string[] => {
+    const shown = listed.length ? (index.get(photoStem(listed[0])) ?? []) : []
+    return [...new Set(fromArchive ? [...shown, ...listed] : [...listed, ...shown])].slice(0, max)
+  }
+  const listedCover = [...imageUrls(recipe?.image, pageUrl), ...(og ? imageUrls(og.replace(/&amp;/g, '&'), pageUrl) : [])]
+  const covers = candidates(listedCover, 4)
+  const coverStem = listedCover.length ? photoStem(listedCover[0]) : ''
   let budget = 9
   const steps = flattenSteps(recipe?.recipeInstructions).map((step) => {
     const take = imageUrls(step.image, pageUrl)
-      .filter((u) => !covers.includes(u))
+      .filter((u) => !covers.includes(u) && photoStem(u) !== coverStem) // the cover again
       .slice(0, Math.min(3, budget))
     budget -= take.length
-    return take
+    return take.map((u) => candidates([u], 3))
   })
   return { covers, steps }
 }
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** A photo link, short enough for a log line: host + the end of its path. */
 function shortUrl(link: string): string {
@@ -779,14 +794,30 @@ async function handleLink(url: string, env: Env, origin: string): Promise<Respon
   // same steps (it's told to keep the source's step boundaries).
   const aiSteps = Array.isArray(out.recipe?.steps) ? out.recipe!.steps!.length : 0
   const withPhotos = found.steps.filter((p) => p.length > 0).length
+  // `steps` (each photo's first link) is what an app older than 0.42.2 reads;
+  // `stepCandidates` carries every photo's other sizes to try.
   const steps: Record<number, string[]> = {}
-  if (aiSteps === found.steps.length) found.steps.forEach((p, i) => p.length && (steps[i] = p))
+  const stepCandidates: Record<number, string[][]> = {}
+  if (aiSteps === found.steps.length) {
+    found.steps.forEach((photos, i) => {
+      if (!photos.length) return
+      steps[i] = photos.map((c) => c[0])
+      stepCandidates[i] = photos
+    })
+  }
   console.log(
     `link photos: cover=${found.covers.length ? `yes (${found.covers.length} to try)` : 'no'} stepPhotos=${withPhotos}/${found.steps.length} steps` +
+      (withPhotos ? ` (${plural(found.steps.flat().length, 'photo')}, ${plural(found.steps.flat(2).length, 'size')} to try)` : '') +
       (withPhotos && aiSteps !== found.steps.length ? ` (AI made ${aiSteps} steps — step photos skipped)` : ''),
   )
   // `cover` (the first candidate) stays for an app that predates `covers`.
-  const photos = { cover: found.covers[0] ?? null, covers: found.covers, steps, ...(page.stamp ? { stamp: page.stamp } : {}) }
+  const photos = {
+    cover: found.covers[0] ?? null,
+    covers: found.covers,
+    steps,
+    stepCandidates,
+    ...(page.stamp ? { stamp: page.stamp } : {}),
+  }
   return json({ ...out, photos }, 200, origin)
 }
 

@@ -102,8 +102,16 @@ export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult>
 /** Photo links a link import found on the page (see the Worker's findLinkPhotos):
  * the cover — as a few candidates, other sizes of the same photo, best first
  * (`cover` alone from a Worker older than 0.41.4) — and, when the AI kept the
- * page's steps, photos per step index. */
-type LinkPhotos = { cover: string | null; covers?: string[]; steps: Record<string, string[]>; stamp?: string }
+ * page's steps, photos per step index (each with its own candidates from a
+ * Worker 0.42.2+). */
+type LinkPhotos = {
+  cover: string | null
+  covers?: string[]
+  steps: Record<string, string[]>
+  /** Each step photo's other sizes to try, best first (Worker 0.42.2+). */
+  stepCandidates?: Record<string, string[][]>
+  stamp?: string
+}
 
 /**
  * Bring a link import's photos in as unsaved photos on the preview (data URLs,
@@ -136,14 +144,20 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
   const jobs: Job[] = [
     ...(covers.length ? [{ kind: 'cover' as const, urls: covers }] : []),
     ...Object.entries(photos.steps ?? {}).flatMap(([index, urls]) =>
-      urls.slice(0, 3).map((url, slot) => ({ kind: 'step' as const, index: Number(index), slot, urls: [url] })),
+      urls.slice(0, 3).map((url, slot) => ({
+        kind: 'step' as const,
+        index: Number(index),
+        slot,
+        urls: photos.stepCandidates?.[index]?.[slot]?.length ? photos.stepCandidates[index][slot] : [url],
+      })),
     ),
   ]
   // Each photo keeps its slot, so two parallel downloads can't swap a step's order.
   const stepPhotos = new Map<number, (string | undefined)[]>()
   const run = async (job: Job) => {
-    // The first candidate that downloads and decodes wins (only the cover has
-    // more than one: the Archive often lacks the size the recipe data names).
+    // The first candidate that downloads and decodes wins: each photo comes as
+    // a few sizes, because the Archive often lacks the size the recipe data
+    // names (it only saves the sizes a page displayed).
     for (const url of job.urls) {
       const file = await download(url)
       if (!file) continue
