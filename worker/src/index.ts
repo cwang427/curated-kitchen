@@ -311,8 +311,9 @@ function retryAfterMs(res: Response): number | null {
   return Number.isNaN(when) ? null : Math.max(0, when - Date.now())
 }
 
-/** What the last response said, for callers that need more than the text. */
-type FetchInfo = { status?: number }
+/** What the last response said, for callers that need more than the text:
+ * its status, and its final address after any redirects. */
+type FetchInfo = { status?: number; url?: string }
 
 /** Fetch a page as text; null if it failed. `retries` waits (ms) before each
  * retry of a 429 "too many requests" / 503 — the Internet Archive throttles the
@@ -334,11 +335,18 @@ async function fetchText(
     try {
       const res = await fetch(url, { headers, redirect: 'follow', signal: controller.signal })
       info.status = res.status
+      info.url = res.url
       const throttled = res.status === 429 || res.status === 503
       const asks = throttled ? retryAfterMs(res) : null
       const hint = throttled ? `, retry-after ${asks === null ? 'not given' : `${Math.round(asks / 1000)}s`}` : ''
       console.log(`page ${label}: ${res.status}${attempt ? ` (retry ${attempt})` : ''}${hint}`)
       if (res.ok) return await res.text()
+      if (res.status === 400) {
+        // A rejected request — say why, so a broken query shows in the tail.
+        const why = (await res.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 160)
+        console.log(`page ${label}: 400 says "${why || 'nothing'}"`)
+        return null
+      }
       await res.body?.cancel()
       if (!throttled || attempt >= retries.length) return null
       if (asks !== null && asks > 5_000) {
@@ -392,9 +400,12 @@ function archiveKey(url: string): string {
 /** The Archive's latest good (200, HTML) saves of a page, newest first, from its
  * full capture index — slower than the "available" lookup but reliable. */
 async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<string[]> {
+  // The last 10 saves, in the shape of the Archive's own documented example
+  // (fastLatest + a negative limit). We pick the good ones ourselves: asking the
+  // index to filter by status and type got a 400 from the live server.
   const index = await fetchText(
-    `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}&output=json&fl=timestamp` +
-      '&filter=statuscode:200&filter=mimetype:text/html&limit=-3',
+    `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}` +
+      '&output=json&fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10',
     { Accept: 'application/json' },
     'archive search',
     [1500],
@@ -403,8 +414,9 @@ async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<strin
   try {
     const rows = JSON.parse(index ?? '[]') as unknown[]
     return rows
-      .slice(1) // the first row is the field names
-      .map((row) => (Array.isArray(row) ? String(row[0]) : ''))
+      .filter((row): row is unknown[] => Array.isArray(row) && row[0] !== 'timestamp') // skip the header row
+      .filter((row) => String(row[1]) === '200' && String(row[2]).includes('html'))
+      .map((row) => String(row[0]))
       .filter((ts) => /^\d{14}$/.test(ts))
       .sort()
       .reverse()
@@ -465,18 +477,26 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   } catch {
     quick = undefined
   }
-  if (!quick) console.log('page archive lookup: nothing — checking the full index')
-  /** Read one saved copy: a recipe, some other page, or refused outright (still
-   * throttled after the retries — then more Archive requests won't help). */
-  const readCopy = async (ts: string): Promise<'recipe' | 'other' | 'refused'> => {
-    stamp = ts
+  // Saves we've read, so the index search below doesn't fetch one twice.
+  const tried = new Set<string>()
+  /** Read one saved copy: a recipe, some other page, missing, or refused
+   * (still throttled after the retries — then more Archive requests won't
+   * help). `ts` can be a moment rather than a save's own timestamp: the
+   * Archive redirects to the save closest to it, and the final address says
+   * which save that was. */
+  const readCopy = async (ts: string, label = `archive ${ts}`): Promise<'recipe' | 'other' | 'missing' | 'refused'> => {
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
     const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
     const copyInfo: FetchInfo = {}
-    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${ts}`, [1500, 3000], copyInfo)
-    if (consider(archived, 'archive')) return 'recipe'
-    if (archived) return 'other'
-    if (busy(copyInfo)) seen.archiveBusy = true
+    const archived = await fetchText(copy, BROWSER_HEADERS, label, [1500, 3000], copyInfo)
+    stamp = copyInfo.url?.match(/\/web\/(\d{14})id_\//)?.[1] ?? ts
+    if (archived) {
+      tried.add(stamp)
+      if (stamp !== ts) console.log(`page ${label}: the save from ${stamp}`)
+      return consider(archived, 'archive') ? 'recipe' : 'other'
+    }
+    if (!busy(copyInfo)) return 'missing'
+    seen.archiveBusy = true
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
     const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
@@ -485,12 +505,21 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   }
   if (quick) {
     const got = await readCopy(quick)
-    if (got === 'recipe') return fallback
-    if (got === 'refused') return fallback // throttled; more Archive requests won't help
+    if (got === 'recipe' || got === 'refused') return fallback
+  } else {
+    // The quick lookup says "no copy" at times for pages saved many times (a
+    // years-old Serious Eats recipe, twice). Ask for the save closest to right
+    // now instead — the latest — which is also the page itself, in one request.
+    console.log('page archive lookup: nothing — asking for the latest save')
+    const now = new Date().toISOString().replace(/\D/g, '').slice(0, 14)
+    const got = await readCopy(now, 'archive latest')
+    if (got === 'recipe' || got === 'refused') return fallback
   }
+  // The copy we got wasn't a usable recipe page (or there was none): older
+  // saves, from the Archive's full index.
   const searchInfo: FetchInfo = {}
-  const saves = (await archiveCaptures(lookup, searchInfo)).filter((ts) => ts !== quick).slice(0, 2)
-  if (!quick && !saves.length) {
+  const saves = (await archiveCaptures(lookup, searchInfo)).filter((ts) => !tried.has(ts)).slice(0, 2)
+  if (!tried.size && !saves.length) {
     // Both lookups throttled: we couldn't even check whether it has a copy.
     if (busy(availInfo) && busy(searchInfo)) seen.archiveBusy = true
     console.log(seen.archiveBusy ? 'page archive: too busy to check for a copy' : 'page archive: no saved copy')

@@ -111,11 +111,17 @@ confusion:
     Reader** (`r.jina.ai`, free, no key, ~20 req/min; renders in a real browser)
     → the **Internet Archive's** latest saved copy (`archive.org/wayback/available`
     → `web.archive.org/web/<ts>id_/<url>`; that quick lookup sometimes says "no
-    copy" for pages saved many times — it did for a years-old Serious Eats
-    recipe — so when it's empty or its copy isn't a recipe, `archiveCaptures`
-    asks the full **CDX index** for the newest 200/HTML saves and tries up to
-    two; lookups use `archiveKey(url)`, the link minus `#fragment` and
-    `utm_`/`fbclid`-style tracking params) — accepting the first page with
+    copy" for pages saved many times — a years-old Serious Eats recipe, twice —
+    so when it's empty the Worker asks for **the save closest to right now**
+    (`/web/<now>id_/<url>`: the Archive redirects to its latest save, and the
+    final address — `FetchInfo.url` — says which; one request, no lookup API).
+    Only when the copy it got isn't a usable recipe page does `archiveCaptures`
+    ask the full **CDX index** for older saves (tries up to two it hasn't read):
+    `fl=timestamp,statuscode,mimetype&fastLatest=true&limit=-10`, the Archive's
+    documented shape, filtered to 200/HTML in our code — asking the live index
+    to `filter=` got a **400** (v0.42.3). A 400 anywhere logs the server's
+    reason (`page …: 400 says "…"`). Lookups use `archiveKey(url)`, the link
+    minus `#fragment` and `utm_`/`fbclid`-style tracking params) — accepting the first page with
     schema.org Recipe data (else the first substantial non-challenge page), and
     has Gemini read `pageForAi` (the JSON-LD + visible page text) as a normal
     text import. Every step logs `page <route>: …` in `wrangler tail`. Only if
