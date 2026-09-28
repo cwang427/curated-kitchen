@@ -125,27 +125,44 @@ async function attachLinkPhotos(seed: RecipeSeed, photos: LinkPhotos, token: str
       return null
     }
   }
-  const coverJob = photos.cover
-    ? download(photos.cover).then(async (file) => {
-        if (!file) return
+  // Two at a time, not all at once: the Internet Archive (where a blocked
+  // site's photos often come from) throttles bursts.
+  type Job = { kind: 'cover'; url: string } | { kind: 'step'; index: number; slot: number; url: string }
+  const jobs: Job[] = [
+    ...(photos.cover ? [{ kind: 'cover' as const, url: photos.cover }] : []),
+    ...Object.entries(photos.steps ?? {}).flatMap(([index, urls]) =>
+      urls.slice(0, 3).map((url, slot) => ({ kind: 'step' as const, index: Number(index), slot, url })),
+    ),
+  ]
+  // Each photo keeps its slot, so two parallel downloads can't swap a step's order.
+  const stepPhotos = new Map<number, (string | undefined)[]>()
+  const run = async (job: Job) => {
+    const file = await download(job.url)
+    if (!file) return
+    try {
+      if (job.kind === 'cover') {
         const [photo, thumb] = await Promise.all([compressToDataUrl(file), makeCoverThumb(file)])
         seed.cover = { photo, thumb }
-      }).catch(() => {})
-    : Promise.resolve()
-  const stepJobs = Object.entries(photos.steps ?? {}).map(async ([index, urls]) => {
-    const step = seed.steps[Number(index)]
-    if (!step) return
-    const images: string[] = []
-    for (const url of urls.slice(0, 3)) {
-      const file = await download(url)
-      if (!file) continue
-      try {
-        images.push(await compressToDataUrl(file))
-      } catch {
-        /* unreadable image — skip it */
+      } else {
+        const image = await compressToDataUrl(file)
+        // Look the list up only after the await, or two downloads for one step
+        // could each start a fresh list and the second would drop the first.
+        const list = stepPhotos.get(job.index) ?? []
+        list[job.slot] = image
+        stepPhotos.set(job.index, list)
       }
+    } catch {
+      /* unreadable image — skip it */
     }
-    if (images.length) step.images = images
-  })
-  await Promise.all([coverJob, ...stepJobs])
+  }
+  let next = 0
+  const worker = async () => {
+    while (next < jobs.length) await run(jobs[next++])
+  }
+  await Promise.all([worker(), worker()])
+  for (const [index, slots] of stepPhotos) {
+    const step = seed.steps[index]
+    const images = slots.filter((x): x is string => !!x)
+    if (step && images.length) step.images = images
+  }
 }

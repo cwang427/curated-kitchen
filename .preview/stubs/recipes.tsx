@@ -58,6 +58,7 @@ const ALL = [cacioRecipe, shortRibsRecipe, roast]
 
 export { useRecipeSearch, collectTags } from '../../src/data/recipes.ts'
 export async function setRecipeFavorite(): Promise<void> {}
+export function useCoverUpgrade(): void {}
 
 export function useRecipes(_householdId?: string | null, _nonce?: number, friendsOnly = false) {
   const recipes = (friendsOnly ? ALL.filter((r) => r.visibility === 'friends') : ALL)

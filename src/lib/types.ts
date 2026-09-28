@@ -122,9 +122,10 @@ export interface Step {
 /**
  * A recipe's representative photo, shown atop the recipe page and on its card in
  * the kitchen list. `photo` is a `photos` doc id (the full image, like a step
- * photo — a `data:` URL only mid-edit, before save). `thumb` is a small square
- * JPEG data URL stored inline on the recipe, so the list can show every card's
- * photo without fetching a photo doc per recipe.
+ * photo — a `data:` URL only mid-edit, before save). `thumb` is the card image:
+ * a 720×480 (3:2) JPEG data URL stored inline on the recipe, so the list can
+ * show every card's photo large without fetching a photo doc per recipe. (Before
+ * v0.41 it was a 240px square; `useCoverUpgrade` regenerates those.)
  */
 export interface RecipeCover {
   photo: string

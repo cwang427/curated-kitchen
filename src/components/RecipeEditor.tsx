@@ -134,8 +134,8 @@ export default function RecipeEditor({
   }
 
   // Cropped → compressed like any photo. Like step photos, the full image
-  // becomes a photo doc on save; the cover's small thumbnail rides inline on
-  // the recipe for the kitchen list.
+  // becomes a photo doc on save; the cover's card image rides inline on the
+  // recipe for the kitchen list.
   const finishCrop = async (file: File) => {
     const job = cropping
     setCropping(null)

@@ -3,7 +3,7 @@ import { Link } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import PullToRefresh from '../components/PullToRefresh'
 import { useAuth } from '../auth/AuthProvider'
-import { collectTags, setRecipeFavorite, useRecipeSearch, useRecipes } from '../data/recipes'
+import { collectTags, setRecipeFavorite, useCoverUpgrade, useRecipeSearch, useRecipes } from '../data/recipes'
 import { endCookSession, useCookSession } from '../data/cooksession'
 import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
@@ -87,18 +87,21 @@ function RecipeCard({
   return (
     <Link
       to={`/r/${recipe.slug}`}
-      className="flex gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm transition active:scale-[0.99]"
+      className="block overflow-hidden rounded-2xl border border-line bg-card shadow-sm transition active:scale-[0.99]"
     >
-      {/* Cover thumbnail — the small inline copy, so the list never fetches a
-          photo doc per card. */}
+      {/* The cover, big — it's how people browse a kitchen and pick tonight's
+          dinner. It's the card image stored inline on the recipe, so the list
+          never fetches a photo doc per card and nothing pops in while
+          scrolling. */}
       {recipe.cover && (
         <img
           src={recipe.cover.thumb}
           alt=""
-          className="size-20 shrink-0 rounded-xl border border-line object-cover"
+          decoding="async"
+          className="aspect-[3/2] w-full border-b border-line bg-accent-soft object-cover"
         />
       )}
-      <div className="min-w-0 flex-1">
+      <div className="p-4">
         <div className="flex items-start gap-2">
           <h2 className="min-w-0 flex-1 font-serif text-lg leading-snug tracking-tight">
             {recipe.title}
@@ -159,6 +162,7 @@ export default function RecipeListPage() {
   // the grocery/plan/cook-session data is members-only — so scope their reads.
   const isMember = !!(user && household && household.memberUids.includes(user.uid))
   const { recipes, loading, error } = useRecipes(household?.id ?? null, nonce, !isMember)
+  useCoverUpgrade(recipes, isMember)
   const { session } = useCookSession(isMember ? household?.id ?? null : null)
   // Solo cooks in progress on this device (the cook board).
   const board = useCookBoard()

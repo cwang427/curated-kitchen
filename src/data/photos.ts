@@ -152,28 +152,50 @@ export async function cropToFile(
 }
 
 /**
- * The small square thumbnail stored inline on a recipe for its cover photo:
- * center-cropped, 240px, ~10–20 KB, so the kitchen list can show every card's
- * photo from the recipe docs it already loads (no photo-doc read per card).
+ * The cover's "card" image, stored inline on the recipe: 3:2 (the cover's shape),
+ * 720×480, ~40–55 KB. The kitchen list shows it large on every card straight
+ * from the recipe docs it already has (and Firestore's on-device cache), so
+ * photos never pop in while scrolling and there's no photo-doc read per card.
+ * The recipe page shows it while the full photo loads.
  */
-const THUMB_EDGE = 240
-export async function makeCoverThumb(file: File): Promise<string> {
-  const source = await loadSource(file)
+const CARD_W = 720
+const CARD_H = 480
+export async function makeCoverThumb(file: Blob): Promise<string> {
+  const source = await loadSource(file as File)
   try {
-    const scale = THUMB_EDGE / Math.min(source.width, source.height)
+    // Center-crop to 3:2 (a no-op for a cover already cropped to 3:2).
+    const scale = Math.max(CARD_W / source.width, CARD_H / source.height)
     const w = Math.round(source.width * scale)
     const h = Math.round(source.height * scale)
     const canvas = document.createElement('canvas')
-    canvas.width = THUMB_EDGE
-    canvas.height = THUMB_EDGE
+    canvas.width = CARD_W
+    canvas.height = CARD_H
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Couldn’t process that image.')
-    ctx.translate(-(w - THUMB_EDGE) / 2, -(h - THUMB_EDGE) / 2)
+    ctx.translate(-(w - CARD_W) / 2, -(h - CARD_H) / 2)
     source.draw(ctx, w, h)
-    return canvas.toDataURL('image/jpeg', 0.72)
+    return canvas.toDataURL('image/jpeg', 0.7)
   } finally {
     source.release()
   }
+}
+
+/** True for a cover saved before v0.41, whose inline image was a 240px square
+ * too small for the big kitchen cards (the recipe page upgrades it). */
+export async function isLegacyCoverThumb(thumb: string): Promise<boolean> {
+  const img = new Image()
+  img.src = thumb
+  try {
+    await img.decode()
+  } catch {
+    return false
+  }
+  return img.naturalWidth < CARD_W && img.naturalWidth === img.naturalHeight
+}
+
+/** makeCoverThumb from a photo we already have as a data URL. */
+export async function coverThumbFromDataUrl(dataUrl: string): Promise<string> {
+  return makeCoverThumb(await (await fetch(dataUrl)).blob())
 }
 
 /**

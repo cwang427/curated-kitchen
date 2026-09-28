@@ -132,7 +132,15 @@ confusion:
     budget can't base64 megabytes; tries the image directly, then the Archive's
     `im_` copy when the page came from the Archive; images only, private hosts
     refused), compresses them like any added photo, and opens the preview editor
-    with them as unsaved photos, so saving stores them as photo docs. **PDFs ride the same `images` array** with
+    with them as unsaved photos, so saving stores them as photo docs.
+    **The Archive throttles (429)** the shared addresses Workers fetch from, so
+    `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
+    3000]`; 429/503 only — waiting costs no Worker CPU), and if the copy is still
+    refused, Jina Reader fetches the Archive's copy for us (`r.jina.ai/<archive
+    url>` — its own addresses). `/img` retries an Archive 429 once, and the app
+    downloads photos **two at a time** (a burst of ten is what gets throttled),
+    each into its fixed slot so a step's photos keep their order. An Archive copy
+    can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
     `mediaType: 'application/pdf'` — the Worker passes each file's type straight
     through as Gemini `inline_data`, and Gemini reads PDFs natively (scanned
     pages too), so PDF import needed no Worker change. The app sends a PDF as-is
@@ -431,12 +439,19 @@ sweep could reclaim them). Each photo must fit a Firestore doc (~1 MB), so
 And a **cover photo** per recipe (`Recipe.cover: { photo, thumb } | null`,
 optional, additive — no migration): added/replaced/removed at the top of the
 editor's Details. `photo` is a `photos` doc id (the full image, same pipeline and
-rules as step photos — members write, members + guests read); `thumb` is a
-~240px square JPEG data URL (`makeCoverThumb`, ~10–20 KB) stored **inline on the
-recipe doc**, so the kitchen list shows every card's thumbnail from the docs it
-already loads instead of fetching a photo doc per card. The recipe page shows
-the full photo (thumb first, swapped in when loaded); cards without a cover look
-as before. Copies duplicate the cover's photo doc like step photos; removing a
+rules as step photos — members write, members + guests read); `thumb` is the
+**card image**: a 720×480 (3:2) JPEG data URL (`makeCoverThumb`, center-cropped,
+~40–70 KB) stored **inline on the recipe doc**. The kitchen list shows it
+**full-width atop each card** (v0.41 — the cover is how people browse a kitchen
+and pick tonight's dinner) straight from the docs it already loads, so there's
+no photo-doc read per card and nothing pops in while scrolling. Covers from
+before v0.41 carry a 240px square `thumb` (blurry at card size):
+`useCoverUpgrade` (kitchen list, members only) spots one
+(`isLegacyCoverThumb`), regenerates it from the full photo, and merge-writes
+just `cover` (`setRecipeCover`, no `updatedAt` bump) — once per recipe per
+session; guests see the old image until a member's list upgrades it. The recipe
+page shows the full photo (thumb first, swapped in when loaded); cards without a
+cover look as before. Copies duplicate the cover's photo doc like step photos; removing a
 cover drops the reference only. No `firestore.rules` change (recipe fields
 aren't restricted). Recipe page buttons read "Add to grocery list" / "Add to
 meal plan" (they fit side by side down to 360pt).

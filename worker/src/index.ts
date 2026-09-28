@@ -291,18 +291,32 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 }
 
-async function fetchText(url: string, headers: Record<string, string>, label: string): Promise<string | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20_000)
-  try {
-    const res = await fetch(url, { headers, redirect: 'follow', signal: controller.signal })
-    console.log(`page ${label}: ${res.status}`)
-    return res.ok ? await res.text() : null
-  } catch (e) {
-    console.log(`page ${label}: failed ${String(e)}`)
-    return null
-  } finally {
-    clearTimeout(timer)
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Fetch a page as text; null if it failed. `retries` waits (ms) before each
+ * retry of a 429 "too many requests" / 503 — the Internet Archive throttles the
+ * shared addresses Workers fetch from, and a short wait often clears it. */
+async function fetchText(
+  url: string,
+  headers: Record<string, string>,
+  label: string,
+  retries: number[] = [],
+): Promise<string | null> {
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 20_000)
+    try {
+      const res = await fetch(url, { headers, redirect: 'follow', signal: controller.signal })
+      console.log(`page ${label}: ${res.status}${attempt ? ` (retry ${attempt})` : ''}`)
+      if (res.ok) return await res.text()
+      if ((res.status !== 429 && res.status !== 503) || attempt >= retries.length) return null
+    } catch (e) {
+      console.log(`page ${label}: failed ${String(e)}`)
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+    await sleep(retries[attempt])
   }
 }
 
@@ -353,6 +367,7 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
     `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`,
     { Accept: 'application/json' },
     'archive lookup',
+    [1500],
   )
   try {
     stamp = (JSON.parse(avail ?? '{}') as { archived_snapshots?: { closest?: { available?: boolean; timestamp?: string } } })
@@ -362,8 +377,15 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
   }
   if (stamp) {
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
-    const archived = await fetchText(`https://web.archive.org/web/${stamp}id_/${url}`, BROWSER_HEADERS, `archive ${stamp}`)
+    const copy = `https://web.archive.org/web/${stamp}id_/${url}`
+    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${stamp}`, [1500, 3000])
     if (consider(archived, 'archive')) return fallback
+    // Still throttled: have Jina Reader fetch the Archive's copy — its requests
+    // come from its own addresses, not the shared ones the Archive limited.
+    if (!archived) {
+      const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
+      if (consider(viaReader, 'archive')) return fallback
+    }
   } else {
     console.log('page archive: no saved copy')
   }
@@ -486,12 +508,17 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
   }
   const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
   const tries = [target.toString(), ...(stamp ? [`https://web.archive.org/web/${stamp}im_/${target}`] : [])]
-  for (const url of tries) {
+  for (let i = 0; i < tries.length; i++) {
+    const url = tries[i]
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         headers: { ...BROWSER_HEADERS, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
         redirect: 'follow',
       })
+      if (res.status === 429 && url.startsWith('https://web.archive.org/')) {
+        await sleep(1500) // the Archive throttles bursts; one patient retry
+        res = await fetch(url, { headers: { ...BROWSER_HEADERS, Accept: 'image/*' }, redirect: 'follow' })
+      }
       const type = res.headers.get('Content-Type') ?? ''
       const size = Number(res.headers.get('Content-Length') ?? 0)
       if (res.ok && type.startsWith('image/') && size <= 12_000_000) {

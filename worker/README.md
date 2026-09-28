@@ -10,11 +10,13 @@ and you can use just the first:
 - **root — paste text, a photo/PDF, or a link (FREE with Gemini).** Sends the
   text/photo to Google's Gemini to structure it. This reads *any* layout
   (blog-style pages that the `/url` route can't) and photos/screenshots/PDFs. For
-  a **link** (`{ url }`), Gemini first reads the page itself with its URL-context
-  tool. Big sites (Serious Eats) block that too, so the Worker then fetches the
-  page another way — directly, then via **Jina Reader** (`r.jina.ai`, a free
-  page-reading service, no key), then the **Internet Archive's** saved copy —
-  and has Gemini read it as text. Paywalled pages don't work. Only the public
+  a **link** (`{ url }`), the Worker fetches the page itself — directly, then
+  via **Jina Reader** (`r.jina.ai`, a free page-reading service, no key), then
+  the **Internet Archive's** saved copy (waiting and retrying when the Archive
+  says "too many requests", then asking Jina to fetch the Archive's copy) — and
+  has Gemini read it as text. Only if none of those get the page does Gemini
+  try reading the link itself (its URL-context tool). Paywalled pages don't
+  work. Only the public
   recipe link is sent to those services. It also returns the links of the
   page's own photos (the main one, plus any per-step photos), which the app
   downloads through **`/img`** — a pass-through that streams images only. It uses Gemini's **free tier**
@@ -114,8 +116,11 @@ Open the app → Recipes → **Add** → **Add from URL**, paste a recipe URL, a
 **Read recipe**. If you get "Not signed in", the token check is failing (check
 `FIREBASE_PROJECT_ID`). "Couldn't open that page" or "behind a paywall" means
 Google couldn't read that particular page — normal for paywalled sites; use paste
-or a photo. Worker logs: `wrangler tail` (a link logs `gemini url statuses=…`, then `page direct/reader/archive: …` for
-each fallback it tried).
+or a photo. Worker logs: `wrangler tail` (a link logs `page direct/reader/archive: …` for
+each route it tried — a `429` there is the Archive saying "slow down", which the
+Worker waits out — and `gemini url statuses=…` only if it fell back to Google's
+reader). If a link's tail starts with `gemini url statuses=`, the deployed
+Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 
 ## Security notes
 - The key lives only in Cloudflare (as a secret), never in the repo or the app.

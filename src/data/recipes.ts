@@ -13,8 +13,8 @@ import {
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { copyPhotoToHousehold } from './photos'
-import { SCHEMA_VERSION, type Recipe, type RecipeSeed } from '../lib/types'
+import { copyPhotoToHousehold, coverThumbFromDataUrl, fetchPhoto, isLegacyCoverThumb } from './photos'
+import { SCHEMA_VERSION, type Recipe, type RecipeCover, type RecipeSeed } from '../lib/types'
 
 function toMillis(value: unknown): number | null {
   if (value && typeof value === 'object' && 'toMillis' in value) {
@@ -241,7 +241,7 @@ export async function copyRecipeToHousehold(
       return { ...step, images: copied.filter((x): x is string => !!x) }
     }),
   )
-  // The cover photo too (its small thumbnail is inline, so it copies as-is).
+  // The cover photo too (its card image is inline, so it copies as-is).
   const coverPhoto = recipe.cover
     ? await copyPhotoToHousehold(recipe.cover.photo, targetHouseholdId, uid)
     : null
@@ -355,6 +355,41 @@ export async function createRecipeInHousehold(
     updatedAt: serverTimestamp(),
   })
   return seed.slug
+}
+
+/** Swap in a regenerated cover card image, leaving the rest of the recipe
+ * (and its updatedAt) alone — a display upgrade, not an edit. */
+export async function setRecipeCover(slug: string, cover: RecipeCover): Promise<void> {
+  await setDoc(doc(db, 'recipes', slug), { cover }, { merge: true })
+}
+
+// Covers already checked this session, so the kitchen list's re-renders (and
+// the snapshot our own upgrade write triggers) never re-check or re-write one.
+const coversChecked = new Set<string>()
+
+/**
+ * Covers saved before v0.41 carry a 240px square card image — blurry on the big
+ * kitchen cards. For members, regenerate each one once from its full photo; the
+ * list's live subscription then swaps the sharp one in. Guests can't write, so
+ * they see the old image until a member's kitchen view upgrades it.
+ */
+export function useCoverUpgrade(recipes: Recipe[], enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return
+    for (const recipe of recipes) {
+      const cover = recipe.cover
+      if (!cover || coversChecked.has(recipe.id)) continue
+      coversChecked.add(recipe.id)
+      void (async () => {
+        if (!(await isLegacyCoverThumb(cover.thumb))) return
+        const full = await fetchPhoto(cover.photo)
+        if (!full) return
+        await setRecipeCover(recipe.slug, { photo: cover.photo, thumb: await coverThumbFromDataUrl(full) })
+      })().catch(() => {
+        // Best effort — the old image still shows; try again next session.
+      })
+    }
+  }, [recipes, enabled])
 }
 
 /**
