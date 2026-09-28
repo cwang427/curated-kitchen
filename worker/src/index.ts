@@ -13,6 +13,10 @@
  * See worker/README.md for deploy steps and the secrets/vars it needs.
  */
 
+// The app's fixed tag list — one source of truth. wrangler bundles this file in
+// from the app's src/ (it has no React/DOM dependencies).
+import { ALL_TAGS, TAG_GROUPS } from '../../src/lib/tags'
+
 interface Env {
   FIREBASE_PROJECT_ID: string
   ALLOWED_ORIGIN?: string
@@ -122,8 +126,10 @@ const RECIPE_TOOL = {
       },
       tags: {
         type: 'array',
-        items: { type: 'string' },
-        description: 'A few short lowercase browsing labels — cuisine, course, or main method (e.g. "italian", "weeknight", "one-pan") — only when clearly applicable.',
+        // Only the app's fixed list (src/lib/tags.ts) — anything else cluttered
+        // the kitchen's filter row. The app normalizes again on arrival.
+        items: { type: 'string', enum: ALL_TAGS },
+        description: 'Browsing labels from the allowed list only: the course, the cuisine, the kind of dish, any dietary fit that clearly applies, and weeknight/make-ahead/holiday if the recipe says so. Usually 2–4. Never ingredients, methods or equipment.',
       },
       equipment: {
         type: 'array',
@@ -153,7 +159,8 @@ Rules:
 - Set "handsOff" true on a step that's a mostly-unattended wait the cook can step away from (simmer, bake, roast, braise, chill, rest, marinate, proof, reduce), and false on one that needs active attention (stir/whisk constantly, watch closely) or is a quick action. Omit if unclear.
 - Fill "equipment" with the notable tools the recipe uses (skillet, food processor, pressure cooker, etc.) when it names or clearly requires them. Don't invent specifics the recipe doesn't imply.
 - Fill "notes" with any tips, make-ahead, storage, or variation asides the source includes (e.g. a "Recipe Tip" or "Notes" section). Don't invent notes that aren't there.
-- Fill the top-level metadata whenever the source shows it: title, subtitle, description (the headnote), source.name (the site or publication), source.author (the byline), source.url (only if a URL actually appears in the text), yield, and prep/cook/total times. Add a few "tags" (cuisine/course/method) when clearly applicable. Leave any field blank rather than guessing.
+- Fill the top-level metadata whenever the source shows it: title, subtitle, description (the headnote), source.name (the site or publication), source.author (the byline), source.url (only if a URL actually appears in the text), yield, and prep/cook/total times. Leave any field blank rather than guessing.
+- "tags" come ONLY from this list: ${TAG_GROUPS.map((g) => `${g.label.toLowerCase()}: ${g.tags.join(', ')}`).join('; ')}. Pick the course (a main dish is "mains"), the cuisine (a regional style counts as its country — Roman is "italian", Sichuan is "chinese"), the kind of dish if it's one of those, "vegetarian"/"vegan"/"pescatarian"/"gluten-free"/"dairy-free" only when the whole recipe qualifies, and an occasion only if the recipe says so. Usually 2–4 tags. Never tag ingredients (beef, pork), methods (braise), or equipment (pressure cooker) — search already finds those.
 - If the input clearly isn't a recipe, call save_recipe with not_a_recipe true and empty ingredients/steps.`
 
 function corsHeaders(origin: string): Record<string, string> {
@@ -293,30 +300,60 @@ const BROWSER_HEADERS = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** How long a 429/503 asks us to wait (its Retry-After: seconds or a date), in
+ * ms; null when it doesn't say. */
+function retryAfterMs(res: Response): number | null {
+  const raw = res.headers.get('Retry-After')
+  if (!raw) return null
+  const secs = Number(raw)
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000)
+  const when = Date.parse(raw)
+  return Number.isNaN(when) ? null : Math.max(0, when - Date.now())
+}
+
+/** What the last response said, for callers that need more than the text. */
+type FetchInfo = { status?: number }
+
 /** Fetch a page as text; null if it failed. `retries` waits (ms) before each
  * retry of a 429 "too many requests" / 503 — the Internet Archive throttles the
- * shared addresses Workers fetch from, and a short wait often clears it. */
+ * shared addresses Workers fetch from, and a short wait sometimes clears it.
+ * The response's own Retry-After wins: we log it (so `wrangler tail` shows how
+ * long the Archive's lockouts really last), never retry sooner than it asks,
+ * and give up at once if it asks for longer than we'd wait. */
 async function fetchText(
   url: string,
   headers: Record<string, string>,
   label: string,
   retries: number[] = [],
+  info: FetchInfo = {},
 ): Promise<string | null> {
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 20_000)
+    let wait: number
     try {
       const res = await fetch(url, { headers, redirect: 'follow', signal: controller.signal })
-      console.log(`page ${label}: ${res.status}${attempt ? ` (retry ${attempt})` : ''}`)
+      info.status = res.status
+      const throttled = res.status === 429 || res.status === 503
+      const asks = throttled ? retryAfterMs(res) : null
+      const hint = throttled ? `, retry-after ${asks === null ? 'not given' : `${Math.round(asks / 1000)}s`}` : ''
+      console.log(`page ${label}: ${res.status}${attempt ? ` (retry ${attempt})` : ''}${hint}`)
       if (res.ok) return await res.text()
-      if ((res.status !== 429 && res.status !== 503) || attempt >= retries.length) return null
+      await res.body?.cancel()
+      if (!throttled || attempt >= retries.length) return null
+      if (asks !== null && asks > 5_000) {
+        console.log(`page ${label}: not retrying — it asked us to wait ${Math.round(asks / 1000)}s`)
+        return null
+      }
+      wait = Math.max(retries[attempt], asks ?? 0)
     } catch (e) {
+      info.status = undefined
       console.log(`page ${label}: failed ${String(e)}`)
       return null
     } finally {
       clearTimeout(timer)
     }
-    await sleep(retries[attempt])
+    await sleep(wait)
   }
 }
 
@@ -354,13 +391,14 @@ function archiveKey(url: string): string {
 
 /** The Archive's latest good (200, HTML) saves of a page, newest first, from its
  * full capture index — slower than the "available" lookup but reliable. */
-async function archiveCaptures(url: string): Promise<string[]> {
+async function archiveCaptures(url: string, info: FetchInfo = {}): Promise<string[]> {
   const index = await fetchText(
     `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}&output=json&fl=timestamp` +
       '&filter=statuscode:200&filter=mimetype:text/html&limit=-3',
     { Accept: 'application/json' },
     'archive search',
     [1500],
+    info,
   )
   try {
     const rows = JSON.parse(index ?? '[]') as unknown[]
@@ -375,7 +413,12 @@ async function archiveCaptures(url: string): Promise<string[]> {
   }
 }
 
-async function fetchRecipePage(url: string): Promise<RecipePage | null> {
+/** What fetchRecipePage learned besides the page: `archiveBusy` = the Archive
+ * refused us with "too many requests" (it has, or may have, a copy — we just
+ * couldn't get it right now), so a failure is worth retrying in a few minutes. */
+type PageLookup = { archiveBusy?: boolean }
+
+async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<RecipePage | null> {
   let fallback: RecipePage | null = null
   let stamp: string | undefined
   const consider = (html: string | null, via: PageSource): boolean => {
@@ -406,11 +449,14 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
   // Eats recipe), so when it comes up empty — or its copy isn't a recipe —
   // ask the full capture index (CDX) for the latest good saves too.
   const lookup = archiveKey(url)
+  const busy = (info: FetchInfo) => info.status === 429 || info.status === 503
+  const availInfo: FetchInfo = {}
   const avail = await fetchText(
     `https://archive.org/wayback/available?url=${encodeURIComponent(lookup)}`,
     { Accept: 'application/json' },
     'archive lookup',
     [1500],
+    availInfo,
   )
   let quick: string | undefined
   try {
@@ -426,9 +472,11 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
     stamp = ts
     // id_ = the page exactly as captured, without the Wayback toolbar/rewrites.
     const copy = `https://web.archive.org/web/${ts}id_/${lookup}`
-    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${ts}`, [1500, 3000])
+    const copyInfo: FetchInfo = {}
+    const archived = await fetchText(copy, BROWSER_HEADERS, `archive ${ts}`, [1500, 3000], copyInfo)
     if (consider(archived, 'archive')) return 'recipe'
     if (archived) return 'other'
+    if (busy(copyInfo)) seen.archiveBusy = true
     // Still throttled: have Jina Reader fetch the Archive's copy — its requests
     // come from its own addresses, not the shared ones the Archive limited.
     const viaReader = await fetchText(`https://r.jina.ai/${copy}`, { 'X-Return-Format': 'html', Accept: 'text/html' }, 'archive via reader')
@@ -440,8 +488,13 @@ async function fetchRecipePage(url: string): Promise<RecipePage | null> {
     if (got === 'recipe') return fallback
     if (got === 'refused') return fallback // throttled; more Archive requests won't help
   }
-  const saves = (await archiveCaptures(lookup)).filter((ts) => ts !== quick).slice(0, 2)
-  if (!quick && !saves.length) console.log('page archive: no saved copy')
+  const searchInfo: FetchInfo = {}
+  const saves = (await archiveCaptures(lookup, searchInfo)).filter((ts) => ts !== quick).slice(0, 2)
+  if (!quick && !saves.length) {
+    // Both lookups throttled: we couldn't even check whether it has a copy.
+    if (busy(availInfo) && busy(searchInfo)) seen.archiveBusy = true
+    console.log(seen.archiveBusy ? 'page archive: too busy to check for a copy' : 'page archive: no saved copy')
+  }
   for (const ts of saves) {
     const got = await readCopy(ts)
     if (got === 'recipe' || got === 'refused') break
@@ -624,25 +677,31 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
   const stamp = typeof body.stamp === 'string' && /^\d{4,14}$/.test(body.stamp) ? body.stamp : null
   const site = target.toString()
   const archived = stamp ? `https://web.archive.org/web/${stamp}im_/${site}` : null
-  // The site first; then, when the page itself came from the Archive, the
-  // Archive's copy; then the image proxy — for the Archive's copy first (a
-  // bot-walled site likely blocks the proxy too). No waiting out an Archive
-  // 429: retrying it never once helped in practice (~4.5 s a photo), while the
-  // proxy, fetching from its own servers, gets the same copy straight away.
+  // The site first. Then, when the page itself came from the Archive, the
+  // Archive's copy — asked for through the image proxy, which fetches from its
+  // own servers. Our own requests to the Archive come from Cloudflare's shared
+  // addresses, which it rations, and a photo-heavy import used to spend that
+  // allowance before the next import's page (the part that matters most)
+  // could get through. So we only ask the Archive directly if the proxy itself
+  // is down (a timeout or 5xx) — never when it answered "not there" (4xx: the
+  // Archive didn't save that photo, and would say the same to us). Last, the
+  // proxy for the site's own image.
   const routes: Array<[label: string, url: string]> = [
     ['site', site],
     ...(archived
       ? ([
-          ['archive', archived],
           ['proxy/archive', viaImageProxy(archived)],
+          ['archive', archived],
         ] as Array<[string, string]>)
       : []),
     ['proxy', viaImageProxy(site)],
   ]
   // One line per photo in `wrangler tail`, e.g.
-  //   img ok [site 403 → archive 429 → archive 200] www.example.com/…/salmon.jpg
+  //   img ok [site 403 → proxy/archive 200] www.example.com/…/salmon.jpg
+  let proxyDown = false
   const trail: string[] = []
   for (const [label, url] of routes) {
+    if (label === 'archive' && !proxyDown) continue
     // Give up on a route that hasn't started answering in 15 s (the timer only
     // guards the wait for headers; it's cleared before the body streams).
     const controller = new AbortController()
@@ -656,10 +715,12 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
       })
     } catch {
       trail.push(`${label} ${controller.signal.aborted ? 'timed out' : 'failed'}`)
+      if (label === 'proxy/archive') proxyDown = true
       continue
     } finally {
       clearTimeout(timer)
     }
+    if (label === 'proxy/archive' && res.status >= 500) proxyDown = true
     const type = res.headers.get('Content-Type') ?? ''
     const size = Number(res.headers.get('Content-Length') ?? 0)
     if (res.ok && type.startsWith('image/') && size <= 12_000_000) {
@@ -670,7 +731,11 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
         headers: { 'Content-Type': type, 'Cache-Control': 'no-store', ...corsHeaders(origin) },
       })
     }
-    trail.push(`${label} ${res.status}${res.ok ? ` ${type || 'no type'}` : ''}`)
+    const asks = res.status === 429 || res.status === 503 ? retryAfterMs(res) : null
+    trail.push(
+      `${label} ${res.status}${res.ok ? ` ${type || 'no type'}` : ''}` +
+        (asks !== null ? ` (retry-after ${Math.round(asks / 1000)}s)` : ''),
+    )
     await res.body?.cancel() // free the connection; Workers cap open ones
   }
   console.log(`img failed [${trail.join(' → ')}] ${shortUrl(site)}`)
@@ -684,8 +749,27 @@ async function handleImageProxy(body: { url?: string; stamp?: string }, origin: 
  * URL-context tool; no photos that way).
  */
 async function handleLink(url: string, env: Env, origin: string): Promise<Response> {
-  const page = await fetchRecipePage(url)
-  if (!page) return handleGemini({ images: [], url }, env, origin)
+  const seen: PageLookup = {}
+  const page = await fetchRecipePage(url, seen)
+  if (!page) {
+    const google = await handleGemini({ images: [], url }, env, origin)
+    if (google.status !== 422 || !seen.archiveBusy) return google
+    // Google couldn't open it either. Say why honestly: the Archive (the route
+    // that usually gets blocked sites) was only too busy for us just now, so
+    // trying again in a few minutes is worthwhile — not "this can't be done".
+    const body = (await google.clone().json().catch(() => ({}))) as { detail?: string }
+    if (!body.detail?.includes('URL_RETRIEVAL_STATUS') || body.detail.includes('PAYWALL')) return google
+    const site = new URL(url).hostname.replace(/^www\./, '')
+    console.log('link: archive busy — told the cook to try again shortly')
+    return json(
+      {
+        error: `${site} blocks direct imports, and its saved copy at the Internet Archive is busy right now — try again in a few minutes, or paste the recipe text instead.`,
+        detail: `archive busy; ${body.detail}`,
+      },
+      422,
+      origin,
+    )
+  }
   console.log(`link: reading page via ${page.via} as text`)
   const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
   if (!res.ok) return res

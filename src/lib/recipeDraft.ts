@@ -7,6 +7,7 @@ import type {
   Timer,
   Visibility,
 } from './types'
+import { normalizeTags } from './tags'
 
 /**
  * The editable form shape for a recipe, and the conversions to/from the
@@ -256,7 +257,9 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
       }
     }),
     groups: draft.groups,
-    tags: commaList(draft.tags),
+    // Saved tags are always from the fixed list; an old recipe's other tags
+    // (the editor lists them) are dropped here.
+    tags: normalizeTags(commaList(draft.tags)),
     equipment: lines(draft.equipment),
     notes: lines(draft.notes),
     visibility: draft.visibility,

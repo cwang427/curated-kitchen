@@ -10,6 +10,7 @@ import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import HeartIcon from '../components/HeartIcon'
 import type { Recipe } from '../lib/types'
+import { normalizeTags } from '../lib/tags'
 
 /** The "cooking now" banner at the top of the list — shared session or solo. */
 function CookBanner({
@@ -83,6 +84,7 @@ function RecipeCard({
   // glance, and the same figure the time filter uses (active time, if that's
   // all a recipe has).
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
+  const tags = normalizeTags(recipe.tags)
   const servings =
     recipe.yield.amountMax
       ? `${recipe.yield.amount}–${recipe.yield.amountMax} ${recipe.yield.unit}`
@@ -142,9 +144,9 @@ function RecipeCard({
           {recipe.source.name && <span>{recipe.source.name}</span>}
         </div>
 
-        {recipe.tags.length > 0 && (
+        {tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {recipe.tags.slice(0, 4).map((tag) => (
+            {tags.slice(0, 4).map((tag) => (
               <span
                 key={tag}
                 className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"

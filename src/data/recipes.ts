@@ -15,6 +15,7 @@ import {
 import { db } from '../lib/firebase'
 import { copyPhotoToHousehold, coverThumbFromDataUrl, fetchPhoto, isLegacyCoverThumb } from './photos'
 import { SCHEMA_VERSION, type Recipe, type RecipeCover, type RecipeSeed } from '../lib/types'
+import { normalizeTags } from '../lib/tags'
 
 function toMillis(value: unknown): number | null {
   if (value && typeof value === 'object' && 'toMillis' in value) {
@@ -176,8 +177,11 @@ export function useRecipeSearch(recipes: Recipe[], term: string, tags: string[])
     const needle = term.trim().toLowerCase()
 
     return recipes.filter((recipe) => {
-      if (tags.length > 0 && !tags.every((tag) => recipe.tags.includes(tag))) {
-        return false
+      // Filter on the fixed-list form, so an older recipe tagged "Main Course"
+      // still matches the "mains" chip.
+      if (tags.length > 0) {
+        const own = normalizeTags(recipe.tags)
+        if (!tags.every((tag) => own.includes(tag))) return false
       }
       if (!needle) return true
 
@@ -197,14 +201,12 @@ export function useRecipeSearch(recipes: Recipe[], term: string, tags: string[])
   }, [recipes, term, tags])
 }
 
+/** The kitchen's filter chips: the fixed-list tags its recipes actually use,
+ * in browse order (course → cuisine → dish → diet → occasion). Tags off the
+ * list — an older import's "beef" or "pressure cooker" — never show. */
 export function collectTags(recipes: Recipe[]): string[] {
-  const counts = new Map<string, number>()
-  for (const recipe of recipes) {
-    for (const tag of recipe.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([tag]) => tag)
+  const used = new Set(recipes.flatMap((recipe) => normalizeTags(recipe.tags)))
+  return normalizeTags([...used])
 }
 
 /** A short, URL-safe suffix so a copied recipe gets a globally unique slug. */

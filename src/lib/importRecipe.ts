@@ -1,5 +1,6 @@
 import { GROCERY_CATEGORIES, type GroceryCategory } from './types'
 import { normalizeUnit } from './units'
+import { normalizeTags } from './tags'
 
 /**
  * Convert a schema.org/Recipe (the JSON-LD most recipe sites embed for search
@@ -337,7 +338,9 @@ export function recipeFromJsonLd(jsonld: unknown, sourceUrl: string): ImportResu
     times,
     ingredients,
     steps,
-    tags: [...new Set(tags)],
+    // A page's category/cuisine/keywords, mapped onto our fixed tag list —
+    // keyword lists are mostly ingredients and SEO phrases, which are dropped.
+    tags: normalizeTags(tags, 6),
     // visibility is left to the schema default (shared with the kitchen); a
     // member can hide it after review in the editor.
   }

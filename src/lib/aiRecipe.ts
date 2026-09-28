@@ -1,6 +1,7 @@
 import { GROCERY_CATEGORIES } from './types'
 import { parseAmountToken } from './quantity'
 import { slugifyIngredient } from './recipeSchema'
+import { normalizeTags } from './tags'
 
 /**
  * Tidy an AI-extracted recipe into something `parseRecipe` will accept.
@@ -190,7 +191,8 @@ export function sanitizeAiRecipe(raw: unknown): Obj {
     ingredients,
     steps,
     groups,
-    tags: strList(raw.tags),
+    // Only the fixed tag list (lib/tags.ts), however the model answered.
+    tags: normalizeTags(strList(raw.tags), 6),
     equipment: strList(raw.equipment),
     notes: strList(raw.notes),
   }

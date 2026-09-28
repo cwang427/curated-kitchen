@@ -17,6 +17,7 @@ import {
   type RecipeDraft,
 } from '../lib/recipeDraft'
 import { GROCERY_CATEGORIES, type RecipeSeed, type Visibility } from '../lib/types'
+import TagPicker from './TagPicker'
 
 const input =
   'min-h-11 w-full rounded-xl border border-line bg-card px-3 text-base outline-none focus:border-accent'
@@ -344,7 +345,7 @@ export default function RecipeEditor({
           <Labeled label="Link"><input className={input} value={draft.sourceUrl} onChange={(e) => set({ sourceUrl: e.target.value })} placeholder="https://…" /></Labeled>
         </div>
 
-        <Labeled label="Tags (comma-separated)"><input className={input} value={draft.tags} onChange={(e) => set({ tags: e.target.value })} placeholder="weeknight, pasta" /></Labeled>
+        <TagPicker value={draft.tags} onChange={(tags) => set({ tags })} />
         <Labeled label="Who can see it">
           <select className={input} value={draft.visibility} onChange={(e) => set({ visibility: e.target.value as Visibility })}>
             <option value="friends">Everyone in this kitchen (members + guests)</option>

@@ -142,20 +142,37 @@ confusion:
     cover. The app downloads each through **`POST /img`** (`handleImageProxy`:
     streams an image straight through, never buffers — the free plan's ~10 ms CPU
     budget can't base64 megabytes; tries the image from the site, then — when
-    the page came from the Archive — the Archive's `im_` copy (once: retrying
-    its 429s never helped and cost ~4.5 s a photo) and **wsrv.nl** (a free public image proxy, no key; it
-    fetches from its own servers, so neither a bot wall nor the Archive's
-    throttling of Cloudflare's shared addresses sees us) for that copy, and
-    finally wsrv.nl for the site's image; 15 s cap per route for headers;
+    the page came from the Archive — the Archive's `im_` copy **through
+    wsrv.nl** (a free public image proxy, no key; it fetches from its own
+    servers). We ask the Archive directly only if wsrv.nl itself is down
+    (timeout / 5xx), never when it answered 4xx ("not saved"): our own Archive
+    requests come from Cloudflare's shared addresses, which the Archive rations,
+    and a photo-heavy import (up to ~14 Archive requests with the old per-photo
+    retries) spent that allowance before the next import's *page* could get
+    through (v0.42). Finally wsrv.nl for the site's image; 15 s cap per route
+    for headers;
     images only, private hosts refused;
     logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
     host/…end-of-path`), compresses them like any added photo, and opens the preview editor
     with them as unsaved photos, so saving stores them as photo docs.
     **The Archive throttles (429)** the shared addresses Workers fetch from, so
     `fetchText` takes per-call retry waits (lookup `[1500]` ms, copy `[1500,
-    3000]`; 429/503 only — waiting costs no Worker CPU), and if the copy is still
-    refused, Jina Reader fetches the Archive's copy for us (`r.jina.ai/<archive
-    url>` — its own addresses). `/img` falls back to wsrv.nl instead (above), and the app downloads photos **two at a time — one at a time when
+    3000]`; 429/503 only — waiting costs no Worker CPU), **but the response's
+    `Retry-After` wins**: it's logged (`page archive …: 429, retry-after 60s` /
+    `not given`, so the tail shows how long lockouts really last), we never
+    retry sooner than it asks, and we give up at once if it asks for > 5 s.
+    If the copy is still refused, Jina Reader fetches the Archive's copy for us
+    (`r.jina.ai/<archive url>` — its own addresses; it 451s any link naming a
+    site that blocks it, Serious Eats included). **When the Archive refused us
+    (429/503 — or both lookups were throttled, "too busy to check") and Google
+    can't open the link either**, `handleLink` returns an honest 422: "<site>
+    blocks direct imports, and its saved copy at the Internet Archive is busy
+    right now — try again in a few minutes, or paste the recipe text instead."
+    (`PageLookup.archiveBusy`; a paywall or a genuinely missing copy keeps its
+    own message.) Deliberately NOT done: silently falling back to a
+    lower-quality import (e.g. Google reading the Archive copy, which brings no
+    photos) — the owner wants imports to behave consistently; that was tried
+    in v0.41.7 and reverted. `/img` falls back to wsrv.nl instead (above), and the app downloads photos **two at a time — one at a time when
     the page came from the Archive** (`photos.stamp`; three at once got a 429),
     each into its fixed slot so a step's photos keep their order. An Archive copy
     can predate the site's latest edit — it's a fallback, not the source. **PDFs ride the same `images` array** with
@@ -180,7 +197,9 @@ confusion:
   empty until set → the options that need it stay hidden). The Worker verifies
   the caller's Firebase ID token (members only) and guards its fetcher against
   private/loopback hosts (basic SSRF). No `firestore.rules` change. `worker/` is
-  outside the app's tsc build; `wrangler` builds it.
+  outside the app's tsc build; `wrangler` builds it — and bundles in
+  `src/lib/tags.ts` (the fixed tag list), so keep that file free of React/DOM
+  and other app imports.
 
   **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
   which CI always builds from the pushed branch). So after ANY commit that
@@ -299,17 +318,20 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   write, members + guests read).
 - `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
   `npm run test:plan` / `npm run test:steps` / `npm run test:draft` /
-  `npm run test:cook` / `npm run test:ai` / `npm run test:units` — pure-logic unit tests for the JSON-LD converter, the
+  `npm run test:cook` / `npm run test:ai` / `npm run test:units` /
+  `npm run test:tags` — pure-logic unit tests for the JSON-LD converter, the
   free pasted-text importer (real full-page fixtures under
   `scripts/fixtures/text/`), the grocery merge/aisle logic, the meal-plan day
   window + plan→groceries aggregation, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
   timeline (attention/agenda merge + ordering), the AI-answer tidy-up
-  (`sanitizeAiRecipe`), and unit/item pluralization ("bay leaf" → "bay leaves",
-  never "leafs"/"leaveses"). Run after touching
+  (`sanitizeAiRecipe`), unit/item pluralization ("bay leaf" → "bay leaves",
+  never "leafs"/"leaveses"), and the fixed tag list's normalizing
+  ("Main Course" → mains, "roman" → italian, "beef" dropped). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/plan.ts`, `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
-  `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, or `src/lib/units.ts`.
+  `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`, or
+  `src/lib/tags.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -540,6 +562,22 @@ redundant once they pin to the top.) `favorite` is deliberately excluded from
 its own and a recipe edit/copy never carries or clobbers it (a copy starts
 un-favorited). Shared `HeartIcon` component; `test:rules` unchanged since the
 existing member-updates-recipe rule already covers it.
+And **a fixed tag list** (`src/lib/tags.ts`, v0.42): tags come only from
+`TAG_GROUPS` — course (breakfast, appetizers, mains, sides, desserts, snacks,
+drinks, sauces), cuisine (21, regions folded in: roman → italian, sichuan →
+chinese), dish (soup, pasta, noodles, …), diet (vegetarian, vegan,
+pescatarian, gluten-free, dairy-free), occasion (weeknight, make-ahead,
+holiday). Imports used to tag ingredients ("beef"), methods and gadgets
+("pressure cooker") and sub-regions ("roman"), which cluttered the kitchen's
+filter row; ingredients are searchable anyway. `normalizeTags` (synonyms →
+the list, everything else dropped; imports cap at 6) runs on every source: AI
+imports (`sanitizeAiRecipe`; the Worker's schema also `enum`s the list and its
+prompt spells it out), a page's JSON-LD (`recipeFromJsonLd`), and editor saves
+(`draftToInput`). The editor's tags are a grouped picker (`TagPicker`) instead
+of free text; an older recipe's off-list tags are listed "removed when you
+save". Stored tags aren't migrated — the kitchen's chips (`collectTags`), tag
+filter (`useRecipeSearch`) and cards show the normalized form, so old recipes
+look clean at once and are cleaned in the data when next edited.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated

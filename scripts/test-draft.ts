@@ -101,5 +101,13 @@ console.log('\ncover photo rides through the draft')
   eq('removing the cover saves null', parseRecipe({ ...draftToInput(removed), slug: 'cacio-rm' }).recipe.cover, null)
 }
 
+console.log('\ntags: only the fixed list is saved')
+{
+  const d = seedToDraft({ ...seed, tags: ['Main Course', 'beef', 'roman', 'pressure cooker', 'vegetarian'] })
+  eq('old tags normalized on save', parseRecipe({ ...draftToInput(d), slug: 'cacio-tags' }).recipe.tags, ['mains', 'italian', 'vegetarian'])
+  const picked = seedToDraft({ ...seed, tags: ['pasta', 'italian'] })
+  eq('allowed tags round-trip in display order', parseRecipe({ ...draftToInput(picked), slug: 'cacio-tags2' }).recipe.tags, ['italian', 'pasta'])
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

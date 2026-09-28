@@ -22,8 +22,13 @@ and you can use just the first:
   page's own photos (the main one — a few sizes of it, tried in turn — plus
   any per-step photos), which the app
   downloads through **`/img`** — a pass-through that streams images only (from
-  the site, else the Archive's copy, else via **wsrv.nl**, a free public image
-  proxy; only public photo links are sent to it). It uses Gemini's **free tier**
+  the site, else the Archive's copy fetched via **wsrv.nl**, a free public image
+  proxy — so our own requests don't use up the Archive's allowance for the
+  page — else wsrv.nl for the site's image; only public photo links are sent to
+  it). If the Archive is too busy for us right now, the app says so ("…busy
+  right now — try again in a few minutes"). Tags come only from the app's fixed
+  list (`src/lib/tags.ts`, bundled into the Worker by wrangler — it's in the
+  repo, so a normal pull brings it). It uses Gemini's **free tier**
   (an AI Studio key with **no billing**), plenty for a household's occasional
   imports. Off in the app until you enable it (below). *(A paid Anthropic Claude
   route is also supported as an alternative — see the end.)*
@@ -123,8 +128,9 @@ Google couldn't read that particular page — normal for paywalled sites; use pa
 or a photo. Worker logs: `wrangler tail` (a link logs `page direct/reader/archive: …` for
 each route it tried — a `429` there is the Archive saying "slow down", which the
 Worker waits out — and `gemini url statuses=…` only if it fell back to Google's
-reader). Each photo then logs one line, e.g. `img ok [site 403 → archive 429 →
-proxy/archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
+reader). A refusal shows the Archive's own wait hint, e.g. `page archive …: 429,
+retry-after 60s` (or `not given`). Each photo then logs one line, e.g. `img ok
+[site 403 → proxy/archive 200] www.example.com/…/salmon.jpg` — every route it tried, in order, and
 the end of the photo's link (shortened on purpose). If a link's tail starts with `gemini url statuses=`, the deployed
 Worker is older than your copy of the code: pull, then `npx wrangler deploy`.
 

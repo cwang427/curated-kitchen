@@ -111,7 +111,9 @@ console.log('recipeFromJsonLd → validates against the schema')
   check('7 ingredients', (recipe.ingredients as unknown[]).length === 7)
   check('2 steps (section flattened)', (recipe.steps as unknown[]).length === 2)
   check('cook time parsed', (recipe.times as { cookMin: number }).cookMin === 150)
-  check('tags deduped', Array.isArray(recipe.tags) && (recipe.tags as string[]).includes('beef'))
+  // Category/cuisine/keywords onto the fixed list: 'Mains' + 'American' kept;
+  // 'Braises', 'short ribs', 'beef', 'braise' dropped.
+  check('tags → fixed list', JSON.stringify(recipe.tags) === JSON.stringify(['mains', 'american']))
 
   // The whole point: the draft must pass our own validator.
   try {

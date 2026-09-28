@@ -47,7 +47,7 @@ const pickledOnions = {
     { brief: ['Refrigerate', 'Keeps 2 weeks'] },
     { text: '' },
   ],
-  tags: ['', 'condiment'],
+  tags: ['', 'condiment', 'pickles', 'Vegan', 'small saucepan'],
   equipment: ['jar', 'small saucepan'],
   notes: [],
 }
@@ -77,7 +77,7 @@ eq('fractional seconds rounded', recipe.steps[3].timers, [{ label: 'Cool', secon
 eq('handsOff survives', recipe.steps[3].handsOff, true)
 eq('unknown ingredient link dropped, real one kept', recipe.steps[2].ingredientIds, ['red_onion'])
 eq('brief-only step gets full text', recipe.steps[4].text, 'Refrigerate. Keeps 2 weeks.')
-eq('blank tag dropped', recipe.tags, ['condiment'])
+eq('tags mapped onto the fixed list (blank, ingredient, equipment dropped)', recipe.tags, ['sauces', 'vegan'])
 eq('equipment kept', recipe.equipment, ['jar', 'small saucepan'])
 
 console.log('\nyield handling')
