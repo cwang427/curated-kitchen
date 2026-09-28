@@ -4,6 +4,7 @@ import { parseRecipe } from '../lib/recipeSchema'
 import { slugify } from '../lib/importRecipe'
 import { sanitizeAiRecipe } from '../lib/aiRecipe'
 import { compressToDataUrl, makeCoverThumb } from './photos'
+import { readProgressStream } from '../lib/importStage'
 import type { RecipeSeed } from '../lib/types'
 
 /**
@@ -66,35 +67,58 @@ function describeInvalid(cause: unknown): string {
   return `The AI read it, but part of its answer didn’t fit our recipe format (${detail}). Try again, or use Paste text.`
 }
 
-export async function importRecipeViaAI(input: AiInput): Promise<AiImportResult> {
+/** How an import is getting on, as the Worker reports it (worker/src/importer.ts
+ * `Stage`) — turned into words by lib/importStage.ts. */
+export type ImportStage =
+  | { stage: 'opening'; host: string }
+  | { stage: 'another-way' }
+  | { stage: 'reading' }
+  | { stage: 'writing'; ingredients: number; steps: number }
+  | { stage: 'finishing' }
+
+type Failure = WorkerAnswer & { error?: string; code?: string; detail?: string }
+
+/** Keep what the Worker said about a failure: the status (a 422 means it
+ * already tried every way it has), and `code` for why — e.g. the Internet
+ * Archive was only busy, worth trying again after `retryAfterMs`. */
+function importError(status: number, data: Failure): ImportError {
+  return Object.assign(new Error(data.error || `Import failed (${status}).`), {
+    status,
+    code: data.code,
+    detail: data.detail,
+    retryAfterMs: data.retryAfterMs,
+  })
+}
+
+/**
+ * Ask the Worker to read a recipe, with its progress as it happens
+ * (`onStage`): the Worker streams one line per step, then its answer. A Worker
+ * older than 0.50 ignores the request to stream and just answers.
+ */
+export async function askWorker(input: AiInput, onStage: (stage: ImportStage) => void = () => {}): Promise<{ answer: WorkerAnswer; token: string }> {
   if (!AI_IMPORT_URL) throw new Error('AI import isn’t set up yet.')
   const user = auth.currentUser
   if (!user) throw new Error('Sign in first.')
   const token = await user.getIdToken()
-
   const res = await fetch(AI_IMPORT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, stream: true }),
   })
-  const data = (await res.json().catch(() => ({}))) as WorkerAnswer & {
-    error?: string
-    code?: string
-    detail?: string
+  if (res.ok && res.body && (res.headers.get('Content-Type') ?? '').includes('ndjson')) {
+    const answer = await readProgressStream<ImportStage, Failure>(res.body, onStage)
+    if (!answer) throw importError(502, { error: 'The connection dropped before the recipe came back — please try again.' })
+    if (answer.status !== 200) throw importError(answer.status, answer.body)
+    return { answer: answer.body, token }
   }
-  if (!res.ok) {
-    // Keep what the Worker said: the status (a 422 means it already tried every
-    // way it has), and `code` for why — e.g. the Internet Archive was only busy,
-    // worth trying again after `retryAfterMs`.
-    const error: ImportError = Object.assign(new Error(data.error || `Import failed (${res.status}).`), {
-      status: res.status,
-      code: data.code,
-      detail: data.detail,
-      retryAfterMs: data.retryAfterMs,
-    })
-    throw error
-  }
-  return 'url' in input ? finishLinkImport(data, input.url, token) : seedFromAnswer(data, input)
+  const data = (await res.json().catch(() => ({}))) as Failure
+  if (!res.ok) throw importError(res.status, data)
+  return { answer: data, token }
+}
+
+export async function importRecipeViaAI(input: AiInput, onStage?: (stage: ImportStage) => void): Promise<AiImportResult> {
+  const { answer, token } = await askWorker(input, onStage)
+  return 'url' in input ? finishLinkImport(answer, input.url, token) : seedFromAnswer(answer, input)
 }
 
 /** What the Worker answers for a successful import. */
@@ -107,7 +131,7 @@ export interface WorkerAnswer {
 }
 
 /** The AI's answer → a validated recipe (no photos yet). */
-function seedFromAnswer(data: WorkerAnswer, input: AiInput): AiImportResult {
+export function seedFromAnswer(data: WorkerAnswer, input: AiInput): AiImportResult {
   if (!data.recipe) throw new Error('The AI didn’t return a recipe.')
 
   // Fill gaps (e.g. no servings) and drop pieces the strict validator would
@@ -143,13 +167,18 @@ function seedFromAnswer(data: WorkerAnswer, input: AiInput): AiImportResult {
 /** A link's answer → the recipe with its photos downloaded, and a report of
  * how it went. Shared by "Add from URL" and the import queue, which hands the
  * app an answer the Worker got earlier. */
-export async function finishLinkImport(data: WorkerAnswer, url: string, token: string): Promise<AiImportResult> {
+export async function finishLinkImport(
+  data: WorkerAnswer,
+  url: string,
+  token: string,
+  onPhotos?: (got: number, wanted: number) => void,
+): Promise<AiImportResult> {
   const parsed = seedFromAnswer(data, { url })
   parsed.link = {
     via: data.via,
     photosUnavailable: data.photosUnavailable,
     retryAfterMs: data.retryAfterMs,
-    photos: data.photos ? await attachLinkPhotos(parsed.seed, data.photos, token) : undefined,
+    photos: data.photos ? await attachLinkPhotos(parsed.seed, data.photos, token, onPhotos) : undefined,
   }
   return parsed
 }
@@ -204,6 +233,7 @@ async function attachLinkPhotos(
   seed: RecipeSeed,
   photos: LinkPhotos,
   token: string,
+  onPhotos: (got: number, wanted: number) => void = () => {},
 ): Promise<{ wanted: number; got: number }> {
   const allowed = photos.unlocker ? PHOTO_DEADLINE_UNLOCKER_MS : PHOTO_DEADLINE_MS
   const deadline = Date.now() + allowed
@@ -254,6 +284,7 @@ async function attachLinkPhotos(
   // Each photo keeps its slot, so two parallel downloads can't swap a step's order.
   const stepPhotos = new Map<number, (string | undefined)[]>()
   let got = 0
+  onPhotos(0, jobs.length)
   const run = async (job: Job) => {
     // The first candidate that downloads and decodes wins: each photo comes as
     // a few sizes, because the Archive often lacks the size the recipe data
@@ -279,6 +310,7 @@ async function attachLinkPhotos(
           stepPhotos.set(job.index, list)
         }
         got++
+        onPhotos(got, jobs.length)
         return
       } catch {
         /* unreadable image — try the next candidate, if any */

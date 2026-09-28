@@ -1,8 +1,9 @@
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import AppHeader from '../components/AppHeader'
 import RecipeEditor from '../components/RecipeEditor'
 import { useAuth } from '../auth/AuthProvider'
 import { useRecipe } from '../data/recipes'
+import { showAppNote } from '../data/importQueue'
 import { Link, useAppNav } from '../components/nav'
 
 /**
@@ -15,10 +16,21 @@ export default function EditRecipePage() {
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   // Save, Cancel, the back arrow and the swipe all return to the recipe.
-  const { goUp } = useAppNav()
+  const { goTo, goUp } = useAppNav()
+  const fromReview = useLocation().pathname.startsWith('/review/')
 
   if (!user || !household) return null
   const isMember = household.memberUids.includes(user.uid)
+  // An import awaiting review: saving adds it to the kitchen, seen by whoever
+  // the import chose (it's members-only until then).
+  const review = recipe?.review ?? null
+  const onSaved = (slug: string, title: string) => {
+    if (!review) return goUp()
+    showAppNote({ text: 'Added to your kitchen', title, action: { label: 'Open', path: `/r/${slug}` } })
+    // From the review list, back to it for the next one.
+    if (fromReview) goTo('/add')
+    else goUp()
+  }
 
 
   return (
@@ -42,9 +54,10 @@ export default function EditRecipePage() {
           </div>
         ) : (
           <RecipeEditor
-            initial={recipe}
+            initial={review ? { ...recipe, visibility: review.visibility } : recipe}
             editingSlug={recipe.slug}
-            onSaved={goUp}
+            approve={!!review}
+            onSaved={onSaved}
             onCancel={goUp}
           />
         )}

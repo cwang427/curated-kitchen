@@ -56,6 +56,27 @@ const roast: Recipe = {
 
 const ALL = [cacioRecipe, shortRibsRecipe, roast]
 
+// Imports awaiting review (Add a recipe's list, and /review/:slug).
+const chowder: Recipe = {
+  ...hydrate(shortRibs),
+  id: 'corn-chowder',
+  slug: 'corn-chowder',
+  title: 'The Best Corn Chowder',
+  visibility: 'household',
+  cover: { photo: COVER_PHOTO, thumb: COVER_PHOTO },
+  review: { by: 'u', byName: 'Cassidy', at: Date.now() - 12 * 60_000, visibility: 'friends', note: '5 of 6 photos came through — the rest took too long.' },
+}
+const brisket: Recipe = {
+  ...cacioRecipe,
+  id: 'grandmas-brisket',
+  slug: 'grandmas-brisket',
+  title: 'Grandma’s Brisket',
+  visibility: 'household',
+  cover: null,
+  review: { by: 'someone-else', byName: 'Sam', at: Date.now() - 3 * 3600_000, visibility: 'friends', note: null },
+}
+const REVIEW = [chowder, brisket]
+
 export { useRecipeSearch, collectTags } from '../../src/data/recipes.ts'
 export async function setRecipeFavorite(): Promise<void> {}
 export function useCoverUpgrade(): void {}
@@ -70,8 +91,8 @@ export function useRecipes(_householdId?: string | null, _nonce?: number, friend
 
 // Pick the recipe from the URL (/r/:slug/…), so cook mode shows the right one.
 export function useRecipe() {
-  const slug = window.location.pathname.split('/r/')[1]?.split('/')[0]
-  const recipe = ALL.find((r) => r.slug === slug) ?? cacioRecipe
+  const slug = window.location.pathname.split(/\/(?:r|review)\//)[1]?.split('/')[0]
+  const recipe = [...ALL, ...REVIEW].find((r) => r.slug === slug) ?? cacioRecipe
   return { recipe, loading: false, error: null }
 }
 
@@ -98,4 +119,15 @@ export async function createRecipeInHousehold(): Promise<string> {
 }
 export async function updateRecipe(): Promise<string> {
   return 'edited-recipe'
+}
+export async function saveForReview(): Promise<string> {
+  return 'new-recipe'
+}
+export async function approveRecipe(): Promise<void> {}
+export function watchReviews() {
+  return () => {}
+}
+export function useReviewRecipes() {
+  const on = window.location.search.includes('queuedemo') || window.location.pathname.includes('/review/')
+  return { householdId: 'hh_preview', recipes: on ? REVIEW : [], loading: false }
 }

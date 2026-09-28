@@ -7,6 +7,7 @@
  *   npm run test:worker
  */
 import {
+  importJob,
   handleLink,
   handleImageProxy,
   recipeSignal,
@@ -661,6 +662,32 @@ const res = await worker.fetch(
 check("Google's key server down → 503 with CORS, not a crash", res.status === 503 && res.headers.get('Access-Control-Allow-Origin') !== null, res.status)
 
 // ---------------------------------------------------------------------------
+section('progress, as it happens')
+{
+  resetForTests({}, 0.01)
+  install({ direct: () => new Response(PAGES.recipeData), gemini: () => sse(slices(AI_RECIPE, 3)) })
+  const seenStages: Array<Record<string, unknown>> = []
+  const done = await importJob({ url: BLOG }, env as never, (st) => seenStages.push(st as Record<string, unknown>))
+  const names = seenStages.map((st) => st.stage)
+  check('a link reports: opening → reading → writing… → finishing', done.status === 200 && names[0] === 'opening' && names.includes('reading') && names.includes('writing') && names.at(-1) === 'finishing', names)
+  check('…opening names the site', seenStages[0].host === 'smallblog.example')
+  const last = seenStages.filter((st) => st.stage === 'writing').at(-1)
+  check('…and counts what the AI has written (1 ingredient, 1 step)', last?.ingredients === 1 && last?.steps === 1, last)
+  check('…no "another way" when the site let us in', !names.includes('another-way'))
+
+  seenStages.length = 0
+  resetForTests({}, 0.01)
+  install({ replay: refused, googleReads: (u) => u.startsWith('https://web.archive.org/') })
+  await importJob({ url: URL_ }, env as never, (st) => seenStages.push(st as Record<string, unknown>))
+  check('a blocked site says it’s trying another way', seenStages.some((st) => st.stage === 'another-way'), seenStages.map((st) => st.stage))
+
+  seenStages.length = 0
+  resetForTests({}, 0.01)
+  install({})
+  const textDone = await importJob({ text: 'Soup\nIngredients\n1 carrot\nMethod\nBoil.' }, env as never, (st) => seenStages.push(st as Record<string, unknown>))
+  check('pasted text: reading → … → finishing, and the recipe', textDone.status === 200 && seenStages[0].stage === 'reading' && seenStages.at(-1)?.stage === 'finishing' && !!textDone.body.recipe)
+}
+// ---------------------------------------------------------------------------
 section('the import queue: everyone gets their own')
 {
   // A real signed sign-in token, from a key this test makes, so the Worker's
@@ -714,6 +741,47 @@ section('the import queue: everyone gets their own')
   check('a Worker without the queue says so (501, no_queue)', res.status === 501 && ((await res.json()) as { code?: string }).code === 'no_queue')
   const noToken = await worker.fetch(new Request('https://w.example/queue/list', { method: 'POST', body: '{}' }), { ...env, QUEUE } as never)
   check('no sign-in, no queue', noToken.status === 401 && opened.length === 2)
+  // Notifications: the cook's own notifier, and the queue is told whose it is.
+  const heard: string[] = []
+  const NOTIFY = {
+    idFromName: (name: string) => `notifier-of-${name}`,
+    get: (id: unknown) => ({
+      fetch: async (req: Request) => {
+        heard.push(`${String(id)} ${new URL(req.url).pathname} internal=${req.headers.get('X-Internal')}`)
+        return new Response('{"publicKey":"k"}')
+      },
+    }),
+  }
+  const viaWorker = async (uid: string, path: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
+    worker.fetch(
+      new Request(`https://w.example/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${await tokenFor(uid)}`, ...headers }, body: '{}' }),
+      { ...env, QUEUE, NOTIFY, ...extra } as never,
+    )
+  res = await viaWorker('alice', 'notify/key')
+  check('notify/* → the cook’s own notifier (by sign-in)', res.status === 200 && heard[0] === 'notifier-of-alice /key internal=null', heard)
+  await viaWorker('alice', 'notify/send', {}, { 'X-Internal': '1' })
+  check('…and the app can’t pose as the queue (X-Internal isn’t passed on)', heard[1] === 'notifier-of-alice /send internal=null', heard)
+  const told: string[] = []
+  await viaWorker('carol', 'queue/list', {
+    QUEUE: { idFromName: (n: string) => n, get: () => ({ fetch: async (req: Request) => (told.push(req.headers.get('X-Uid') ?? ''), new Response('{}')) }) },
+  })
+  check('the queue is told whose it is (to notify them)', told[0] === 'carol')
+  res = await viaWorker('alice', 'notify/key', { NOTIFY: undefined })
+  check('a Worker without the notifier says so (501, no_notify)', res.status === 501 && ((await res.json()) as { code?: string }).code === 'no_notify')
+
+  // The streamed route the app uses for photos/PDFs: one JSON line per step, then the answer.
+  const streamRes = await worker.fetch(
+    new Request('https://w.example/', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await tokenFor('alice')}` },
+      body: JSON.stringify({ text: 'Soup\nIngredients\n1 carrot\nMethod\nBoil.', stream: true }),
+    }),
+    env as never,
+  )
+  const lines = (await streamRes.text()).trim().split('\n').map((l) => JSON.parse(l) as { progress?: { stage: string }; status?: number; body?: { recipe?: unknown } })
+  check('stream: newline-delimited JSON, with CORS', streamRes.headers.get('Content-Type') === 'application/x-ndjson' && streamRes.headers.get('Access-Control-Allow-Origin') !== null)
+  check('…progress lines first (reading … finishing)', lines[0].progress?.stage === 'reading' && lines.some((l) => l.progress?.stage === 'finishing'), lines.map((l) => l.progress?.stage ?? l.status))
+  check('…then the answer, as the plain route gives it', lines.at(-1)?.status === 200 && !!lines.at(-1)?.body?.recipe)
 }
 
 console.log = realLog

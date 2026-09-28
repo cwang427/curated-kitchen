@@ -6,6 +6,7 @@ import { useHref, useLocation, useNavigate, useNavigationType } from 'react-rout
  *
  *   kitchen (/) ← recipe (/r/x) ← cook mode (/r/x/cook) · editor (/r/x/edit)
  *   kitchen ← Add a recipe (/add) ← its import screens (/add?m=…)
+ *   kitchen ← Add a recipe ← an import awaiting review (/review/x) ← its editor
  *   kitchen ← grocery list · meal plan · cooking timeline · settings
  *
  * Back always goes to the parent. An installed iPhone web app's edge-swipe
@@ -19,6 +20,8 @@ export function parentOf(path: string): string | null {
   const child = pathname.match(/^\/r\/([^/]+)\/(cook|edit)$/)
   if (child) return `/r/${child[1]}`
   if (pathname === '/add' && new URLSearchParams(search).get('m')) return '/add'
+  const review = pathname.match(/^\/review\/([^/]+)(\/edit)?$/)
+  if (review) return review[2] ? `/review/${review[1]}` : '/add'
   return '/'
 }
 

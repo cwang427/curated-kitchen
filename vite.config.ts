@@ -88,6 +88,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Notifications: showing a push, and opening the app when one's tapped
+        // (public/push-sw.js).
+        importScripts: ['push-sw.js'],
         // Firestore has its own offline persistence; don't let Workbox
         // shadow its requests with a stale cache.
         navigateFallbackDenylist: [/^\/__/, /firestore\.googleapis\.com/],

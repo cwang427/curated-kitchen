@@ -20,7 +20,7 @@
  * take a minute, during which the app may add or remove others) never
  * overwrites a change made meanwhile.
  */
-import { importLink, type Env } from './importer'
+import { importJob, type Env, type ImportJob, type Progress, type Stage } from './importer'
 
 /** The parts of the Durable Object runtime this uses (SQLite-backed storage,
  * with its key-value interface, and the alarm). */
@@ -48,7 +48,11 @@ export type QueueStatus =
 
 export interface QueueItem {
   id: string
-  url: string
+  /** A link, or pasted text (kept separately, under input:<id>). */
+  kind: 'link' | 'text'
+  url?: string
+  /** For pasted text: its first line, to show in the list. */
+  label?: string
   householdId: string
   addedAt: number
   status: QueueStatus
@@ -68,6 +72,10 @@ export interface QueueItem {
   final?: boolean
   workingSince?: number
   leaseUntil?: number
+  /** While importing: how it's getting on (opening, reading, writing…). */
+  stage?: Stage
+  /** A recipe (without photos) is in hand while it keeps trying for them. */
+  hasText?: boolean
 }
 
 const MIN = 60_000
@@ -78,7 +86,9 @@ const MAX_ACTIVE = 30
  * a dead link, say — gets this many tries, not a day's worth. */
 const MAX_UNREADABLE = 6
 
-type Importer = (url: string, env: Env) => Promise<{ status: number; body: Record<string, unknown> }>
+type Importer = (job: ImportJob, env: Env, report: Progress) => Promise<{ status: number; body: Record<string, unknown> }>
+/** The longest pasted text the queue keeps (a recipe page's text is far less). */
+const MAX_TEXT = 200_000
 
 const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -86,11 +96,19 @@ const reply = (body: unknown, status = 200) =>
 /** The queue's logic. The Durable Object Cloudflare runs (ImportQueue in
  * index.ts) is a thin wrapper around this, so tests can run it in Node. */
 export class QueueCore {
+  /** Whose queue this is (their sign-in id, from the Worker), so it can ask
+   * their notifier to tell them when a recipe is ready. */
+  private owner: string | null = null
+  /** When the app last asked about the queue: an app that's open (it checks
+   * every couple of seconds while something's importing) shows the news
+   * itself, so no notification then. */
+  private lastSeen = 0
+
   constructor(
     private readonly state: QueueState,
     private readonly env: Env,
     // Tests swap these for a fake import and a movable clock.
-    private readonly run: Importer = importLink,
+    private readonly run: Importer = importJob,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
@@ -125,33 +143,48 @@ export class QueueCore {
     const action = new URL(request.url).pathname.slice(1)
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
     const now = this.now()
+    this.lastSeen = now
+    const uid = request.headers.get('X-Uid')
+    if (uid && uid !== this.owner) {
+      this.owner = uid
+      await this.state.storage.put('owner', uid)
+    }
 
     if (action === 'list') {
       // Saved ones are shown for three days, then tidied away.
       for (const it of await this.items()) {
         if (it.status === 'saved' && now - (it.savedAt ?? 0) > 3 * DAY) await this.state.storage.delete(this.key(it.id))
       }
-      return reply({ items: await this.items() })
+      // `text`: this queue takes pasted text too (0.50+), so the app can tell.
+      return reply({ items: await this.items(), text: true })
     }
 
     if (action === 'add') {
-      let url: string
-      try {
-        const parsed = new URL(String(body.url ?? '').trim())
-        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('scheme')
-        url = parsed.toString()
-      } catch {
-        return reply({ error: 'That doesn’t look like a web link.' }, 400)
+      let url: string | undefined
+      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      if (text) {
+        if (text.length > MAX_TEXT) return reply({ error: 'That’s too much text for one recipe.' }, 400)
+      } else {
+        try {
+          const parsed = new URL(String(body.url ?? '').trim())
+          if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('scheme')
+          url = parsed.toString()
+        } catch {
+          return reply({ error: 'That doesn’t look like a web link.' }, 400)
+        }
       }
       if (typeof body.householdId !== 'string' || !body.householdId) return reply({ error: 'Which kitchen?' }, 400)
       const all = await this.items()
       const active = all.filter((it) => it.status !== 'saved' && it.status !== 'failed')
-      const same = active.find((it) => it.url === url && it.householdId === body.householdId)
+      const same = url && active.find((it) => it.url === url && it.householdId === body.householdId)
       if (same) return reply({ item: same, items: all })
-      if (active.length >= MAX_ACTIVE) return reply({ error: `The queue holds up to ${MAX_ACTIVE} links at a time.` }, 409)
+      if (active.length >= MAX_ACTIVE) return reply({ error: `The queue holds up to ${MAX_ACTIVE} imports at a time.` }, 409)
+      const id = crypto.randomUUID()
+      if (text) await this.state.storage.put(`input:${id}`, text)
       const item: QueueItem = {
-        id: crypto.randomUUID(),
-        url,
+        id,
+        kind: text ? 'text' : 'link',
+        ...(url ? { url } : { label: text.split('\n').find((l) => l.trim())?.trim().slice(0, 80) ?? 'Pasted recipe' }),
         householdId: body.householdId,
         addedAt: now,
         status: 'waiting',
@@ -184,7 +217,10 @@ export class QueueCore {
         Object.assign(item, { status: 'saving', leaseUntil: now + 5 * MIN })
         await this.save(item)
         await this.schedule()
-        return reply({ item, result })
+        // Pasted text comes back too: the app checks the recipe's source link
+        // against it (the AI can invent one).
+        const text = item.kind === 'text' ? await this.state.storage.get<string>(`input:${item.id}`) : undefined
+        return reply({ item, result, ...(text ? { text } : {}) })
       }
       case 'done': {
         Object.assign(item, {
@@ -197,6 +233,7 @@ export class QueueCore {
           leaseUntil: undefined,
         })
         await this.state.storage.delete(`result:${item.id}`)
+        await this.state.storage.delete(`input:${item.id}`)
         await this.save(item)
         await this.schedule()
         return reply({ item })
@@ -204,6 +241,7 @@ export class QueueCore {
       case 'photos-failed': {
         // The recipe came, but none of its photos would download: import it
         // again later (fresh photo links), until the day is up — then ask.
+        item.hasText = true
         this.later(item, 'Got the recipe, but not its photos yet', 10 * MIN)
         await this.save(item)
         await this.schedule()
@@ -221,9 +259,15 @@ export class QueueCore {
         return reply({ item })
       }
       case 'without-photos': {
-        if (item.status !== 'photos-unavailable') return reply({ error: 'Nothing to decide.' }, 409)
-        Object.assign(item, { status: 'ready', withoutPhotos: true, note: undefined })
+        // Any time a recipe is in hand while it's still trying for photos —
+        // not only once the day is up — the cook may take it without them.
+        const hasResult = !!(await this.state.storage.get(`result:${item.id}`))
+        if (!hasResult || !['photos-unavailable', 'waiting', 'ready'].includes(item.status)) {
+          return reply({ error: 'Nothing to decide.' }, 409)
+        }
+        Object.assign(item, { status: 'ready', withoutPhotos: true, note: undefined, stage: undefined })
         await this.save(item)
+        await this.schedule()
         return reply({ item })
       }
       case 'retry': {
@@ -235,6 +279,7 @@ export class QueueCore {
       case 'remove': {
         await this.state.storage.delete(this.key(item.id))
         await this.state.storage.delete(`result:${item.id}`)
+        await this.state.storage.delete(`input:${item.id}`)
         await this.schedule()
         return reply({ items: await this.items() })
       }
@@ -282,19 +327,35 @@ export class QueueCore {
   }
 
   private async attempt(item: QueueItem): Promise<void> {
-    Object.assign(item, { status: 'working', workingSince: this.now(), attempts: item.attempts + 1 })
+    Object.assign(item, { status: 'working', workingSince: this.now(), attempts: item.attempts + 1, stage: undefined })
     await this.save(item)
     let status = 0
     let body: Record<string, unknown> = {}
+    // Progress, as it happens, onto the item for the app to show — one write
+    // at a time, and never bringing back an item removed meanwhile.
+    let writing = Promise.resolve()
+    const report: Progress = (stage) => {
+      writing = writing.then(async () => {
+        const cur = await this.item(item.id)
+        if (cur?.status !== 'working') return
+        cur.stage = stage
+        await this.save(cur)
+      })
+    }
     try {
-      ;({ status, body } = await this.run(item.url, this.env))
+      const text = item.kind === 'text' ? await this.state.storage.get<string>(`input:${item.id}`) : undefined
+      const job: ImportJob | null = item.kind === 'text' ? (text ? { text } : null) : item.url ? { url: item.url } : null
+      if (job) ({ status, body } = await this.run(job, this.env, report))
+      else ({ status, body } = { status: 400, body: { error: 'Nothing to import.' } })
     } catch (e) {
       console.log(`queue: import threw ${String(e)}`)
     }
+    await writing
     // The cook may have removed it (or asked to retry) while it ran.
     const now = await this.item(item.id)
     if (!now || now.status !== 'working') return
     const current = now
+    current.stage = undefined
     const code = typeof body.code === 'string' ? body.code : ''
     const error = typeof body.error === 'string' ? body.error : ''
     const title = (body.recipe as { title?: unknown } | undefined)?.title
@@ -307,6 +368,7 @@ export class QueueCore {
       // The recipe, but not its photos (only Google could read it). Keep the
       // text in case the day runs out, and try again for the photos.
       await this.state.storage.put(`result:${current.id}`, body)
+      current.hasText = true
       const atLeast = typeof body.retryAfterMs === 'number' ? body.retryAfterMs : 0
       this.later(current, 'Got the recipe, but not its photos yet', atLeast, true)
     } else if (status === 400 || code === 'site_refuses' || code === 'not_a_recipe' || /paywall/i.test(error) || /didn’t look like a recipe/i.test(error)) {
@@ -330,7 +392,39 @@ export class QueueCore {
       }
     }
     current.workingSince = undefined
-    console.log(`queue: ${current.url} → ${current.status}${current.note ? ` (${current.note})` : ''}, attempt ${current.attempts}`)
+    console.log(`queue: ${current.url ?? `text "${current.label}"`} → ${current.status}${current.note ? ` (${current.note})` : ''}, attempt ${current.attempts}`)
     await this.save(current)
+    await this.announce(current)
+  }
+
+  /** Tell the cook, on their phone, when an import is ready — or needs them —
+   * unless the app is open and showing it already. */
+  private async announce(item: QueueItem): Promise<void> {
+    if (this.now() - this.lastSeen < 20_000) return
+    const name = item.title ?? item.label ?? (item.url ? new URL(item.url).hostname.replace(/^www\./, '') : 'Your recipe')
+    const message =
+      item.status === 'ready'
+        ? { title: 'Ready for review', body: `${name} — take a look and add it to your kitchen.` }
+        : item.status === 'photos-unavailable'
+          ? { title: 'A recipe needs you', body: `${name} came through, but its photos never did. Save it without them?` }
+          : item.status === 'failed'
+            ? { title: 'Couldn’t import a recipe', body: `${name}: ${item.note ?? 'it couldn’t be read'}` }
+            : null
+    if (!message || !this.env.NOTIFY) return
+    const owner = this.owner ?? (await this.state.storage.get<string>('owner')) ?? null
+    if (!owner) return
+    try {
+      const notifier = this.env.NOTIFY.get(this.env.NOTIFY.idFromName(owner))
+      const res = await notifier.fetch(
+        new Request('https://notify/send', {
+          method: 'POST',
+          headers: { 'X-Internal': '1' },
+          body: JSON.stringify({ ...message, tag: `import-${item.id}`, path: 'add' }),
+        }),
+      )
+      await res.body?.cancel()
+    } catch (e) {
+      console.log(`queue: couldn’t notify — ${String(e)}`)
+    }
   }
 }

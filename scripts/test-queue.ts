@@ -65,17 +65,36 @@ function setup(outcomes: Outcome[]) {
   let clock = Date.UTC(2026, 8, 28, 20, 0)
   const storage = fakeStorage()
   const runs: string[] = []
+  const stages: unknown[] = []
+  const lastId = () => [...storage.data.keys()].filter((k) => k.startsWith('item:')).map((k) => k.slice(5)).find((id) => (storage.data.get(`item:${id}`) as QueueItem).status === 'working')
+  // The person's notifier: what the queue asks it to say.
+  const notices: Array<Record<string, unknown>> = []
+  const env = {
+    NOTIFY: {
+      idFromName: (name: string) => name,
+      get: (id: unknown) => ({
+        fetch: async (req: Request) => {
+          notices.push({ to: id, internal: req.headers.get('X-Internal'), ...((await req.json()) as object) })
+          return new Response('{}')
+        },
+      }),
+    },
+  }
   const queue = new ImportQueue(
     { storage },
-    {} as never,
-    async (url) => {
-      runs.push(url)
+    env as never,
+    async (job, _env, report) => {
+      runs.push('url' in job ? job.url : `text:${job.text.slice(0, 20)}`)
+      report({ stage: 'opening', host: 'example' })
+      report({ stage: 'writing', ingredients: 3, steps: 1 })
+      await new Promise((r) => setTimeout(r, 10)) // let the queue's write land
+      stages.push(((await storage.get<QueueItem>(`item:${lastId()}`)) ?? {}).stage)
       return structuredClone(outcomes.length > 1 ? outcomes.shift()! : outcomes[0])
     },
     () => clock,
   )
   const call = async (action: string, body: Record<string, unknown> = {}) => {
-    const res = await queue.fetch(new Request(`https://queue/${action}`, { method: 'POST', body: JSON.stringify(body) }))
+    const res = await queue.fetch(new Request(`https://queue/${action}`, { method: 'POST', headers: { 'X-Uid': 'cook-1' }, body: JSON.stringify(body) }))
     return { status: res.status, body: (await res.json()) as { item?: QueueItem; items?: QueueItem[]; result?: unknown; error?: string } }
   }
   /** Move the clock to the alarm (if it's set) and run it. */
@@ -88,7 +107,7 @@ function setup(outcomes: Outcome[]) {
   }
   const advance = (ms: number) => (clock += ms)
   const item = async (id: string) => (await call('list')).body.items!.find((it) => it.id === id)!
-  return { queue, storage, runs, call, tick, advance, item, now: () => clock }
+  return { queue, storage, runs, stages, notices, call, tick, advance, item, now: () => clock }
 }
 
 console.log = () => {} // the queue's own log lines
@@ -236,7 +255,7 @@ log('removing while an import runs')
   const slow = new ImportQueue(
     { storage: q.storage },
     {} as never,
-    async () => {
+    async (): Promise<Outcome> => {
       await q.call('remove', { id: item!.id })
       return OK
     },
@@ -244,6 +263,36 @@ log('removing while an import runs')
   )
   await slow.alarm()
   check('the finished import doesn’t bring it back', (await q.call('list')).body.items!.length === 0 && !q.storage.data.has(`result:${item!.id}`))
+}
+
+log('pasted text, live stages, early "without photos"')
+{
+  const q = setup([OK])
+  const text = 'Grandma’s brisket\n\nIngredients\n1 brisket\n…'
+  const { item } = (await q.call('add', { text, householdId: 'h1' })).body
+  check('text queued, labelled by its first line, text kept aside', item?.kind === 'text' && item.label === 'Grandma’s brisket' && q.storage.data.get(`input:${item.id}`) === text)
+  check('…the list doesn’t carry the text itself', !JSON.stringify((await q.call('list')).body).includes('1 brisket'))
+  await q.tick()
+  check('the import gets the text', q.runs[0] === `text:${text.slice(0, 20)}`, q.runs)
+  check('progress lands on the item while it runs (last: writing)', (q.stages[0] as { stage?: string })?.stage === 'writing', q.stages)
+  const done = await q.item(item!.id)
+  check('…and is cleared when it finishes', done.status === 'ready' && done.stage === undefined)
+  await q.call('take', { id: item!.id })
+  await q.call('done', { id: item!.id, slug: 's' })
+  check('saved → the text is deleted too', !q.storage.data.has(`input:${item!.id}`))
+}
+{
+  const q = setup([TEXT_ONLY])
+  const { item } = (await q.call('add', { url: 'https://s.example/r', householdId: 'h1' })).body
+  await q.tick()
+  const it = await q.item(item!.id)
+  check('recipe in hand, still trying for photos → marked hasText', it.status === 'waiting' && it.hasText === true)
+  const early = await q.call('without-photos', { id: item!.id })
+  check('the cook can take it without photos before the day is up', early.body.item?.status === 'ready' && early.body.item.withoutPhotos === true)
+  const q2 = setup([AI_BUSY])
+  const { item: i2 } = (await q2.call('add', { url: 'https://s.example/r', householdId: 'h1' })).body
+  await q2.tick()
+  check('…but not with no recipe in hand', (await q2.call('without-photos', { id: i2!.id })).status === 409)
 }
 
 log('several links, one at a time')
@@ -256,6 +305,27 @@ log('several links, one at a time')
   while (await q.tick()) {}
   const items = (await q.call('list')).body.items!
   check('all three imported, in the order queued', items.every((it) => it.status === 'ready') && q.runs.join() === 'https://s.example/1,https://s.example/2,https://s.example/3', q.runs)
+}
+
+log('telling the cook')
+{
+  const q = setup([OK])
+  const { item } = (await q.call('add', { url: 'https://s.example/r', householdId: 'h1', tried: true })).body
+  await q.tick() // a minute later: the app hasn't looked since
+  check('ready while the app is away → “Ready for review” to the cook’s own notifier', q.notices.length === 1 && q.notices[0].to === 'cook-1' && q.notices[0].title === 'Ready for review' && /Corn Chowder/.test(String(q.notices[0].body)), q.notices)
+  check('…from inside the Worker, opening Add a recipe', q.notices[0].internal === '1' && q.notices[0].path === 'add' && q.notices[0].tag === `import-${item!.id}`)
+  const q2 = setup([OK])
+  await q2.call('add', { url: 'https://s.example/r', householdId: 'h1' })
+  await q2.tick() // a second later, while the app is watching
+  check('ready while the app is open and watching → no notification (the app shows it)', q2.notices.length === 0)
+  const q3 = setup([NYT])
+  await q3.call('add', { url: 'https://cooking.nytimes.com/r', householdId: 'h1', tried: true })
+  await q3.tick()
+  check('a link that can’t be imported → says so', q3.notices.length === 1 && q3.notices[0].title === 'Couldn’t import a recipe', q3.notices)
+  const q4 = setup([AI_BUSY])
+  await q4.call('add', { url: 'https://s.example/r', householdId: 'h1', tried: true })
+  await q4.tick()
+  check('just “trying again later” → nothing to say yet', q4.notices.length === 0)
 }
 
 console.log = realLog

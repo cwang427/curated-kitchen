@@ -83,13 +83,16 @@ function RowControls({
 export default function RecipeEditor({
   initial,
   editingSlug = null,
+  approve = false,
   onSaved,
   onCancel,
 }: {
   initial: RecipeSeed | null
   /** The slug of an existing recipe to update in place, or null to create new. */
   editingSlug?: string | null
-  onSaved: (slug: string) => void
+  /** An import awaiting review: saving also approves it into the kitchen. */
+  approve?: boolean
+  onSaved: (slug: string, title: string) => void
   onCancel: () => void
 }) {
   const { user, household } = useAuth()
@@ -241,9 +244,9 @@ export default function RecipeEditor({
         editingSlug ?? `${slugify(persisted.title) || 'recipe'}-${Math.random().toString(36).slice(2, 7)}`
       const { recipe } = parseRecipe({ ...draftToInput(persisted), slug })
       const saved = editingSlug
-        ? await updateRecipe(recipe)
+        ? await updateRecipe(recipe, { approve })
         : await createRecipeInHousehold(recipe, household.id, user.uid)
-      onSaved(saved)
+      onSaved(saved, recipe.title)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Couldn’t save — check the fields above.')
     } finally {
@@ -520,7 +523,7 @@ export default function RecipeEditor({
             disabled={saving || !draft.title.trim()}
             className="grid h-12 flex-[1.4] place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-50 dark:text-stone-900"
           >
-            {saving ? 'Saving…' : editingSlug ? 'Save changes' : 'Save recipe'}
+            {saving ? 'Saving…' : approve ? 'Save & add to kitchen' : editingSlug ? 'Save changes' : 'Save recipe'}
           </button>
         </div>
       </div>

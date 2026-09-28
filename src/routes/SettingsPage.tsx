@@ -17,6 +17,14 @@ import {
 } from '../data/household'
 import { createInvite, inviteLink, listInvites, revokeInvite } from '../data/invites'
 import { shareRecipesWithGuests, useRecipes } from '../data/recipes'
+import {
+  disableNotifications,
+  enableNotifications,
+  sendTestNotification,
+  setTimersNote,
+  timersNoteOn,
+  useNotifications,
+} from '../data/notifications'
 import { describeFirestoreError } from '../lib/errors'
 import type { Household, HouseholdRole, UserProfile } from '../lib/types'
 
@@ -688,6 +696,83 @@ function NameEditor() {
   )
 }
 
+/** Notifications on this phone: imports ready for review, and timers. */
+function NotificationSettings() {
+  const state = useNotifications()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
+  const run = async (fn: () => Promise<string | null | void>, done?: string) => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const problem = await fn()
+      if (problem) setMessage({ text: problem, error: true })
+      else if (done) setMessage({ text: done, error: false })
+    } catch (cause) {
+      setMessage({ text: cause instanceof Error ? cause.message : 'Something went wrong — try again.', error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const button = 'min-h-11 rounded-full px-4 text-sm transition active:scale-[0.98] disabled:opacity-50'
+
+  return (
+    <section className="rounded-2xl border border-line bg-card p-4">
+      <h3 className="font-medium">Notifications on this phone</h3>
+      <p className="mt-1 text-sm text-ink-soft">
+        When an imported recipe is ready for review, and when a kitchen timer finishes — even with the app closed.
+      </p>
+      {state.support === 'needs-home-screen' ? (
+        <p className="mt-3 text-sm text-ink-soft">
+          On iPhone they work in the Home Screen app: in Safari tap <span className="font-medium text-ink">Share › Add to Home Screen</span>, then
+          open Kitchen from your Home Screen and turn them on here.
+        </p>
+      ) : state.support === 'unsupported' ? (
+        <p className="mt-3 text-sm text-ink-soft">This browser can’t show notifications.</p>
+      ) : state.on ? (
+        <>
+          <label className="mt-3 flex min-h-11 items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={timersNoteOn()}
+              onChange={(e) => setTimersNote(e.target.checked)}
+              className="size-5 accent-[var(--color-accent)]"
+            />
+            <span>Show running timers when I leave the app</span>
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() => void run(sendTestNotification, 'Sent — it should arrive in a moment.')} className={`${button} border border-line text-ink-soft`}>
+              Send a test
+            </button>
+            <button type="button" disabled={busy} onClick={() => void run(disableNotifications, 'Turned off on this phone.')} className={`${button} border border-line text-ink-soft`}>
+              Turn off
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run(enableNotifications, 'Turned on. Try “Send a test”.')}
+          className={`${button} mt-3 bg-accent font-semibold text-white dark:text-stone-900`}
+        >
+          {busy ? 'Turning on…' : 'Turn on notifications'}
+        </button>
+      )}
+      {state.blocked && !state.on && state.support === 'ok' && (
+        <p className="mt-2 text-sm text-ink-soft">
+          They’re blocked for this app right now. On iPhone: Settings › Notifications › Kitchen › Allow Notifications.
+        </p>
+      )}
+      {message && (
+        <p role={message.error ? 'alert' : 'status'} className={`mt-2 text-sm ${message.error ? 'text-red-600 dark:text-red-400' : 'text-ink-soft'}`}>
+          {message.text}
+        </p>
+      )}
+    </section>
+  )
+}
+
 export default function SettingsPage() {
   const { user, household, signOut } = useAuth()
   if (!user || !household) return null
@@ -726,6 +811,8 @@ export default function SettingsPage() {
         )}
 
         <NameEditor />
+
+        <NotificationSettings />
 
         <section className="rounded-2xl border border-line bg-card p-4">
           <h3 className="font-medium">Signed in</h3>

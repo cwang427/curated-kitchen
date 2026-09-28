@@ -188,9 +188,9 @@ confusion:
     pasted link. With AI on, the app no longer falls back to the `/url` route
     (it re-ran the whole search, then imported a lesser version silently):
     when Gemini fails after the Worker got the page, the Worker answers
-    `code: 'ai_busy'` and the app shows "Couldn't finish reading this recipe —
-    the recipe reader we use (Google's AI) is overloaded" with just **Try
-    again** (unlocked after 5 s). 0.46–0.47 also offered "Import it as listed"
+    `code: 'ai_busy'` and the import queue simply tries again later (v0.50;
+    before that the app showed "Couldn't finish reading this recipe" with a
+    Try again button). 0.46–0.47 also offered "Import it as listed"
     (the site's recipe data without the AI: steps as written, no cook-mode
     bullets, aisles guessed) — removed in v0.48 at the owner's call: the
     difference isn't something a friend can judge, and imports should come out
@@ -233,8 +233,9 @@ confusion:
     for headers;
     images only, private hosts refused;
     logs ONE line per photo, `img ok|failed [site 403 → archive 429 → … ]
-    host/…end-of-path`), compresses them like any added photo, and opens the preview editor
-    with them as unsaved photos, so saving stores them as photo docs.
+    host/…end-of-path`), compresses them like any added photo, and saves them
+    as photo docs with the recipe — for review (v0.50; before that they opened
+    in the preview editor as unsaved photos).
     **Every request identifies us honestly** (`APP_UA`, "CuratedKitchen/1.0
     (+https://cwang427.github.io/curated-kitchen/; …)", in `SITE_HEADERS`) —
     the Archive since v0.42.4, and sites, Jina and `/img` since v0.46 (the
@@ -331,28 +332,25 @@ confusion:
     minute). If nothing could be read while the Archive was busy: 422 "<site>
     blocks direct imports, and its saved copy at the Internet Archive is busy
     right now." with **`code: 'archive_busy'`** + `retryAfterMs` (a paywall or
-    a genuinely missing copy keeps its own message). **The app never retries by
-    itself** (v0.46; 0.45's 40/50/60 s countdown re-ran the whole search each
-    time and held friends for minutes with no idea how it would end). The
-    owner's rule for anything less than a full import: **the cook chooses**
-    (`ChoicePanel` in `AddRecipePage`): recipe but no photos while the Archive
-    is busy → "We could read the recipe, but not its photos" with **Continue
-    without photos** / **Try again** (locked with the time left — "Try again in
-    1:30" — until `retryAfterMs` passes); no photos and nothing to wait for →
-    straight to the editor with a note; every photo download failed → the same
-    choice, Try again open at once; nothing readable while busy → **Paste the
-    recipe text instead** / Try again. Paste is offered only when there's no
-    text to be had — otherwise it's the same text with more work. Anything the
-    import couldn't bring shows as a note above the preview editor (right by
-    the cover-photo button). With Firecrawl set up these choices become rare
-    (it usually brings the page and its photos). `isArchiveBusy` / `busyRetryMs`
+    a genuinely missing copy keeps its own message). **Nobody waits on the
+    screen for this any more** (v0.50): every import runs in the background
+    queue, which retries on its own schedule (≥ `retryAfterMs`) — the old
+    in-the-moment `ChoicePanel` (Continue without photos / Try again in 1:30 /
+    Paste instead, v0.46–0.49) is gone. The owner's rule for anything less
+    than a full import still holds — **the cook chooses**, never a silently
+    lesser import: a recipe that came without its photos keeps trying for
+    them, and its list entry offers **Save without photos** meanwhile; what an
+    import couldn't bring ("3 of 5 photos came through") becomes the note
+    the reviewer sees. With Firecrawl set up these cases are rare (it usually
+    brings the page and its photos). `isArchiveBusy` / `busyRetryMs`
     (`src/lib/archiveBusy.ts`) also read a Worker older than 0.45. `/img` falls back to wsrv.nl (above), and the app downloads photos **three at a time** (v0.42.1; it was
     one at a time for Archive pages while photos still hit the Archive from our
     shared addresses — through wsrv.nl there's no allowance of ours to spend),
     each into its fixed slot so a step's photos keep their order — within
-    **15 s in all** (v0.46, `PHOTO_DEADLINE_MS`; ≤12 s per photo): the editor
-    then opens with whatever arrived and says "3 of 5 photos came through"
-    (`LinkReport.photos`), rather than a slow image host holding the import.
+    **15 s in all** (v0.46, `PHOTO_DEADLINE_MS`; ≤12 s per photo): the recipe
+    is then saved with whatever arrived, its review note saying "3 of 5 photos
+    came through" (`LinkReport.photos`), rather than a slow image host holding
+    the import.
     `/img` caps a response with no declared size at 12 MB as it streams. The
     Worker checks the caller's sign-in against Google's keys cached for 6 h;
     if Google's key server is unreachable it answers 503 "try again" (with
@@ -367,7 +365,7 @@ confusion:
     `sanitizeAiRecipe` (`src/lib/aiRecipe.ts`: a missing yield becomes "1
     batch", `{{½ cup}}` → `{{1/2 cup}}`, half-filled timers/temps and bad links
     are dropped, so one model slip can't sink a good import) → the same
-    `parseRecipe` → editable preview → save.
+    `parseRecipe` → saved for review (v0.50; see "Recipes awaiting review").
     When AI is enabled it's the **default engine for text** (the on-device
     `importText` parser is the offline/rate-limit fallback) and the **only
     engine for photos**. A paid Anthropic Claude route (`ANTHROPIC_API_KEY`,
@@ -385,46 +383,104 @@ confusion:
   of React/DOM and other app imports. `worker/tsconfig.json` makes
   `npm run typecheck` (and CI) type-check the Worker and its tests too.
 
-  **The import queue** (v0.49, `worker/src/queue.ts` + `src/data/importQueue.ts`
-  + `src/components/ImportQueue.tsx`): when a link fails in the moment, the
-  cook can **"Add to import queue — keep trying for me"** (on the AI-busy,
-  Archive-busy and no-photos panels), or queue a link without trying
-  ("Add to import queue instead", under Read recipe) to drop in several at
-  once. **One Durable Object per person** (`ImportQueue` in `index.ts`, a thin
-  wrapper extending Cloudflare's `DurableObject` around `QueueCore` in
-  `queue.ts`, which the tests run in Node; SQLite-backed —
-  included in Workers Free; declared in `wrangler.toml` with a `v1`
-  migration, created by `wrangler deploy`, nothing to set up by hand; the
-  Worker picks it by `idFromName(uid)` from the verified sign-in, never from
-  the request) keeps the queue and **wakes itself on an alarm** to retry —
-  even with the app closed — running the same `importLink` (= `handleLink`)
-  as Add from URL. **One import per wake-up** (the free plan allows 50 outside
+  **Every import runs in the background and lands in review** (v0.50). Import
+  on any Add-a-recipe screen starts it and goes straight back to **Add a
+  recipe**, whose lower half, **"Recipes awaiting review"**
+  (`AwaitingReview`, `src/components/ImportQueue.tsx`), lists what's arrived
+  (first — tap to review) and then what's on its way, with **live progress**:
+  real events only, nothing on a timer (`src/lib/importStage.ts`) — the
+  Worker's stages "Opening seriouseats.com…" → "The site is being difficult —
+  trying another way in…" → "Reading the recipe…" → "Writing it up — 9
+  ingredients, 3 steps so far…" (counted from the AI's streamed JSON: every
+  ingredient has an `"item"`, every step a `"text"`) → "Tidying it up…", then
+  the phone's own "Pulling in photos — 3 of 7…" → "Saving…", each with a bar.
+  Links and pasted text go to **the import queue** (`worker/src/queue.ts`),
+  photos/PDFs run **in the app** (too big to park with the Worker; the list
+  says "Keep the app open until it's done") via the streamed route (`stream:
+  true` → NDJSON `{progress}` lines then `{status, body}`; `askWorker` +
+  `readProgressStream`) — as do links/text when the Worker has no queue (the
+  app checks: a Worker before 0.50 queues links only — `list` answers `text:
+  true` from 0.50 — and before 0.49 had no queue). Offline, pasted text is
+  read on the phone (`importText`) and the reviewer is told so.
+  **The import queue** (`worker/src/queue.ts` + `src/data/importQueue.ts`):
+  **one Durable Object per person** (`ImportQueue` in `index.ts`, a thin
+  wrapper extending Cloudflare's `DurableObject` around `QueueCore`, which the
+  tests run in Node; SQLite-backed — included in Workers Free; `v1` migration,
+  created by `wrangler deploy`; picked by `idFromName(uid)` from the verified
+  sign-in, never from the request) keeps it and **wakes itself on an alarm**
+  — even with the app closed — running `importJob` (= `handleLink` for a
+  link, `handleGemini` for text) and writing each stage onto the item for the
+  app to show. **One import per wake-up** (the free plan allows 50 outside
   requests per run; an import uses up to ~15), the next a second later.
   Retries at 1, 2, 5, 10, 20, 30, 60 min, then hourly, for a day (≥ the
   Worker's `retryAfterMs`); a paywall / refusing site / not-a-recipe / bad
   link stops at once (`final`, no Try again); a link that simply can't be
   opened gets 6 tries. Each item is its own storage key (`item:<id>`, the
-  answer under `result:<id>`), so a minute-long import never overwrites an
-  add/remove made meanwhile. **Saving happens in the app**, the next time it's
-  open (`ImportQueueRunner` in `App`: on open, when it comes back to the
-  front, and every minute while anything is in motion): it `take`s a finished
-  answer (a 5-min lease, so two devices can't both save it), runs the same
-  `finishLinkImport` as Add from URL (photos downloaded and shrunk on the
-  phone — the Worker's free plan can't), stores the photos
-  (`kitchenStore.createPhoto`) and the recipe (`createRecipeInHousehold`) in
-  the kitchen it was queued for with the cook's own sign-in, reports `done`,
-  and shows **"Added to your kitchen: …"** with Open (not over cook mode).
-  Owner's rules: saved **straight away** (no review step); a recipe whose
-  photos won't come keeps trying for them (`photos-failed` → import again in
-  ≥10 min) and after a day is listed "The recipe came through, but its photos
-  never did" with **Save without photos** (`without-photos`). The list on the
-  Add a recipe screens shows each link's state (waiting + why + when,
-  importing, saved → Open recipe, needs a decision, failed + reason). Saved
-  items drop off after 3 days. An older Worker (no queue) answers the app's
-  `/queue/list` with a 400/501 and the queue buttons stay hidden.
-  `npm run test:queue` covers the Durable Object's state machine; it was also
-  run once in the real runtime (`wrangler dev`): add → alarm → import →
-  "waiting, next try in a minute".
+  answer under `result:<id>`, pasted text under `input:<id>`), so a
+  minute-long import never overwrites an add/remove made meanwhile. **Saving
+  happens in the app** (`ImportRunner` in `App`: on open, when it comes back
+  to the front, every 2 s while an import runs, else when the next retry is
+  due): it `take`s a finished answer (a 5-min lease, so two devices can't both
+  save it), downloads the photos on the phone (`finishLinkImport` — the
+  Worker's free plan can't shrink them), stores them (`createPhoto`) and the
+  recipe **for review** (`saveForReview`) in the kitchen it was queued for,
+  with the cook's own sign-in, reports `done`, and says **"Ready for review:
+  …"** (not on Add a recipe, which shows it anyway, nor over cook mode). A
+  recipe whose photos won't come keeps trying for them (`photos-failed` →
+  again in ≥10 min) and after a day asks — **Save without photos**
+  (`without-photos`, also offered any time a recipe is in hand). Saved items
+  drop off the queue after 3 days (the review recipe stands for them).
+  **Review** (`Recipe.review`, stored as `inReview: true` + `review: {by,
+  byName, at, visibility, note}`): an import is saved **members-only**
+  (`visibility: 'household'`) and left out of the kitchen list
+  (`useRecipes` filters it; guests' `visibility == 'friends'` query never sees
+  it) until approved — so no `firestore.rules` change. **Every member** sees
+  the kitchen's review list (one app-wide listener, `watchReviews` /
+  `useReviewRecipes`: `householdId ==` + `inReview == true`, two equalities,
+  no composite index) and its count on the header's **+**. Tapping one opens
+  `/review/:slug` — the recipe page exactly as the kitchen shows it, under an
+  "Awaiting review" note (with what the import couldn't bring), and a
+  **pinned bottom bar: Delete / Edit / Approve** from the start. Grocery list,
+  meal plan, copy and favorite wait until it's approved (Start cooking
+  doesn't). **Approve** (`approveRecipe`) sets the visibility the import chose
+  and deletes the review fields, then back to the list with "Added to your
+  kitchen: … Open". **Edit** (`/review/:slug/edit`) saves with **Save & add to
+  kitchen** (`updateRecipe(seed, {approve: true})`). Delete asks first.
+  **Notifications** (v0.50, `worker/src/push.ts` + `worker/src/notify.ts`,
+  `src/data/notifications.ts`, `public/push-sw.js`): standard Web Push, sent
+  by the Worker with WebCrypto only — VAPID (ES256 JWT, 12 h) and RFC 8291
+  `aes128gcm` encryption (checked byte-for-byte against the RFC's worked
+  example in `test:push`). **A second Durable Object per person, `Notifier`**
+  (`v2` migration; separate from the queue because a Durable Object runs one
+  alarm at a time and a timer mustn't wait behind a minute-long import)
+  keeps **its own VAPID key pair** (made on first need — no secret for the
+  owner to set), each device's push subscription (`device:<id>`; only real
+  push services — Apple, Google, Mozilla, Microsoft — are accepted; a 404/410
+  from one forgets it) and each device's **running kitchen timers**
+  (`timers:<id>`, replaced whole on every change; the phone's clock is
+  corrected by `sentAt`). Its alarm sends a timer's push (urgent, 10-min TTL)
+  **2 s after it rings** — cook mode, if it's open and showing, rang it
+  itself and took it off first (`timerRangHere`). Timers carry their step
+  (`SyncTimer.step`, from 0.50) so it reads "Simmer is done — Corn chowder ·
+  step 3". Leaving the app with timers running shows a **"2 timers running"**
+  note listing each with its ring time (local, from the page; off in
+  Settings); each timer push swaps in what's still running. The queue asks
+  the Notifier (`send`, Worker-internal: `X-Internal`, never passed on from
+  the app) to say **"Ready for review"**, "A recipe needs you" or "Couldn't
+  import a recipe" — unless the app asked about the queue in the last 20 s
+  (it's open and showing it). Tapping a notification opens that screen (the
+  service worker posts `{type: 'open', path}` to an open app, which
+  `goTo`s it; else opens the URL). **iPhone: only the Home Screen app (iOS
+  16.4+)** can get them, and permission is asked only from a tap — Settings ›
+  "Notifications on this phone" (Turn on / Send a test / Turn off), plus a
+  "Turn on notifications" nudge while imports run and in cook mode with a
+  timer running ("Not now" hides each for good). Every push shows a
+  notification (iOS stops delivering to apps that don't).
+  `npm run test:queue` covers the queue's state machine (and when it
+  notifies); `npm run test:push` the encryption and the Notifier. Both
+  Durable Objects were also run in the real runtime (`wrangler dev`): an
+  import through the queue's alarm, and a timer push leaving 2.1 s after it
+  rang.
 
   **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
   which CI always builds from the pushed branch). So after ANY commit that
@@ -467,7 +523,9 @@ two states: *Everyone in this kitchen* (`'friends'`) or *Members only*
 (`'household'`, the hide option; legacy `'private'` is treated as members-only).
 Guests never see the grocery list, meal plan, or cook session. Rules key on
 `request.auth.uid`, never the email or provider. Joining is by invite link
-(`src/data/invites.ts`, Settings screen).
+(`src/data/invites.ts`, Settings screen). An import **awaiting review** is
+members-only until a member approves it (then it takes the visibility the
+import chose) — guests never see it, with no rules change.
 
 What a guest can do with a shared recipe: **view, cook (solo), copy it into
 their own kitchen, and add its ingredients to their own grocery list** — but
@@ -542,10 +600,16 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   Archive requests, the breaker, the honest name, Google reading the Archive
   copy, `ai_busy`, the sign-in renewal, the image-size cap, and Firecrawl (when
   it's asked, what for, racing the Archive, pausing on 402/429/401, the paid
-  photo route), and that the import queue is chosen by the sign-in.
+  photo route), that the import queue and notifier are chosen by the sign-in,
+  and the streamed progress route.
 - `npm run test:queue` — after touching `worker/src/queue.ts`: the import
   queue's Durable Object with a fake storage, import and clock (adding,
-  retry schedule, give-up rules, the photo rule, take/done leases, alarms).
+  retry schedule, give-up rules, the photo rule, take/done leases, alarms,
+  pasted text, live stages, and when it asks the Notifier to tell the cook).
+- `npm run test:push` — after touching `worker/src/push.ts` or
+  `worker/src/notify.ts`: Web Push encryption against RFC 8291's worked
+  example, VAPID, and the Notifier (devices, timers ringing on its alarm,
+  the clock correction, what it refuses).
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
@@ -558,7 +622,9 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   `scripts/fixtures/text/`), the grocery merge/aisle logic, the meal-plan day
   window + plan→groceries aggregation, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
-  timeline (attention/agenda merge + ordering), the AI-answer tidy-up
+  timeline (attention/agenda merge + ordering) and the timer notifications
+  built from it (`src/lib/timerAlerts.ts`), the import progress wording and
+  the streamed-answer reader (`src/lib/importStage.ts`, in `test:import`), the AI-answer tidy-up
   (`sanitizeAiRecipe`), unit/item pluralization ("bay leaf" → "bay leaves",
   never "leafs"/"leaveses"), and the fixed tag list's normalizing
   ("Main Course" → mains, "roman" → italian, "beef" dropped). Run after touching
@@ -591,7 +657,8 @@ the deploy and leaves the previous version up.
   only after every user deletes and re-adds the home-screen app, so we avoid it.
 - **Back goes to a fixed parent screen, never "wherever you came from"**
   (`src/components/nav.tsx`): kitchen ← recipe ← cook mode / editor; kitchen ←
-  Add a recipe ← its import screens (`/add?m=…`); kitchen ← grocery list / meal
+  Add a recipe ← its import screens (`/add?m=…`) and the imports awaiting
+  review (`/review/:slug` ← its editor); kitchen ← grocery list / meal
   plan / cooking timeline / settings (`parentOf`). An installed iPhone web app's
   edge-swipe can't be disabled and always steps back one history entry, so the
   app keeps **browser history shaped exactly like the screen's ancestor chain**:
@@ -813,6 +880,13 @@ of free text; an older recipe's off-list tags are listed "removed when you
 save". Stored tags aren't migrated — the kitchen's chips (`collectTags`), tag
 filter (`useRecipeSearch`) and cards show the normalized form, so old recipes
 look clean at once and are cleaned in the data when next edited.
+And **background imports with a review step, and notifications** (v0.50):
+every import (link, pasted text, photos/PDF) runs in the background with live
+progress and lands in "Recipes awaiting review" on Add a recipe, where any
+member approves, edits or deletes it from a pinned bottom bar; the phone gets
+a notification when one's ready, and kitchen timers ring as notifications with
+the app closed (plus a "timers running" note when you leave it) — see Deploy
+tracks › the import Worker.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated

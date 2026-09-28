@@ -34,3 +34,14 @@ class_name = "ImportQueue"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ImportQueue"]
+
+# Notifications (src/notify.ts): one Durable Object per person, holding their
+# devices' push subscriptions and running kitchen timers. Also created by
+# `wrangler deploy` (the v2 migration below) — nothing to set up by hand.
+[[durable_objects.bindings]]
+name = "NOTIFY"
+class_name = "Notifier"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Notifier"]

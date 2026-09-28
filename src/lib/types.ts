@@ -217,13 +217,35 @@ export interface Recipe {
    * making duplicates. Null for originals and recipes authored from scratch.
    */
   copiedFrom?: string | null
+  /**
+   * An import waiting for someone to look it over (0.50): every import lands
+   * here first, listed under Add a recipe › "Recipes awaiting review", and
+   * joins the kitchen when a member approves it. Until then it's saved
+   * members-only (`visibility: 'household'`), so guests never see it, and it's
+   * left out of the kitchen list. Stored as `inReview: true` + `review`, both
+   * deleted on approval. Null for everything else.
+   */
+  review?: RecipeReview | null
+}
+
+export interface RecipeReview {
+  /** Who imported it (uid), and their name as it was then. */
+  by: string | null
+  byName: string | null
+  /** When it arrived (ms). */
+  at: number | null
+  /** Who'll see it once approved — what the import chose (usually 'friends'). */
+  visibility: Visibility
+  /** What the import couldn't bring, in words ("3 of 5 photos came through"). */
+  note: string | null
 }
 
 /** What lives in recipes/*.json — the server fills in the rest. `favorite` is
- * toggled on its own, not authored/edited, so it's not part of a seed either. */
+ * toggled on its own, not authored/edited, so it's not part of a seed either;
+ * nor is `review` (approving is its own step). */
 export type RecipeSeed = Omit<
   Recipe,
-  'id' | 'householdId' | 'createdBy' | 'createdAt' | 'updatedAt' | 'favorite'
+  'id' | 'householdId' | 'createdBy' | 'createdAt' | 'updatedAt' | 'favorite' | 'review'
 >
 
 /**
@@ -285,6 +307,9 @@ export interface SyncTimer {
   remaining: number
   /** stepId:label — lets a step show "running" instead of a second Start. */
   source: string
+  /** The step's number (1-based), for the notification ("step 3"). Absent on
+   * timers started before 0.50. */
+  step?: number
 }
 
 export interface CookSession {

@@ -13,6 +13,8 @@ import {
 } from '../data/cooksession'
 import { getDish, removeDish, upsertDish, useCookBoard } from '../data/cookBoard'
 import { photoSrc, usePhotoUrls } from '../data/photos'
+import { timerRangHere } from '../data/notifications'
+import { NotifyNudge } from '../components/ImportQueue'
 import { formatIngredient, formatStepQuantity, parseStepText, splitStepText } from '../lib/quantity'
 import type { CookDish, CookSession, Ingredient, Step, SyncTimer } from '../lib/types'
 
@@ -357,6 +359,8 @@ export default function CookPage() {
         if (!rung.has(timer.id)) {
           rung.add(timer.id)
           ring()
+          // Rung here, on screen: no notification for it too.
+          if (document.visibilityState === 'visible') timerRangHere(timer.id, timer.endsAt!)
         }
       } else {
         rung.delete(timer.id)
@@ -490,6 +494,7 @@ export default function CookPage() {
           endsAt: Date.now() + seconds * 1000,
           remaining: seconds,
           source,
+          step: index + 1,
         },
       ]
     })
@@ -757,6 +762,12 @@ export default function CookPage() {
           </div>
         )}
 
+        {/* With a timer running: offer alerts that reach you with the app closed. */}
+        {activeTimerRunning && (
+          <div className="mt-6">
+            <NotifyNudge where="timers" />
+          </div>
+        )}
       </main>
 
       {/* Bottom: work-ahead nudge (when this step is cooking) + big navigation */}

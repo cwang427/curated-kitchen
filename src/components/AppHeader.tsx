@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { Link, useAppNav } from './nav'
+import { useReviewRecipes } from '../data/recipes'
 
 interface Props {
   title?: string
@@ -27,6 +28,8 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
   // shortcuts rather than offer a tap that errors.
   const isMember = !!user && !!household && household.memberUids.includes(user.uid)
   const canAdd = add && isMember
+  // Imports waiting for someone to look them over, counted on the "+".
+  const waiting = useReviewRecipes().recipes.length
   const { goUp } = useAppNav()
   const backClass =
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
@@ -70,12 +73,20 @@ export default function AppHeader({ title, back, onBack, add, plan, cart }: Prop
           <Link
             to="/add"
             title="Add a recipe"
-            aria-label="Add a recipe"
-            className="grid size-9 place-items-center rounded-full border border-line text-ink-soft transition active:bg-line"
+            aria-label={waiting ? `Add a recipe — ${waiting} awaiting review` : 'Add a recipe'}
+            className="relative grid size-9 place-items-center rounded-full border border-line text-ink-soft transition active:bg-line"
           >
             <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
+            {waiting > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-xs font-semibold text-white dark:text-stone-900"
+              >
+                {waiting}
+              </span>
+            )}
           </Link>
         )}
         {plan && isMember && (

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDocs,
   onSnapshot,
@@ -14,7 +15,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { copyPhotoToHousehold, coverThumbFromDataUrl, fetchPhoto, isLegacyCoverThumb } from './photos'
-import { SCHEMA_VERSION, type Recipe, type RecipeCover, type RecipeSeed } from '../lib/types'
+import { SCHEMA_VERSION, type Recipe, type RecipeCover, type RecipeReview, type RecipeSeed } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
 
 function toMillis(value: unknown): number | null {
@@ -60,6 +61,17 @@ function toRecipe(id: string, data: DocumentData): Recipe {
     updatedAt: toMillis(data.updatedAt),
     origin: data.origin === 'app' ? 'app' : data.origin === 'repo' ? 'repo' : undefined,
     copiedFrom: typeof data.copiedFrom === 'string' ? data.copiedFrom : null,
+    review: data.inReview === true ? toReview(data.review) : null,
+  }
+}
+
+function toReview(raw: DocumentData | undefined): RecipeReview {
+  return {
+    by: typeof raw?.by === 'string' ? raw.by : null,
+    byName: typeof raw?.byName === 'string' ? raw.byName : null,
+    at: toMillis(raw?.at),
+    visibility: raw?.visibility === 'household' || raw?.visibility === 'private' ? 'household' : 'friends',
+    note: typeof raw?.note === 'string' ? raw.note : null,
   }
 }
 
@@ -112,6 +124,9 @@ export function useRecipes(householdId: string | null, nonce = 0, friendsOnly = 
         setRecipes(
           snapshot.docs
             .map((d) => toRecipe(d.id, d.data()))
+            // Imports awaiting review aren't in the kitchen yet (a member's
+            // query returns them; a guest's never does — they're members-only).
+            .filter((r) => !r.review)
             // Favorites pin to the top; ties (and everything else) by title.
             .sort(
               (a, b) => Number(b.favorite) - Number(a.favorite) || a.title.localeCompare(b.title),
@@ -295,7 +310,7 @@ export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe
   const snap = await getDocs(
     query(collection(db, 'recipes'), where('householdId', '==', householdId)),
   )
-  return snap.docs.map((d) => toRecipe(d.id, d.data()))
+  return snap.docs.map((d) => toRecipe(d.id, d.data())).filter((r) => !r.review)
 }
 
 /** Delete a recipe. The rules allow this only for members of its household. */
@@ -359,6 +374,91 @@ export async function createRecipeInHousehold(
   return seed.slug
 }
 
+/**
+ * Save an import for review: in the kitchen's records, but members-only and
+ * out of the kitchen list until someone approves it (approveRecipe). Every
+ * member sees it under Add a recipe › "Recipes awaiting review".
+ */
+export async function saveForReview(
+  seed: RecipeSeed,
+  householdId: string,
+  by: { uid: string; name: string | null },
+  note: string | null,
+): Promise<string> {
+  const review: RecipeReview = { by: by.uid, byName: by.name, at: Date.now(), visibility: seed.visibility === 'friends' ? 'friends' : 'household', note }
+  await setDoc(doc(db, 'recipes', seed.slug), {
+    ...seed,
+    visibility: 'household',
+    inReview: true,
+    review,
+    householdId,
+    origin: 'app',
+    createdBy: by.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return seed.slug
+}
+
+/** Approve an import: it joins the kitchen, seen by whoever the import chose. */
+export async function approveRecipe(recipe: Recipe): Promise<void> {
+  await setDoc(
+    doc(db, 'recipes', recipe.slug),
+    {
+      visibility: recipe.review?.visibility ?? 'friends',
+      inReview: deleteField(),
+      review: deleteField(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  )
+}
+
+// The kitchen's imports awaiting review — one live listener for the whole app
+// (the header's badge and the Add a recipe list both read it), not one per
+// screen.
+type ReviewSnapshot = { householdId: string | null; recipes: Recipe[]; loading: boolean }
+let reviewSnapshot: ReviewSnapshot = { householdId: null, recipes: [], loading: true }
+const reviewListeners = new Set<() => void>()
+function publishReviews(next: ReviewSnapshot): void {
+  reviewSnapshot = next
+  for (const listener of reviewListeners) listener()
+}
+
+/** Keep the review list for this kitchen live (members only — a guest's query
+ * would be refused, and they never review). Returns the unsubscribe. */
+export function watchReviews(householdId: string | null): () => void {
+  if (!householdId) {
+    publishReviews({ householdId: null, recipes: [], loading: false })
+    return () => {}
+  }
+  publishReviews({ householdId, recipes: [], loading: true })
+  // Two equality filters: no composite index needed.
+  const q = query(collection(db, 'recipes'), where('householdId', '==', householdId), where('inReview', '==', true))
+  return onSnapshot(
+    q,
+    (snapshot) =>
+      publishReviews({
+        householdId,
+        loading: false,
+        recipes: snapshot.docs.map((d) => toRecipe(d.id, d.data())).sort((a, b) => (b.review?.at ?? 0) - (a.review?.at ?? 0)),
+      }),
+    () => publishReviews({ householdId, recipes: [], loading: false }),
+  )
+}
+
+/** The imports awaiting review in the active kitchen, newest first. */
+export function useReviewRecipes(): ReviewSnapshot {
+  const [state, setState] = useState(reviewSnapshot)
+  useEffect(() => {
+    const listener = () => setState(reviewSnapshot)
+    reviewListeners.add(listener)
+    setState(reviewSnapshot)
+    return () => void reviewListeners.delete(listener)
+  }, [])
+  return state
+}
+
 /** Swap in a regenerated cover card image, leaving the rest of the recipe
  * (and its updatedAt) alone — a display upgrade, not an edit. */
 export async function setRecipeCover(slug: string, cover: RecipeCover): Promise<void> {
@@ -402,10 +502,16 @@ export function useCoverUpgrade(recipes: Recipe[], enabled: boolean): void {
  * recipe restore (were it ever run) and any prune leave the edit alone. Rules
  * allow this only for members of the recipe's household.
  */
-export async function updateRecipe(seed: RecipeSeed): Promise<string> {
+export async function updateRecipe(seed: RecipeSeed, { approve = false } = {}): Promise<string> {
   await setDoc(
     doc(db, 'recipes', seed.slug),
-    { ...seed, origin: 'app', updatedAt: serverTimestamp() },
+    {
+      ...seed,
+      origin: 'app',
+      updatedAt: serverTimestamp(),
+      // Saved from review: it joins the kitchen with the edits.
+      ...(approve ? { inReview: deleteField(), review: deleteField() } : {}),
+    },
     { merge: true },
   )
   return seed.slug

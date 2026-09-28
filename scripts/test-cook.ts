@@ -6,7 +6,8 @@
  *   npm run test:cook
  */
 import { buildTimeline } from '../src/lib/cookboard'
-import type { CookDish, SyncTimer } from '../src/lib/types'
+import { runningNote, timerAlerts } from '../src/lib/timerAlerts'
+import type { CookDish, CookSession, SyncTimer } from '../src/lib/types'
 
 let passed = 0
 let failed = 0
@@ -109,6 +110,31 @@ console.log('empty board → empty timeline')
   eq('no statuses', t.statuses.length, 0)
   eq('no agenda', t.agenda.length, 0)
   eq('no horizon', t.horizonMs, null)
+}
+
+console.log('timer notifications: what rings, and the "timers running" note')
+{
+  const simmer = { ...timer('Simmer · Corn chowder', 300, 'a'), step: 3 }
+  const paused = timer('Rest · Corn chowder', null, 'b')
+  const rung = timer('Boil · Corn chowder', -5, 'c')
+  const oldTimer = timer('Toast · Steak', 900, 'd') // started before 0.50: no step
+  const session: CookSession = {
+    householdId: 'h', recipeSlug: 'ribs', recipeTitle: 'Short ribs', scale: 1, stepIndex: 0,
+    timers: [{ ...timer('Braise · Short ribs', 120, 'e'), step: 5 }],
+    startedBy: null, startedByName: null, updatedAt: NOW, active: true,
+  }
+  const alerts = timerAlerts([dish('corn-chowder', [simmer, paused, rung]), dish('steak', [oldTimer])], session, NOW)
+  eq('only running ones, soonest first, each once', alerts.map((a) => a.id), ['e', 'a', 'd'])
+  const a = alerts.find((x) => x.id === 'a')!
+  eq('named by the timer, placed by dish and step', [a.title, a.body], ['Simmer is done', 'Corn chowder · step 3'])
+  check('its line says when it rings', /^Simmer · Corn chowder, step 3 — rings /.test(a.line))
+  eq('tapping opens cook mode for that dish', a.path, 'r/corn-chowder/cook')
+  eq('an older timer (no step) still reads well', alerts.find((x) => x.id === 'd')!.body, 'Steak')
+  eq('the session’s dish', alerts[0].path, 'r/ribs/cook')
+  eq('a session that ended counts for nothing', timerAlerts([], { ...session, active: false }, NOW).length, 0)
+  const note = runningNote(alerts)!
+  check('the note: a count, then a line each', note.title === '3 timers running' && note.body.split('\n').length === 3)
+  eq('no timers, no note', runningNote([]), null)
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

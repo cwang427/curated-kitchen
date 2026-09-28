@@ -8,6 +8,7 @@
  */
 import { parseIngredientLine, parseDuration, recipeFromJsonLd } from '../src/lib/importRecipe'
 import { parseRecipe } from '../src/lib/recipeSchema'
+import { progressFraction, progressLine, readProgressStream, type ImportProgress } from '../src/lib/importStage'
 
 let pass = 0
 let fail = 0
@@ -151,6 +152,55 @@ console.log('recipeFromJsonLd → shapes real pages use')
   check('steps given as HTML paragraphs in one string → two steps', (recipe.steps as unknown[]).length === 2)
   const lines = recipeFromJsonLd({ '@type': 'Recipe', name: 'x', recipeIngredient: ['1 egg'], recipeInstructions: 'Whisk.\nFry.' }, 'https://example.com')
   check('steps one per line in one string → two steps', (lines.recipe.steps as unknown[]).length === 2)
+}
+
+console.log('an import’s progress, in words and on the bar')
+{
+  const path: ImportProgress[] = [
+    { stage: 'starting' },
+    { stage: 'opening', host: 'seriouseats.com' },
+    { stage: 'another-way' },
+    { stage: 'reading' },
+    { stage: 'writing', ingredients: 3, steps: 0 },
+    { stage: 'writing', ingredients: 11, steps: 4 },
+    { stage: 'finishing' },
+    { stage: 'photos', got: 0, wanted: 6 },
+    { stage: 'photos', got: 6, wanted: 6 },
+    { stage: 'saving' },
+  ]
+  const bar = path.map(progressFraction)
+  check('the bar only moves forward, and never reaches the end before it’s saved', bar.every((f, i) => i === 0 || f > bar[i - 1]) && bar.at(-1)! < 1, JSON.stringify(bar))
+  check('words: opening the site', progressLine(path[1]) === 'Opening seriouseats.com…')
+  check('words: ingredients found before any step', progressLine(path[4]) === 'Found 3 ingredients so far…')
+  check('words: the recipe taking shape', progressLine(path[5]) === 'Writing it up — 11 ingredients, 4 steps so far…', progressLine(path[5]))
+  check('words: one of each (singular)', progressLine({ stage: 'writing', ingredients: 1, steps: 1 }) === 'Writing it up — 1 ingredient, 1 step so far…')
+  check('words: photos arriving', progressLine(path[7]) === 'Pulling in photos — 0 of 6…')
+}
+
+console.log('the Worker’s streamed answer, as the app reads it')
+{
+  // The way it arrives over a phone connection: lines split across chunks.
+  const lines = [
+    { progress: { stage: 'opening', host: 'x.com' } },
+    { progress: { stage: 'writing', ingredients: 2, steps: 0 } },
+    { status: 200, body: { recipe: { title: 'Soup' } } },
+  ].map((l) => JSON.stringify(l) + '\n').join('')
+  const chunks = [lines.slice(0, 7), lines.slice(7, 60), lines.slice(60, 61), lines.slice(61)]
+  const stream = (parts: string[]) =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const p of parts) c.enqueue(new TextEncoder().encode(p))
+        c.close()
+      },
+    })
+  const seen: string[] = []
+  const answer = await readProgressStream<{ stage: string }, { recipe?: { title: string } }>(stream(chunks), (s) => seen.push(s.stage))
+  check('each stage as it comes, though lines were split across chunks', seen.join() === 'opening,writing', seen.join())
+  check('then the answer', answer?.status === 200 && answer.body.recipe?.title === 'Soup')
+  const cut = await readProgressStream(stream([lines.slice(0, 50)]), () => {})
+  check('a stream cut off before the answer → null (the app says the connection dropped)', cut === null)
+  const failed = await readProgressStream<unknown, { code?: string }>(stream(['{"status":502,"body":{"code":"ai_busy"}}']), () => {})
+  check('a failure comes through with its code (no trailing newline needed)', failed?.status === 502 && failed.body.code === 'ai_busy')
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

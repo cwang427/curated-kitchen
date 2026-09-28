@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { Link, useAppNav } from '../components/nav'
 import AppHeader from '../components/AppHeader'
 import AddToListSheet from '../components/AddToListSheet'
@@ -10,7 +10,8 @@ import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
 import { useAuth } from '../auth/AuthProvider'
 import HeartIcon from '../components/HeartIcon'
-import { deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
+import { approveRecipe, deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
+import { showAppNote } from '../data/importQueue'
 import { photoSrc, usePhotoUrls } from '../data/photos'
 import PhotoViewer from '../components/PhotoViewer'
 import { getDish, removeDish } from '../data/cookBoard'
@@ -32,6 +33,8 @@ function useToggleSet() {
 export default function RecipePage() {
   const { slug } = useParams<{ slug: string }>()
   const { goTo, goUp } = useAppNav()
+  // Opened from "Recipes awaiting review" (its parent is Add a recipe).
+  const fromReview = useLocation().pathname.startsWith('/review/')
   const { user, household } = useAuth()
   const { recipe, loading, error } = useRecipe(slug)
   const coverUrls = usePhotoUrls(recipe?.cover ? [recipe.cover.photo] : [])
@@ -43,6 +46,7 @@ export default function RecipePage() {
   const [showAddToList, setShowAddToList] = useState(false)
   const [showAddToPlan, setShowAddToPlan] = useState(false)
   const [showCopy, setShowCopy] = useState(false)
+  const [approving, setApproving] = useState(false)
 
   if (loading) {
     return (
@@ -83,10 +87,32 @@ export default function RecipePage() {
 
   const isMember = !!(user && household && household.memberUids.includes(user.uid))
 
+  // An import awaiting review: shown just as it will look in the kitchen,
+  // with what to do about it pinned at the bottom from the start.
+  const inReview = !!recipe.review && isMember
+
+  const onApprove = async () => {
+    setApproving(true)
+    try {
+      await approveRecipe(recipe)
+      showAppNote({ text: 'Added to your kitchen', title: recipe.title, action: { label: 'Open', path: `/r/${recipe.slug}` } })
+      // Back to the list for the next one (opened from the kitchen, it just
+      // becomes an ordinary recipe where it is).
+      if (fromReview) goUp()
+    } catch (cause) {
+      alert(describeFirestoreError(cause, 'approve the recipe'))
+    } finally {
+      setApproving(false)
+    }
+  }
+
   const onDelete = async () => {
     // The repo→Firestore sync is retired, so a delete is permanent for every
     // recipe (nothing re-creates it on push anymore).
-    if (!confirm(`Delete “${recipe.title}”? This can’t be undone.`)) return
+    const question = inReview
+      ? `Delete “${recipe.title}”? It won’t be added to your kitchen.`
+      : `Delete “${recipe.title}”? This can’t be undone.`
+    if (!confirm(question)) return
     try {
       await deleteRecipe(recipe.slug)
       // Up to the kitchen, not a new page: a swipe mustn't land on the deleted recipe.
@@ -101,6 +127,15 @@ export default function RecipePage() {
       <AppHeader title={recipe.title} back plan cart />
 
       <main className="pad-safe-bottom mx-auto max-w-3xl px-4 py-5">
+        {inReview && (
+          <div role="note" className="mb-5 rounded-2xl border border-accent/40 bg-accent-soft p-4 text-sm">
+            <p className="font-medium text-ink">Awaiting review</p>
+            <p className="mt-0.5 text-ink-soft">
+              This is how it will look in your kitchen. Approve adds it there; Edit lets you fix anything first.
+            </p>
+            {recipe.review?.note && <p className="mt-1 text-ink-soft">{recipe.review.note}</p>}
+          </div>
+        )}
         {recipe.cover && (
           // The small inline thumbnail shows instantly; the full photo replaces
           // it once its doc has loaded. Tap for the full-screen viewer.
@@ -130,8 +165,8 @@ export default function RecipePage() {
               )}
             </div>
             {/* Favorite ("pin") — kitchen-wide. Members toggle; guests just see
-                it when it's set. */}
-            {isMember ? (
+                it when it's set. Not for an import awaiting review. */}
+            {inReview ? null : isMember ? (
               <button
                 type="button"
                 aria-pressed={recipe.favorite}
@@ -223,6 +258,8 @@ export default function RecipePage() {
                 Start cooking →
               </Link>
             ))}
+          {/* Grocery list, meal plan and copying wait until it's approved. */}
+          {!inReview && <>
           <div className="flex gap-3">
             {/* Add-to-list works for guests too — it goes to one of THEIR own
                 kitchens (the sheet picks), never this shared list. */}
@@ -254,6 +291,7 @@ export default function RecipePage() {
           >
             Copy to another kitchen
           </button>
+          </>}
         </div>
 
         {showAddToList && (
@@ -318,7 +356,7 @@ export default function RecipePage() {
           </section>
         )}
 
-        {isMember && (
+        {isMember && !inReview && (
           <section className="mt-8 border-t border-line pt-5">
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">
               Manage
@@ -342,7 +380,40 @@ export default function RecipePage() {
         )}
 
         {showCopy && <CopyRecipeSheet recipe={recipe} onClose={() => setShowCopy(false)} />}
+        {/* Room to scroll the end of the recipe clear of the review bar. */}
+        {inReview && <div aria-hidden className="h-28" />}
       </main>
+
+      {inReview && (
+        <div className="pad-safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper px-4 pt-3">
+          <div className="mx-auto flex max-w-3xl gap-2">
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={approving}
+              className="grid h-12 flex-1 place-items-center rounded-2xl border border-red-300 text-base font-semibold text-red-600 transition active:scale-[0.99] disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={() => goTo(fromReview ? `/review/${recipe.slug}/edit` : `/r/${recipe.slug}/edit`)}
+              disabled={approving}
+              className="grid h-12 flex-1 place-items-center rounded-2xl border border-line text-base font-semibold text-ink transition active:scale-[0.99] disabled:opacity-50"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void onApprove()}
+              disabled={approving}
+              className="grid h-12 flex-[1.4] place-items-center rounded-2xl bg-accent text-base font-semibold text-white transition active:scale-[0.99] disabled:opacity-60 dark:text-stone-900"
+            >
+              {approving ? 'Approving…' : 'Approve'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

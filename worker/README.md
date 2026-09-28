@@ -153,16 +153,29 @@ through the Archive as before — nobody has to do anything.
 this is for a household's own occasional imports, one page at a time. Only the
 public recipe link goes to Firecrawl.)
 
-## The import queue (nothing to set up)
-When a link won't import in the moment, the app offers **Add to import queue**:
-the Worker keeps trying that link on a schedule (1, 2, 5, 10, 20, 30, 60
-minutes, then hourly, for up to a day) — even with the app closed — and the
-recipe is saved to the kitchen, photos included, the next time the app is open.
-Each person's queue lives in a **Durable Object** (Cloudflare's small
-always-available storage, included in the free plan). It's declared in
-`wrangler.toml`, so `npx wrangler deploy` creates it — there's no dashboard
-step. In `wrangler tail` a queued import logs `link: ran in queue, …` and then
-`queue: <link> → ready` (or `→ waiting (why)`).
+## The import queue and notifications (nothing to set up)
+Every link or pasted-text import goes to the Worker's **import queue**: it runs
+the import straight away and, if that doesn't work in the moment, keeps trying
+on a schedule (1, 2, 5, 10, 20, 30, 60 minutes, then hourly, for up to a day) —
+even with the app closed. As it goes it records how it's getting on ("Opening
+seriouseats.com…", "Writing it up — 9 ingredients…"), which the app shows. The
+finished recipe is saved, photos included, into the kitchen's **Recipes
+awaiting review** the next time the app is open. (Photo and PDF imports run in
+the app itself — they're too big to park here.)
+
+**Notifications** come from here too: "Ready for review" when a queued import
+finishes, and kitchen timers that ring with the app closed. The Worker signs
+them with its own key (made automatically the first time someone turns
+notifications on) and sends them through the phone's own push service (Apple's,
+Google's…), encrypted so only that phone can read them.
+
+Each person has two **Durable Objects** (Cloudflare's small always-available
+storage, included in the free plan): one for their queue, one for their
+notifications (kept apart so a timer never waits behind an import). Both are
+declared in `wrangler.toml` (migrations `v1` and `v2`), so `npx wrangler deploy`
+creates them — there's no dashboard step. In `wrangler tail` a queued import
+logs `link: ran in queue, …` and then `queue: <link> → ready` (or `→ waiting
+(why)`); a timer logs `notify: timer "Simmer is done" → sent, 2s after it rang`.
 
 ## Updating the Worker later (IMPORTANT)
 `wrangler deploy` ships the code **on your computer**, not from GitHub. So when
@@ -232,3 +245,6 @@ it to Cloudflare). Run `npm run test:worker` from the repo root after changing i
 - Every request must carry a valid Firebase sign-in token for your project, so
   only people signed into your kitchen can use it.
 - `ALLOWED_ORIGIN` limits browser calls to your app's origin.
+- Notifications go only to the push services browsers use (Apple, Google,
+  Mozilla, Microsoft); the Worker refuses any other address. What they say is
+  encrypted for the one phone that subscribed.

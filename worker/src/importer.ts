@@ -20,8 +20,8 @@ import { ALL_TAGS, TAG_GROUPS } from '../../src/lib/tags'
 // is deployed — a stale local copy is the usual reason a change "didn't work".
 import { version as WORKER_VERSION } from '../../package.json'
 
-/** The queue's storage (a Durable Object namespace), as far as we use it. */
-interface QueueNamespace {
+/** A Durable Object namespace (the queue's, the notifier's), as far as we use it. */
+export interface QueueNamespace {
   idFromName(name: string): unknown
   get(id: unknown): { fetch(request: Request): Promise<Response> }
 }
@@ -57,6 +57,9 @@ export interface Env {
   // The import queue (worker/src/queue.ts): one Durable Object per person,
   // declared in wrangler.toml — nothing to set up by hand.
   QUEUE?: QueueNamespace
+  // Notifications (worker/src/notify.ts): one Durable Object per person, also
+  // declared in wrangler.toml.
+  NOTIFY?: QueueNamespace
 }
 
 const GROCERY_CATEGORIES = [
@@ -837,7 +840,7 @@ type PageLookup = {
 
 const READER_HEADERS = { 'X-Return-Format': 'html', 'X-Timeout': '10', Accept: 'text/html', 'User-Agent': APP_UA }
 
-async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<RecipePage | null> {
+async function fetchRecipePage(url: string, seen: PageLookup = {}, report: Progress = quiet): Promise<RecipePage | null> {
   let best: RecipePage | null = null
   let stamp: string | undefined
   /** Keep the page if it's the clearest recipe yet; true = clear enough to stop. */
@@ -886,6 +889,7 @@ async function fetchRecipePage(url: string, seen: PageLookup = {}): Promise<Reci
   }
   seen.readerRefused = readerInfo.status === 451
   if (found) return best
+  report({ stage: 'another-way' })
 
   // Blocked on the free routes. Firecrawl (if set up) and the Internet
   // Archive run side by side, and the first to bring a recipe wins — so a
@@ -1368,6 +1372,18 @@ const REFUSING_SITES: Array<[host: RegExp, message: string]> = [
   ],
 ]
 
+/** How an import is getting on, as it happens — for the cook's screen. The
+ * app turns these into words ("Opening seriouseats.com…", "Found 11
+ * ingredients…"). Only real events: nothing here is on a timer. */
+export type Stage =
+  | { stage: 'opening'; host: string }
+  | { stage: 'another-way' } // the site refused the plain routes; trying the others
+  | { stage: 'reading' } // the AI has the recipe
+  | { stage: 'writing'; ingredients: number; steps: number } // …and is writing it up
+  | { stage: 'finishing' }
+export type Progress = (stage: Stage) => void
+const quiet: Progress = () => {}
+
 /** A recipe the AI read without the page itself, so without its photos. */
 type LinkVia = PageSource | 'google' | 'google-archive'
 
@@ -1378,7 +1394,7 @@ type LinkVia = PageSource | 'google' | 'google-archive'
  * URL-context tool), which brings the recipe but not its photos — the answer
  * says so (`photosUnavailable`), and the app lets the cook choose.
  */
-async function handleLink(url: string, env: Env, origin: string, colo = '?'): Promise<Response> {
+async function handleLink(url: string, env: Env, origin: string, colo = '?', report: Progress = quiet): Promise<Response> {
   const started = Date.now()
   isolateRequests++
   if (!isolateStarted) isolateStarted = started
@@ -1404,26 +1420,27 @@ async function handleLink(url: string, env: Env, origin: string, colo = '?'): Pr
     return json({ error: refusal[1], code: 'site_refuses' }, 422, origin)
   }
 
+  report({ stage: 'opening', host: host.replace(/^www\./, '') })
   // Alongside the page fetches, not before them.
   const address = outgoingAddress()
   const unlocker = unlockerStatus()
-  const page = await fetchRecipePage(url, seen)
+  const page = await fetchRecipePage(url, seen, report)
   console.log(
     `link: ran in ${colo}, worker copy ${ISOLATE} (import #${importNo} since it started ${upMin} min ago), ` +
       `outgoing address ${await address} (outside Cloudflare's view), archive sign-in ${archiveSignInStatus()}, ` +
       `firecrawl ${await unlocker}, worker ${WORKER_VERSION}`,
   )
-  if (!page) return readWithGoogle(url, seen, env, origin, outcome)
+  if (!page) return readWithGoogle(url, seen, env, origin, outcome, report)
 
   console.log(`link: reading page via ${page.via} as text`)
-  const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin)
+  const res = await handleGemini({ images: [], text: pageForAi(page.html, url) }, env, origin, report)
   if (!res.ok) {
     const body = (await res.clone().json().catch(() => ({}))) as { code?: string }
     // The page we got said it wasn't a recipe, and it showed no recipe signs —
     // likely a soft block or cookie wall, not the real page: let Google try.
     if (res.status === 422 && body.code === 'not_a_recipe' && page.signal <= 1) {
       console.log('link: the page we got wasn’t the recipe — asking Google instead')
-      return readWithGoogle(url, seen, env, origin, outcome)
+      return readWithGoogle(url, seen, env, origin, outcome, report)
     }
     // The AI itself failed (overloaded, over its free limit, stuck) after we
     // got the page. Say so plainly (code ai_busy): the app offers Try again,
@@ -1496,7 +1513,9 @@ async function readWithGoogle(
   env: Env,
   origin: string,
   outcome: (fields: Record<string, unknown>) => void,
+  report: Progress = quiet,
 ): Promise<Response> {
+  report({ stage: 'another-way' })
   const copy = seen.archiveBusy ? seen.archiveCopy : undefined
   const targets: Array<{ url: string; archivedFrom?: string; via: LinkVia }> = []
   if (!(copy && seen.readerRefused)) targets.push({ url, via: 'google' })
@@ -1508,7 +1527,7 @@ async function readWithGoogle(
   let last: Response | null = null
   for (const target of targets) {
     console.log(target.via === 'google-archive' ? 'link: asking Google to read the Archive’s copy' : 'link: asking Google to read the page')
-    const res = await handleGemini({ images: [], url: target.url, archivedFrom: target.archivedFrom }, env, origin)
+    const res = await handleGemini({ images: [], url: target.url, archivedFrom: target.archivedFrom }, env, origin, report)
     if (res.ok) {
       const out = (await res.json()) as Record<string, unknown>
       outcome({ via: target.via, status: 200, cover: false, stepPhotos: 0, photos: 'unavailable' })
@@ -1593,7 +1612,8 @@ function imagePrompt(input: AiInput): string {
 
 /** Google Gemini (free tier). Uses structured JSON output matching our recipe
  * shape; the app's zod schema is still the real validator. Reads images too. */
-async function handleGemini(input: AiInput, env: Env, origin: string): Promise<Response> {
+async function handleGemini(input: AiInput, env: Env, origin: string, report: Progress = quiet): Promise<Response> {
+  report({ stage: 'reading' })
   const parts: unknown[] = []
   for (const img of input.images) {
     parts.push({ inline_data: { mime_type: img.mediaType, data: img.data } })
@@ -1696,6 +1716,10 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
         if (piece.promptFeedback) answer.promptFeedback = piece.promptFeedback
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+      // As it writes, count what it has written — every ingredient has an
+      // "item", every step a "text" (nothing else does) — so the cook sees
+      // the recipe taking shape.
+      let told = ''
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
@@ -1705,6 +1729,13 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
         while ((end = pending.indexOf('\n\n')) >= 0) {
           take(pending.slice(0, end))
           pending = pending.slice(end + 2)
+        }
+        const sofar = texts.join('')
+        const ingredients = sofar.match(/"item"\s*:/g)?.length ?? 0
+        const steps = sofar.match(/"text"\s*:/g)?.length ?? 0
+        if (ingredients + steps > 0 && `${ingredients}/${steps}` !== told) {
+          told = `${ingredients}/${steps}`
+          report({ stage: 'writing', ingredients, steps })
         }
       }
       if (pending.trim()) take(pending)
@@ -1796,6 +1827,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string): Promise<R
         : `AI service error (${res.status}).`
     return json({ error: msg, detail }, 502, origin)
   }
+  report({ stage: 'finishing' })
 
   // For a link, only trust the answer if Google actually read the page —
   // otherwise the model can "helpfully" produce a recipe from memory that isn't
@@ -1931,12 +1963,47 @@ function useEnv(env: Env): void {
   }
 }
 
-/** One link import, exactly as the app's "Add from URL" runs it — for the
- * import queue, which tries again later on the cook's behalf. */
-export async function importLink(url: string, env: Env): Promise<{ status: number; body: Record<string, unknown> }> {
+/** What the import queue runs: a link, or pasted text. */
+export type ImportJob = { url: string } | { text: string }
+
+/** One import, exactly as the app's own imports run it — for the import
+ * queue, which runs (and retries) them on the cook's behalf. */
+export async function importJob(
+  job: ImportJob,
+  env: Env,
+  report: Progress = quiet,
+): Promise<{ status: number; body: Record<string, unknown> }> {
   useEnv(env)
-  const res = await handleLink(url, env, env.ALLOWED_ORIGIN || 'https://cwang427.github.io', 'queue')
+  const origin = env.ALLOWED_ORIGIN || 'https://cwang427.github.io'
+  const res =
+    'url' in job
+      ? await handleLink(job.url, env, origin, 'queue', report)
+      : await handleGemini({ images: [], text: job.text }, env, origin, report)
   return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> }
+}
+
+/** An import whose progress streams back as it happens: one JSON line per
+ * step ({"progress": …}), then {"status", "body"} — the answer the plain
+ * route would have given. For imports the app runs itself (photos and PDFs,
+ * too big to park in the queue). */
+function streamed(origin: string, run: (report: Progress) => Promise<Response>): Response {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const enc = new TextEncoder()
+  const line = (obj: unknown) => writer.write(enc.encode(`${JSON.stringify(obj)}\n`)).catch(() => {})
+  void (async () => {
+    try {
+      const res = await run((stage) => void line({ progress: stage }))
+      await line({ status: res.status, body: await res.json().catch(() => ({})) })
+    } catch (e) {
+      await line({ status: 500, body: { error: 'The import stopped unexpectedly — please try again.', detail: String(e) } })
+    } finally {
+      await writer.close().catch(() => {})
+    }
+  })()
+  return new Response(readable, {
+    headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', ...corsHeaders(origin) },
+  })
 }
 
 export const worker = {
@@ -1969,6 +2036,8 @@ export const worker = {
       image?: AiPhoto // legacy single-photo shape; kept for old app builds
       images?: AiPhoto[]
       url?: string
+      /** Stream progress back as it happens (0.50+). */
+      stream?: boolean
     }
     try {
       body = await request.json()
@@ -1981,14 +2050,18 @@ export const worker = {
     if (path.endsWith('/url')) return handleUrlImport(body, origin)
     // A link import's photos, streamed through (the app can't fetch them itself).
     if (path.endsWith('/img')) return handleImageProxy(body as { url?: string; stamp?: string; paid?: boolean }, origin)
-    // The import queue: each person's own, kept by a Durable Object named by
-    // their sign-in, so nobody can see or change anyone else's.
-    const queueAction = path.match(/\/queue\/([a-z-]+)$/)?.[1]
-    if (queueAction) {
-      if (!env.QUEUE) return json({ error: 'The import queue isn’t set up on the server.', code: 'no_queue' }, 501, origin)
-      const queue = env.QUEUE.get(env.QUEUE.idFromName(uid))
-      const res = await queue.fetch(
-        new Request(`https://queue/${queueAction}`, { method: 'POST', body: JSON.stringify(body) }),
+    // The import queue and notifications: each person's own, kept by Durable
+    // Objects named by their sign-in, so nobody can see or change anyone
+    // else's. (The queue is told who it belongs to, so it can ask their
+    // notifier to say when a recipe is ready.)
+    const [, area, action] = path.match(/\/(queue|notify)\/([a-z-]+)$/) ?? []
+    if (area) {
+      const space = area === 'queue' ? env.QUEUE : env.NOTIFY
+      if (!space) {
+        return json({ error: `The ${area === 'queue' ? 'import queue' : 'notifications service'} isn’t set up on the server.`, code: `no_${area}` }, 501, origin)
+      }
+      const res = await space.get(space.idFromName(uid)).fetch(
+        new Request(`https://${area}/${action}`, { method: 'POST', headers: { 'X-Uid': uid }, body: JSON.stringify(body) }),
       )
       return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } })
     }
@@ -2016,7 +2089,9 @@ export const worker = {
     const input: AiInput = { text: body.text, images, url }
     if (env.GEMINI_API_KEY) {
       const colo = (request as Request & { cf?: { colo?: string } }).cf?.colo ?? '?'
-      return url && !input.text && images.length === 0 ? handleLink(url, env, origin, colo) : handleGemini(input, env, origin)
+      const run = (report: Progress = quiet) =>
+        url && !input.text && images.length === 0 ? handleLink(url, env, origin, colo, report) : handleGemini(input, env, origin, report)
+      return body.stream ? streamed(origin, run) : run()
     }
     if (url) return json({ error: 'Reading links needs the Gemini key on the server.' }, 501, origin)
     if (env.ANTHROPIC_API_KEY) return handleClaude(input, env, origin)
