@@ -3,8 +3,8 @@ import type { Recipe } from './types'
 
 /**
  * How the kitchen groups its recipes: favorites first, then everything else
- * by course, in the tag list's order (breakfast, appetizers, mains, sides,
- * desserts, snacks, drinks, sauces), then whatever has no course. A recipe
+ * by course, in the tag list's order (appetizers, mains, sides, desserts,
+ * breakfast, snacks, drinks, sauces), then whatever has no course. A recipe
  * tagged with two courses sits under the earlier one (an appetizer that's
  * also a main is an appetizer) — unless a course chip is on, when it sits
  * under the course being looked for. Pure, for test:tags.

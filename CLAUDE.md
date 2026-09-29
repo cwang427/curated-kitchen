@@ -865,7 +865,7 @@ rules change; guests see a filled heart but can't toggle, same as editing).
 Favorites **pin to the top** of the recipe list (the `useRecipes` sort keys on
 `favorite` then title), under their own **"Favorites N"** heading, and **everything else is filed
 by course** (v0.53, `kitchenSections` in `src/lib/sections.ts`,
-`test:tags`): Breakfast, Appetizers, Mains, Sides, Desserts, Snacks, Drinks,
+`test:tags`): Appetizers, Mains, Sides, Desserts, Breakfast, Snacks, Drinks,
 Sauces — the tag list's course order — then "Other" for recipes with no
 course ("Everything else" when there are favorites but no courses; no heading
 at all when it's the whole kitchen). A recipe with two courses sits under the
@@ -878,8 +878,9 @@ its own and a recipe edit/copy never carries or clobbers it (a copy starts
 un-favorited). Shared `HeartIcon` component; `test:rules` unchanged since the
 existing member-updates-recipe rule already covers it.
 And **a fixed tag list** (`src/lib/tags.ts`, v0.42): tags come only from
-`TAG_GROUPS` — course (breakfast, appetizers, mains, sides, desserts, snacks,
-drinks, sauces), cuisine (21, regions folded in: roman → italian, sichuan →
+`TAG_GROUPS` — course (appetizers, mains, sides, desserts, breakfast, snacks,
+drinks, sauces — breakfast moved after desserts in v0.53.1: it's a time of day,
+not a course, so Mains leads the kitchen), cuisine (21, regions folded in: roman → italian, sichuan →
 chinese), dish (soup, pasta, noodles, …), diet (vegetarian, vegan,
 pescatarian, gluten-free, dairy-free), occasion (weeknight, make-ahead,
 holiday). Imports used to tag ingredients ("beef"), methods and gadgets

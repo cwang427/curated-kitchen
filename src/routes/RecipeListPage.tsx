@@ -194,7 +194,7 @@ export default function RecipeListPage() {
     [searched, maxTime],
   )
 
-  // Favorites, then by course (breakfast, appetizers, mains…), then the rest.
+  // Favorites, then by course (appetizers, mains, sides…), then the rest.
   const sections = useMemo(() => kitchenSections(results, activeTags), [results, activeTags])
 
   const toggleTag = (tag: string) =>

@@ -25,7 +25,10 @@ export const TAG_GROUPS: TagGroup[] = [
   {
     key: 'course',
     label: 'Course',
-    tags: ['breakfast', 'appetizers', 'mains', 'sides', 'desserts', 'snacks', 'drinks', 'sauces'],
+    // Breakfast after desserts, not first: it's a time of day rather than a
+    // course, so in the kitchen's sections Mains leads, and a dish that's both
+    // (shakshuka) files under Mains.
+    tags: ['appetizers', 'mains', 'sides', 'desserts', 'breakfast', 'snacks', 'drinks', 'sauces'],
   },
   {
     key: 'cuisine',

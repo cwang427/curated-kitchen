@@ -67,17 +67,19 @@ console.log('the kitchen’s sections (src/lib/sections.ts)')
     r('Margarita', ['cocktails']),
     r('Shakshuka', ['breakfast', 'mains']),
     r('Short ribs', ['entree']),
+    r('Pancakes', ['brunch']),
   ]
   const sections = kitchenSections(kitchen)
   eq('favorites, then courses in the list’s order, then the rest', sections.map((x) => `${x.label}:${x.recipes.map((y) => y.title).join('+')}`), [
     'Favorites:Roast chicken',
-    'Breakfast:Shakshuka',
     'Appetizers:Bruschetta',
-    'Mains:Short ribs',
+    'Mains:Shakshuka+Short ribs',
     'Desserts:Cookies',
+    'Breakfast:Pancakes',
     'Drinks:Margarita',
     'Other:Chowder',
   ])
+  eq('breakfast comes after desserts, so breakfast + main → Mains', courseOf(kitchen[5]), 'mains')
   eq('two courses → the earlier one (appetizer before main)', courseOf(kitchen[1]), 'appetizers')
   eq('…unless a course chip is on: then the one being looked for', courseOf(kitchen[1], ['mains']), 'mains')
   eq('older tags count once tidied ("entree" → mains)', courseOf(kitchen[6]), 'mains')
