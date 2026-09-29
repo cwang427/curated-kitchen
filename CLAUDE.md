@@ -625,8 +625,9 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   built from it (`src/lib/timerAlerts.ts`), the import progress wording and
   the streamed-answer reader (`src/lib/importStage.ts`, in `test:import`), the AI-answer tidy-up
   (`sanitizeAiRecipe`), unit/item pluralization ("bay leaf" → "bay leaves",
-  never "leafs"/"leaveses"), and the fixed tag list's normalizing
-  ("Main Course" → mains, "roman" → italian, "beef" dropped). Run after touching
+  never "leafs"/"leaveses"), the fixed tag list's normalizing
+  ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
+  kitchen's course sections (`src/lib/sections.ts`). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`, or
@@ -862,9 +863,15 @@ button on each recipe card and on the reader (members toggle via
 `setRecipeFavorite` — a member merge-update of just `favorite`+`updatedAt`, no
 rules change; guests see a filled heart but can't toggle, same as editing).
 Favorites **pin to the top** of the recipe list (the `useRecipes` sort keys on
-`favorite` then title), under their own **"Favorites N"** heading, followed by
-**"Everything else N"** (v0.52; no headings when nothing's a favorite) — a
-landmark as a kitchen grows. (A "favorites only" filter was tried and removed —
+`favorite` then title), under their own **"Favorites N"** heading, and **everything else is filed
+by course** (v0.53, `kitchenSections` in `src/lib/sections.ts`,
+`test:tags`): Breakfast, Appetizers, Mains, Sides, Desserts, Snacks, Drinks,
+Sauces — the tag list's course order — then "Other" for recipes with no
+course ("Everything else" when there are favorites but no courses; no heading
+at all when it's the whole kitchen). A recipe with two courses sits under the
+**earlier** one (the owner's rule: an appetizer that's also a main is an
+appetizer) — unless a course chip is on, when it sits under the course being
+looked for. Each heading carries its count; landmarks as a kitchen grows. (A "favorites only" filter was tried and removed —
 redundant once they pin to the top.) `favorite` is deliberately excluded from
 `RecipeSeed`, so it's toggled on
 its own and a recipe edit/copy never carries or clobbers it (a copy starts

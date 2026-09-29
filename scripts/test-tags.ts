@@ -5,6 +5,8 @@
  *   npm run test:tags
  */
 import { ALL_TAGS, TAG_GROUPS, droppedTags, normalizeTag, normalizeTags } from '../src/lib/tags'
+import { courseOf, kitchenSections } from '../src/lib/sections'
+import type { Recipe } from '../src/lib/types'
 
 let passed = 0
 let failed = 0
@@ -53,6 +55,37 @@ eq('no cap by default (editor)', normalizeTags(['mains', 'sides', 'italian', 'fr
 
 console.log('droppedTags')
 eq('reports what the editor will drop', droppedTags(['main course', 'beef', 'roman', 'pressure cooker', '']), ['beef', 'pressure cooker'])
+
+console.log('the kitchen’s sections (src/lib/sections.ts)')
+{
+  const r = (title: string, tags: string[], favorite = false) => ({ id: title, slug: title, title, tags, favorite }) as unknown as Recipe
+  const kitchen = [
+    r('Roast chicken', ['Main Course', 'weeknight'], true),
+    r('Bruschetta', ['appetizers', 'mains']),
+    r('Chowder', ['soup']),
+    r('Cookies', ['desserts', 'cookies']),
+    r('Margarita', ['cocktails']),
+    r('Shakshuka', ['breakfast', 'mains']),
+    r('Short ribs', ['entree']),
+  ]
+  const sections = kitchenSections(kitchen)
+  eq('favorites, then courses in the list’s order, then the rest', sections.map((x) => `${x.label}:${x.recipes.map((y) => y.title).join('+')}`), [
+    'Favorites:Roast chicken',
+    'Breakfast:Shakshuka',
+    'Appetizers:Bruschetta',
+    'Mains:Short ribs',
+    'Desserts:Cookies',
+    'Drinks:Margarita',
+    'Other:Chowder',
+  ])
+  eq('two courses → the earlier one (appetizer before main)', courseOf(kitchen[1]), 'appetizers')
+  eq('…unless a course chip is on: then the one being looked for', courseOf(kitchen[1], ['mains']), 'mains')
+  eq('older tags count once tidied ("entree" → mains)', courseOf(kitchen[6]), 'mains')
+  eq('no course → none', courseOf(kitchen[2]), null)
+  eq('favorites and no courses: "Everything else"', kitchenSections([kitchen[0], kitchen[2]]).map((x) => x.label), ['Favorites', 'Everything else'])
+  eq('neither: one grid, no heading', kitchenSections([kitchen[2]]).map((x) => x.label), [''])
+  eq('nothing: no sections', kitchenSections([]).length, 0)
+}
 
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed) process.exit(1)

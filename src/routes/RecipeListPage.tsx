@@ -11,6 +11,7 @@ import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import HeartIcon from '../components/HeartIcon'
 import type { Recipe } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
+import { kitchenSections } from '../lib/sections'
 
 /** The "cooking now" banner at the top of the list — shared session or solo. */
 function CookBanner({
@@ -193,8 +194,8 @@ export default function RecipeListPage() {
     [searched, maxTime],
   )
 
-  const favorites = results.filter((r) => r.favorite)
-  const rest = results.filter((r) => !r.favorite)
+  // Favorites, then by course (breakfast, appetizers, mains…), then the rest.
+  const sections = useMemo(() => kitchenSections(results, activeTags), [results, activeTags])
 
   const toggleTag = (tag: string) =>
     setActiveTags((current) =>
@@ -325,13 +326,9 @@ export default function RecipeListPage() {
           <p className="mt-16 text-center text-ink-soft">Nothing matches that.</p>
         )}
 
-        {/* Favorites first under their own heading, so a long kitchen has a
-            landmark; without any favorites it's just the one grid. */}
-        {[
-          { key: 'favorites', label: 'Favorites', list: favorites },
-          { key: 'rest', label: favorites.length ? 'Everything else' : '', list: rest },
-        ].map(({ key, label, list }) =>
-          list.length === 0 ? null : (
+        {/* Headings give a long kitchen landmarks: favorites, then each
+            course. A kitchen with neither is just the one grid. */}
+        {sections.map(({ key, label, recipes: list }) => (
             <section key={key} aria-labelledby={label ? `${key}-heading` : undefined} className={label ? '' : 'mt-4'}>
               {label && <SectionHeading id={`${key}-heading`} label={label} count={list.length} />}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -345,8 +342,7 @@ export default function RecipeListPage() {
                 ))}
               </div>
             </section>
-          ),
-        )}
+        ))}
       </main>
       </PullToRefresh>
     </div>
