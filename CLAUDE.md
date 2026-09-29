@@ -799,10 +799,16 @@ optional, additive — no migration): added/replaced/removed at the top of the
 editor's Details. `photo` is a `photos` doc id (the full image, same pipeline and
 rules as step photos — members write, members + guests read); `thumb` is the
 **card image**: a 720×480 (3:2) JPEG data URL (`makeCoverThumb`, center-cropped,
-~40–70 KB) stored **inline on the recipe doc**. The kitchen list shows it
-**full-width atop each card** (v0.41 — the cover is how people browse a kitchen
-and pick tonight's dinner) straight from the docs it already loads, so there's
-no photo-doc read per card and nothing pops in while scrolling. Covers from
+~40–70 KB) stored **inline on the recipe doc**. The kitchen shows it
+atop each tile (the cover is how people browse a kitchen and pick tonight's
+dinner) straight from the docs it already loads, so there's no photo-doc read
+per tile and nothing pops in while scrolling. Since v0.52 the kitchen is a
+**two-column grid** (`RecipeTile`; three columns on a tablet): photo (4:3),
+title (two lines), total time, and the heart on the photo's corner — about six
+recipes on screen mid-list instead of two. Servings, source and tags are on the
+recipe page (the chips filter by tag). A recipe without a cover gets a tinted
+tile with an icon for its kind of dish (`tileIcon`: the most specific tag —
+soup 🥣, pasta 🍝, … — else 🍽️), so the grid stays even. Covers from
 before v0.41 carry a 240px square `thumb` (blurry at card size):
 `useCoverUpgrade` (kitchen list, members only) spots one
 (`isLegacyCoverThumb`), regenerates it from the full photo, and merge-writes
@@ -856,7 +862,9 @@ button on each recipe card and on the reader (members toggle via
 `setRecipeFavorite` — a member merge-update of just `favorite`+`updatedAt`, no
 rules change; guests see a filled heart but can't toggle, same as editing).
 Favorites **pin to the top** of the recipe list (the `useRecipes` sort keys on
-`favorite` then title). (A "favorites only" filter was tried and removed —
+`favorite` then title), under their own **"Favorites N"** heading, followed by
+**"Everything else N"** (v0.52; no headings when nothing's a favorite) — a
+landmark as a kitchen grows. (A "favorites only" filter was tried and removed —
 redundant once they pin to the top.) `favorite` is deliberately excluded from
 `RecipeSeed`, so it's toggled on
 its own and a recipe edit/copy never carries or clobbers it (a copy starts

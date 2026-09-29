@@ -54,7 +54,36 @@ const roast: Recipe = {
   cover: { photo: COVER_PHOTO, thumb: COVER_PHOTO },
 }
 
-const ALL = [cacioRecipe, shortRibsRecipe, roast]
+// ?many: a bigger kitchen, to judge how the grid reads as it grows.
+const EXTRA: Array<[string, string[], boolean, boolean, number]> = [
+  ['Weeknight Chicken Tikka Masala', ['mains', 'indian', 'curry'], true, false, 45],
+  ['Crispy Smashed Potatoes', ['sides'], true, false, 50],
+  ['Miso Salmon', ['mains', 'japanese'], false, true, 25],
+  ['The Best Corn Chowder', ['soup'], false, false, 60],
+  ['Brown Butter Chocolate Chip Cookies', ['desserts', 'cookies'], true, false, 40],
+  ['Shakshuka', ['breakfast', 'middle-eastern'], false, false, 30],
+  ['Sichuan Dry-Fried Green Beans', ['sides', 'chinese'], true, false, 20],
+  ['Lemony White Bean and Kale Soup with Parmesan Rind', ['soup', 'vegetarian'], false, false, 55],
+  ['Classic Margarita', ['drinks'], false, false, 5],
+  ['Pork and Chive Dumplings', ['dumplings', 'chinese'], true, true, 90],
+  ['Caesar Salad', ['salad'], false, false, 20],
+  ['Focaccia', ['bread', 'italian'], true, false, 240],
+]
+const MANY: Recipe[] = typeof location !== 'undefined' && location.search.includes('many')
+  ? EXTRA.map(([title, tags, cover, favorite, totalMin], i) => ({
+      ...cacioRecipe,
+      id: `extra-${i}`,
+      slug: `extra-${i}`,
+      title,
+      tags,
+      favorite,
+      visibility: 'friends' as const,
+      times: { prepMin: null, cookMin: null, activeMin: null, totalMin },
+      cover: cover ? { photo: COVER_PHOTO, thumb: COVER_PHOTO } : null,
+    }))
+  : []
+
+const ALL = [cacioRecipe, shortRibsRecipe, roast, ...MANY]
 
 // Imports awaiting review (Add a recipe's list, and /review/:slug).
 const chowder: Recipe = {

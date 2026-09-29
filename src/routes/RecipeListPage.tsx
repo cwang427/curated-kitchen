@@ -70,7 +70,26 @@ const TIME_BUCKETS: Array<{ label: string; max: number | null }> = [
   { label: '≤1 hr', max: 60 },
 ]
 
-function RecipeCard({
+/** A picture for a recipe without a cover photo, from what kind of dish it
+ * is (the most specific tag wins), so the grid stays even. */
+const TILE_ICONS: Record<string, string> = {
+  soup: '🥣', stew: '🍲', salad: '🥗', pasta: '🍝', noodles: '🍜', rice: '🍚',
+  curry: '🍛', 'stir-fry': '🥘', sandwich: '🥪', pizza: '🍕', tacos: '🌮',
+  dumplings: '🥟', casserole: '🥘', bread: '🍞', cake: '🍰', cookies: '🍪',
+  pie: '🥧', breakfast: '🍳', appetizers: '🫒', sides: '🥦', desserts: '🍮',
+  snacks: '🥨', drinks: '🍹', sauces: '🫙',
+}
+function tileIcon(tags: string[]): string {
+  for (const tag of tags) if (TILE_ICONS[tag]) return TILE_ICONS[tag]
+  return '🍽️'
+}
+
+/**
+ * One recipe in the kitchen's two-column grid: its photo, its name and how
+ * long it takes — what you pick tonight's dinner by. Everything else (source,
+ * servings, tags) is on the recipe page, and the chips above filter by tag.
+ */
+function RecipeTile({
   recipe,
   canFavorite,
   onToggleFavorite,
@@ -81,83 +100,66 @@ function RecipeCard({
   onToggleFavorite: () => void
 }) {
   // Total time, start to finish — what "how long will this take?" means at a
-  // glance, and the same figure the time filter uses (active time, if that's
-  // all a recipe has).
+  // glance, and the same figure the time filter uses.
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
-  const tags = normalizeTags(recipe.tags)
-  const servings =
-    recipe.yield.amountMax
-      ? `${recipe.yield.amount}–${recipe.yield.amountMax} ${recipe.yield.unit}`
-      : `${recipe.yield.amount} ${recipe.yield.unit}`
 
   return (
     <Link
       to={`/r/${recipe.slug}`}
-      className="block overflow-hidden rounded-2xl border border-line bg-card shadow-sm transition active:scale-[0.99]"
+      className="relative flex flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-sm transition active:scale-[0.98]"
     >
-      {/* The cover, big — it's how people browse a kitchen and pick tonight's
-          dinner. It's the card image stored inline on the recipe, so the list
-          never fetches a photo doc per card and nothing pops in while
-          scrolling. */}
-      {recipe.cover && (
+      {/* The card image stored inline on the recipe, so the list never
+          fetches a photo doc per tile and nothing pops in while scrolling. */}
+      {recipe.cover ? (
         <img
           src={recipe.cover.thumb}
           alt=""
           decoding="async"
-          className="aspect-[3/2] w-full border-b border-line bg-accent-soft object-cover"
+          className="aspect-[4/3] w-full border-b border-line bg-accent-soft object-cover"
         />
+      ) : (
+        <span aria-hidden className="grid aspect-[4/3] w-full place-items-center border-b border-line bg-accent-soft text-4xl">
+          {tileIcon(normalizeTags(recipe.tags))}
+        </span>
       )}
-      <div className="p-4">
-        <div className="flex items-start gap-2">
-          <h2 className="min-w-0 flex-1 font-serif text-lg leading-snug tracking-tight">
-            {recipe.title}
-          </h2>
-          {canFavorite ? (
-            <button
-              type="button"
-              aria-pressed={recipe.favorite}
-              aria-label={recipe.favorite ? `Unfavorite ${recipe.title}` : `Favorite ${recipe.title}`}
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                onToggleFavorite()
-              }}
-              className={`-m-1 grid size-9 shrink-0 place-items-center rounded-full transition active:scale-90 ${
-                recipe.favorite ? 'text-accent' : 'text-ink-faint'
-              }`}
-            >
-              <HeartIcon filled={recipe.favorite} />
-            </button>
-          ) : recipe.favorite ? (
-            <span aria-label="Favorite" className="grid size-9 shrink-0 place-items-center text-accent">
-              <HeartIcon filled />
-            </span>
-          ) : null}
-        </div>
-        {recipe.subtitle && (
-          <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{recipe.subtitle}</p>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
-          {time && <span>{time}</span>}
-          <span>{servings}</span>
-          {recipe.source.name && <span>{recipe.source.name}</span>}
-        </div>
-
-        {tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tags.slice(0, 4).map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+      <div className="flex-1 px-3 pb-3 pt-2">
+        <h3 className="line-clamp-2 font-serif text-base leading-snug tracking-tight">{recipe.title}</h3>
+        {time && <p className="mt-1 text-xs text-ink-faint">{time}</p>}
       </div>
+      {/* The heart sits on the photo's corner, on its own disc so it reads
+          against any picture. */}
+      {canFavorite ? (
+        <button
+          type="button"
+          aria-pressed={recipe.favorite}
+          aria-label={recipe.favorite ? `Unfavorite ${recipe.title}` : `Favorite ${recipe.title}`}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggleFavorite()
+          }}
+          className={`absolute right-1.5 top-1.5 grid size-10 place-items-center rounded-full bg-card shadow-sm transition active:scale-90 ${
+            recipe.favorite ? 'text-accent' : 'text-ink-faint'
+          }`}
+        >
+          <HeartIcon filled={recipe.favorite} className="size-5" />
+        </button>
+      ) : recipe.favorite ? (
+        <span aria-label="Favorite" className="absolute right-1.5 top-1.5 grid size-10 place-items-center rounded-full bg-card text-accent shadow-sm">
+          <HeartIcon filled className="size-5" />
+        </span>
+      ) : null}
     </Link>
+  )
+}
+
+/** A heading between the kitchen's sections, with how many are in it. */
+function SectionHeading({ id, label, count }: { id: string; label: string; count: number }) {
+  return (
+    <h2 id={id} className="mb-2 mt-5 flex items-baseline gap-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+      {label}
+      <span className="font-normal normal-case tracking-normal">{count}</span>
+    </h2>
   )
 }
 
@@ -190,6 +192,9 @@ export default function RecipeListPage() {
           }),
     [searched, maxTime],
   )
+
+  const favorites = results.filter((r) => r.favorite)
+  const rest = results.filter((r) => !r.favorite)
 
   const toggleTag = (tag: string) =>
     setActiveTags((current) =>
@@ -320,16 +325,28 @@ export default function RecipeListPage() {
           <p className="mt-16 text-center text-ink-soft">Nothing matches that.</p>
         )}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {results.map((recipe) => (
-            <RecipeCard
-              key={recipe.id}
-              recipe={recipe}
-              canFavorite={isMember}
-              onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
-            />
-          ))}
-        </div>
+        {/* Favorites first under their own heading, so a long kitchen has a
+            landmark; without any favorites it's just the one grid. */}
+        {[
+          { key: 'favorites', label: 'Favorites', list: favorites },
+          { key: 'rest', label: favorites.length ? 'Everything else' : '', list: rest },
+        ].map(({ key, label, list }) =>
+          list.length === 0 ? null : (
+            <section key={key} aria-labelledby={label ? `${key}-heading` : undefined} className={label ? '' : 'mt-4'}>
+              {label && <SectionHeading id={`${key}-heading`} label={label} count={list.length} />}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {list.map((recipe) => (
+                  <RecipeTile
+                    key={recipe.id}
+                    recipe={recipe}
+                    canFavorite={isMember}
+                    onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
+                  />
+                ))}
+              </div>
+            </section>
+          ),
+        )}
       </main>
       </PullToRefresh>
     </div>
