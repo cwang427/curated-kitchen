@@ -543,9 +543,11 @@ household listing for them — it could return docs they can't read), so
 grocery/session subscriptions and the members-only UI (header cart,
 cook-together, Edit/Delete) are hidden for guests — a member-only
 read would just permission-deny. `test:rules` locks in the member-lists-all /
-friend-lists-only-friends behavior. Recipes created before share-by-default are
-brought in with one tap: **Settings › Guests › "Make N hidden recipes visible
-to guests"** (`shareRecipesWithGuests`, a member batch write).
+friend-lists-only-friends behavior. (Settings › Guests, with its one-tap "Make N
+hidden recipes visible to guests", brought recipes from before share-by-default
+over; it was removed in v0.53.2 — its job was done, the guest invite panel
+already explains what guests see, and the button had become a way to un-hide
+recipes hidden on purpose.)
 
 Role management is **owner-gated**: only the household **owner** (its creator)
 can remove or demote a member or promote a friend; **either member** can remove
@@ -725,7 +727,7 @@ and **share-with-guests-by-default** (recipes default to guest-visible; a member
 can hide one via the editor; guests can view, cook, copy into their own kitchen,
 and add ingredients to their own grocery list, but never edit in place or see the
 kitchen's list — no rules change, since copy/add-to-list act on the guest's
-own kitchen; Settings › Guests one-taps pre-existing recipes into the default),
+own kitchen),
 and recipe import from a link (Add a recipe → **Add from URL** →
 the `worker/` `/url` route fetches the page → `recipeFromJsonLd` reads its
 schema.org JSON-LD → validated by the same `parseRecipe` → editable preview →

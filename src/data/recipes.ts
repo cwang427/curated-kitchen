@@ -10,7 +10,6 @@ import {
   serverTimestamp,
   setDoc,
   where,
-  writeBatch,
   type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -331,26 +330,6 @@ export async function setRecipeFavorite(slug: string, favorite: boolean): Promis
     { favorite, updatedAt: serverTimestamp() },
     { merge: true },
   )
-}
-
-/**
- * Mark several recipes visible to guests (visibility 'friends'). Used by the
- * one-tap "make all recipes visible to guests" action, and to bring pre-existing
- * recipes into the new share-by-default model. A member merge-update keeps
- * householdId, so the rules allow it. Batched (a kitchen is well under 500).
- */
-export async function shareRecipesWithGuests(slugs: string[]): Promise<number> {
-  if (slugs.length === 0) return 0
-  const batch = writeBatch(db)
-  for (const slug of slugs) {
-    batch.set(
-      doc(db, 'recipes', slug),
-      { visibility: 'friends', updatedAt: serverTimestamp() },
-      { merge: true },
-    )
-  }
-  await batch.commit()
-  return slugs.length
 }
 
 /**

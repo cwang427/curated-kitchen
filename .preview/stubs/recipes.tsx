@@ -31,8 +31,7 @@ const COVER_PHOTO =
   encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><defs><radialGradient id="g" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#e8a54b"/><stop offset="1" stop-color="#8a4b1c"/></radialGradient></defs><rect width="100%" height="100%" fill="#5b3a26"/><ellipse cx="300" cy="215" rx="230" ry="150" fill="#d9c3a3"/><ellipse cx="300" cy="200" rx="160" ry="105" fill="url(#g)"/><circle cx="170" cy="310" r="22" fill="#6b8e23"/><circle cx="430" cy="300" r="18" fill="#6b8e23"/></svg>',
   )
-// Members-only, so the guest view hides it and Settings › Guests has something
-// to offer sharing.
+// Members-only, so the guest view hides it.
 const shortRibsRecipe: Recipe = { ...hydrate(shortRibs), visibility: 'household' }
 
 // A light stand-in so the list view has a third card to lay out.
@@ -140,9 +139,6 @@ export async function fetchHouseholdRecipes(householdId: string): Promise<Recipe
   return [{ ...cacioRecipe, id: `${householdId}-copy`, slug: `${slug}-copy`, title: 'Cacio e Pepe', copiedFrom: slug }]
 }
 export async function deleteRecipe(): Promise<void> {}
-export async function shareRecipesWithGuests(slugs: string[]): Promise<number> {
-  return slugs.length
-}
 export async function createRecipeInHousehold(): Promise<string> {
   return 'new-recipe'
 }
