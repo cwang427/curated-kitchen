@@ -10,8 +10,9 @@ import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import HeartIcon from '../components/HeartIcon'
 import CheckIcon from '../components/CheckIcon'
+import StarIcon from '../components/StarIcon'
 import { useKitchenCooked, useMyCooked } from '../data/cooked'
-import { formatScore, kitchenScore, type CookedEntry } from '../lib/ratings'
+import { RATING_MAX, formatScore, kitchenScore, tileScore, type CookedEntry } from '../lib/ratings'
 import type { Recipe } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
 import { kitchenSections } from '../lib/sections'
@@ -112,14 +113,11 @@ function RecipeTile({
   // Total time, start to finish — what "how long will this take?" means at a
   // glance, and the same figure the time filter uses.
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
-  // Scores are just as much what you pick tonight's dinner by. Each says
-  // whose it is in a word — in a shared kitchen a bare "8" could be anyone's,
-  // and a crowd icon by a number reads as a head count.
-  // Made but not scored is "You ✓", so the ✓ on the photo is plainly yours too.
-  const scores = [
-    cooked ? `You ${cooked.rating ?? '✓'}` : null,
-    kitchen !== null ? `Kitchen ${formatScore(kitchen)}` : null,
-  ].filter(Boolean)
+  // One score, "★ 8/10" — just as much what you pick tonight's dinner by:
+  // yours once you've made it (the ✓ on the photo says so), the kitchen's
+  // average until then. The star's colour backs that up: amber for yours,
+  // grey for the kitchen's.
+  const score = tileScore(cooked, kitchen)
 
   return (
     <Link
@@ -142,9 +140,18 @@ function RecipeTile({
       )}
       <div className="flex-1 px-3 pb-3 pt-2">
         <h3 className="line-clamp-2 font-serif text-base leading-snug tracking-tight">{recipe.title}</h3>
-        {time && <p className="mt-1 text-xs text-ink-faint">{time}</p>}
-        {scores.length > 0 && (
-          <p className="mt-0.5 text-xs tabular-nums text-ink-soft">{scores.join(' · ')}</p>
+        {(time || score) && (
+          <p className="mt-1 flex items-center gap-2 text-xs text-ink-faint">
+            {time}
+            {score && (
+              // At the right edge, so the scores line up down the grid.
+              <span className="ml-auto flex shrink-0 items-center gap-0.5 font-medium tabular-nums text-ink-soft">
+                <StarIcon className={`size-3.5 ${score.yours ? 'text-accent' : 'text-ink-faint'}`} />
+                <span className="sr-only">{score.yours ? 'Your score:' : 'Kitchen average:'}</span>
+                {formatScore(score.score)}/{RATING_MAX}
+              </span>
+            )}
+          </p>
         )}
       </div>
       {/* "You've made this" on the photo's other corner from the heart, on

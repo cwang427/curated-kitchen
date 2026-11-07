@@ -632,8 +632,8 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   never "leafs"/"leaveses"), the fixed tag list's normalizing
   ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
   kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
-  score records (reading a profile's `cooked` safely, "made Nov 7", the
-  others line, the kitchen average — `src/lib/ratings.ts`). Run after touching
+  score records (reading a profile's `cooked` safely, the others line, the
+  kitchen average, which score a tile shows — `src/lib/ratings.ts`). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`,
@@ -925,17 +925,20 @@ true})` into `cooked.<slug>` (never a whole-profile write — keep it that way, 
 a profile update would wipe everyone's scores). Records are app-wide listeners
 mounted in `App`: yours (`watchMyCooked` / `useMyCooked`) and everyone else's
 in the active kitchen, members and guests (`watchKitchenCooked` /
-`useKitchenCooked`, one per person). **Every score says whose it is, in a
-word** (the owner asked: in a shared kitchen a bare "8/10" could be anyone's):
-the kitchen tile shows a ✓ badge on the photo's top-left (the heart stays
-top-right) and, under the time, **"You 8 · Kitchen 7.5"** — "You ✓" when made
-but not scored, so the badge reads as yours too. **Kitchen** is
-`kitchenScore`: the average of everyone in the kitchen who scored it, you
-included, shown only once someone *besides* you has (else it would just echo
-yours) — so a recipe you've never made still shows what the kitchen thinks.
-Words, not 👤/👥 icons: an icon of people by a number reads as a head count
-("8 people"); both were screenshotted side by side and words won. The recipe
-page shows a pill under the times ("You made it Nov 4 · 8/10" / "Made it? Rate
+`useKitchenCooked`, one per person). **The kitchen tile shows one score, "★ 8/10"**
+(`tileScore`), right-aligned on the time line so they line up down the grid:
+**yours once you've made it, the kitchen's average until then**; made but not
+scored shows none, so the ✓ badge on the photo's top-left (the heart stays
+top-right) always means "the star is yours" and a star without one is the
+kitchen's. The star is amber for yours, grey for the kitchen's; "/10" stays so
+it plainly reads as a rating. (Tried and dropped at the owner's call: "You 8 ·
+Kitchen 7.5" read as unintuitive; 👤/👥 icons by a number read as a head
+count.) **Kitchen** is `kitchenScore`: the average of everyone in the kitchen
+who scored it, you included, shown only once someone *besides* you has (else
+it would just echo yours). **No dates are shown** — the owner found "made Nov
+4" an irrelevant detail, and odd for something made many times — though
+`madeAt` is still what a plain "made it" writes. The recipe
+page shows a pill under the times ("You made it · 8/10" / "Made it? Rate
 it") that opens **How was it?** (`RateSheet`: ten buttons in two rows of five,
 a tap saves, tapping the lit one clears it; "Mark as made, no score"; "I
 haven't made it — remove the ✓"), and under it "**Kitchen average 7.5/10** ·

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../auth/AuthProvider'
 import { markMade, setMyRating, takeRatePrompt, unmarkMade, useKitchenCooked, useMyCooked } from '../data/cooked'
 import { describeFirestoreError } from '../lib/errors'
-import { RATING_MAX, describeOthers, formatMadeOn, formatScore, kitchenScore, othersWhoMade } from '../lib/ratings'
+import { RATING_MAX, describeOthers, formatScore, kitchenScore, othersWhoMade } from '../lib/ratings'
 import type { Recipe } from '../lib/types'
 import CheckIcon from './CheckIcon'
 
@@ -63,7 +63,7 @@ export function RateSheet({ slug, title, onClose }: { slug: string; title: strin
             <p className="font-medium">{title}</p>
             {entry ? (
               <p className="mt-0.5 flex items-center gap-1 text-sm text-check">
-                <CheckIcon className="size-4" /> You made this{entry.madeAt ? ` ${formatMadeOn(entry.madeAt)}` : ''}
+                <CheckIcon className="size-4" /> You made this
               </p>
             ) : (
               <p className="mt-0.5 text-sm text-ink-soft">Pick a score — that marks it as made too.</p>
@@ -145,7 +145,7 @@ export function RateSheet({ slug, title, onClose }: { slug: string; title: strin
 }
 
 /**
- * Under a recipe's times: your ✓ and score ("You made it Nov 4 · 8/10", or
+ * Under a recipe's times: your ✓ and score ("You made it · 8/10", or
  * "Made it? Rate it") — said as yours, since in a shared kitchen a bare score
  * could be anyone's — then the kitchen's average and who else made it. Each
  * person has their own: a couple can disagree, and a guest can rate what they
@@ -182,8 +182,7 @@ export default function MadeIt({ recipe }: { recipe: Recipe }) {
         <CheckIcon className="size-4" />
         {entry ? (
           <span>
-            You made it{entry.madeAt ? ` ${formatMadeOn(entry.madeAt)}` : ''}
-            {' · '}
+            You made it{' · '}
             {entry.rating !== null ? (
               <span className="tabular-nums">{entry.rating}/{RATING_MAX}</span>
             ) : (

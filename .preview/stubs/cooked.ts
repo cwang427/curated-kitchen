@@ -26,12 +26,14 @@ const OTHERS: Record<string, KitchenPerson> = {
       'roast-chicken': { madeAt: 1, rating: 9 },
       'extra-0': { madeAt: 1, rating: 9 },
       'extra-2': { madeAt: 1, rating: 7 },
+      'extra-9': { madeAt: 1, rating: 7 },
     },
   },
   friend_uid: {
     uid: 'friend_uid',
     name: 'Sam',
-    cooked: { 'cacio-e-pepe': { madeAt: 1, rating: null }, 'extra-0': { madeAt: 1, rating: 8 } },
+    // extra-9 (dumplings, "1 hr 30 min") → the longest line: "★ 7.5/10".
+    cooked: { 'cacio-e-pepe': { madeAt: 1, rating: null }, 'extra-0': { madeAt: 1, rating: 8 }, 'extra-9': { madeAt: 1, rating: 8 } },
   },
 }
 let kitchenUids: string[] = []

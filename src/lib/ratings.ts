@@ -12,7 +12,9 @@ export const RATING_MAX = 10
 
 /** One person's record of one recipe. Being in the map at all means "made it". */
 export interface CookedEntry {
-  /** When they last made it (ms, the phone's clock), if known. */
+  /** When they last made it (ms, the phone's clock), if known. Not shown —
+   * the owner found the date beside a score an irrelevant detail (and odd for
+   * something made many times) — but it's what a plain "made it" writes. */
   madeAt: number | null
   /** Their score, 1–10, or null when they haven't scored it. */
   rating: number | null
@@ -42,27 +44,6 @@ export function parseCooked(raw: unknown): CookedMap {
     }
   }
   return out
-}
-
-/**
- * "today", "yesterday", "Nov 7", or "Nov 7, 2025" when it was another year.
- * Local time, since it's the cook's own day that matters.
- */
-export function formatMadeOn(madeAt: number, now: number = Date.now()): string {
-  const day = (ms: number) => {
-    const d = new Date(ms)
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-  }
-  const days = Math.round((day(now) - day(madeAt)) / 86_400_000)
-  if (days === 0) return 'today'
-  if (days === 1) return 'yesterday'
-  const made = new Date(madeAt)
-  const sameYear = made.getFullYear() === new Date(now).getFullYear()
-  return made.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  })
 }
 
 /** Someone else in the kitchen who has made a recipe. */
@@ -116,4 +97,18 @@ export function kitchenScore(slug: string, mine: CookedEntry | null, people: Kit
 export function formatScore(score: number): string {
   const rounded = Math.round(score * 10) / 10
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
+/**
+ * The one score a kitchen tile shows, as "★ 8/10": yours once you've made it,
+ * the kitchen's average until then. Made it but not scored → none, so the ✓
+ * badge always means "the star is yours" and a star without a ✓ is always
+ * the kitchen's.
+ */
+export function tileScore(
+  mine: CookedEntry | null,
+  kitchen: number | null,
+): { score: number; yours: boolean } | null {
+  if (mine) return mine.rating !== null ? { score: mine.rating, yours: true } : null
+  return kitchen !== null ? { score: kitchen, yours: false } : null
 }

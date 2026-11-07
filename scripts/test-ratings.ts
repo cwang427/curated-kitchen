@@ -1,11 +1,11 @@
 /**
  * Pure-logic tests for "made it" + 1–10 scores (src/lib/ratings.ts): reading
- * a profile's records safely, the "made Nov 7" wording, and the line that
- * says what everyone else gave a recipe.
+ * a profile's records safely, the line that says what everyone else gave a
+ * recipe, the kitchen's average, and the one score a kitchen tile shows.
  *
  *   npm run test:ratings
  */
-import { describeOthers, formatMadeOn, formatScore, isRating, kitchenScore, othersWhoMade, parseCooked, type KitchenPerson } from '../src/lib/ratings'
+import { describeOthers, formatScore, isRating, kitchenScore, othersWhoMade, parseCooked, tileScore, type KitchenPerson } from '../src/lib/ratings'
 
 let passed = 0
 let failed = 0
@@ -30,13 +30,6 @@ eq('scored before a date was known', parseCooked({ chowder: { rating: 6 } }), { 
 eq('junk score → no score, still made', parseCooked({ chowder: { madeAt: 1000, rating: 42 } }), { chowder: { madeAt: 1000, rating: null } })
 eq('junk date → no date', parseCooked({ chowder: { madeAt: 'yesterday', rating: 3 } }), { chowder: { madeAt: null, rating: 3 } })
 eq('a non-object entry is skipped', parseCooked({ chowder: true, brisket: { madeAt: 5 } }), { brisket: { madeAt: 5, rating: null } })
-
-console.log('formatMadeOn')
-const now = new Date(2026, 10, 7, 9, 30).getTime() // Nov 7 2026, 9:30 local
-eq('earlier today', formatMadeOn(new Date(2026, 10, 7, 0, 5).getTime(), now), 'today')
-eq('late last night is yesterday', formatMadeOn(new Date(2026, 10, 6, 23, 50).getTime(), now), 'yesterday')
-eq('this year', formatMadeOn(new Date(2026, 9, 31, 19).getTime(), now), 'Oct 31')
-eq('another year names it', formatMadeOn(new Date(2025, 11, 24, 18).getTime(), now), 'Dec 24, 2025')
 
 console.log('describeOthers')
 const made = (rating: number | null) => ({ madeAt: 1, rating })
@@ -81,6 +74,12 @@ eq('whole', formatScore(8), '8')
 eq('half', formatScore(7.5), '7.5')
 eq('thirds round to one place', formatScore(23 / 3), '7.7')
 eq('rounds up to whole', formatScore(7.96), '8')
+
+console.log('tileScore')
+eq('made + scored → yours, even with a kitchen average', tileScore({ madeAt: 1, rating: 8 }, 6.5), { score: 8, yours: true })
+eq('made, not scored → none (a ✓ means the star is yours)', tileScore({ madeAt: 1, rating: null }, 6.5), null)
+eq("not made → the kitchen's", tileScore(null, 7.5), { score: 7.5, yours: false })
+eq('not made, nobody scored → none', tileScore(null, null), null)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed) process.exit(1)
