@@ -528,7 +528,8 @@ members-only until a member approves it (then it takes the visibility the
 import chose) — guests never see it, with no rules change.
 
 What a guest can do with a shared recipe: **view, cook (solo), copy it into
-their own kitchen, and add its ingredients to their own grocery list** — but
+their own kitchen, add its ingredients to their own grocery list, and mark it
+made / score it 1–10** (their own record, on their own profile) — but
 **not edit it in place** (Edit/Delete stay members-only), and not touch the
 kitchen's own list/session. This needed **no rules change**: copy creates a
 recipe in a kitchen the guest is a *member* of, and add-to-list writes that
@@ -615,11 +616,12 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
-  write, members + guests read).
+  write, members + guests read) and the "made it" + score records on profiles
+  (you write only your own; merges touch only that recipe).
 - `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
   `npm run test:steps` / `npm run test:draft` /
   `npm run test:cook` / `npm run test:ai` / `npm run test:units` /
-  `npm run test:tags` — pure-logic unit tests for the JSON-LD converter, the
+  `npm run test:tags` / `npm run test:ratings` — pure-logic unit tests for the JSON-LD converter, the
   free pasted-text importer (real full-page fixtures under
   `scripts/fixtures/text/`), the grocery merge/aisle logic, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
@@ -629,11 +631,13 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   (`sanitizeAiRecipe`), unit/item pluralization ("bay leaf" → "bay leaves",
   never "leafs"/"leaveses"), the fixed tag list's normalizing
   ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
-  kitchen's course sections (`src/lib/sections.ts`). Run after touching
+  kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
+  score records (reading a profile's `cooked` safely, "made Nov 7", the
+  others line — `src/lib/ratings.ts`). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
-  `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`, or
-  `src/lib/tags.ts`.
+  `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`,
+  `src/lib/tags.ts`, or `src/lib/ratings.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -909,6 +913,33 @@ member approves, edits or deletes it from a pinned bottom bar; the phone gets
 a notification when one's ready, and kitchen timers ring as notifications with
 the app closed (plus a "timers running" note when you leave it) — see Deploy
 tracks › the import Worker.
+And **"made it" + a 1–10 score, per person** (v0.54, asked for by a friend;
+`src/lib/ratings.ts` pure, `src/data/cooked.ts`, `src/components/MadeIt.tsx`):
+each person's own record lives on **their own profile doc** as
+`users/{uid}.cooked.<slug> = { madeAt, rating }` — not on the recipe — so a
+couple can disagree and a **guest can rate what they cook from a kitchen they
+visit**, with **no `firestore.rules` change** (anyone writes their own profile,
+any signed-in user reads one; `test:rules` locks in both, and that each merge
+write touches only that recipe's entry). Writes are always `setDoc(…, {merge:
+true})` into `cooked.<slug>` (never a whole-profile write — keep it that way, or
+a profile update would wipe everyone's scores). Your own records are one
+app-wide listener (`watchMyCooked` in `App`, `useMyCooked`). The kitchen tile
+shows a ✓ badge on the photo's top-left (the heart stays top-right) and **your**
+score after the time ("25 min · 8/10"). The recipe page shows a pill under the
+times ("Made Nov 4 · 8/10" / "Made it? Rate it") that opens **How was it?**
+(`RateSheet`: ten buttons in two rows of five, a tap saves, tapping the lit one
+clears it; "Mark as made, no score"; "I haven't made it — remove the ✓"), and
+under it what everyone else in that kitchen gave it ("Jordan 7/10 · Sam made
+it", live via `useOthersCooked`). Cook mode's **Finish ✓** on the last step
+marks it made and asks the recipe page (where it goes back to) to open the
+sheet (`askToRate` / `takeRatePrompt`) — cook mode itself still leaves at once,
+because staying open after ending a cook-together session would put the dish
+back on the cook board. Ending early (End cooking / End) marks nothing; a
+partner cooking together marks theirs from the recipe page. Copying a recipe
+carries the copier's own ✓ and score to the copy (`carryCooked`). Hidden on an
+import awaiting review, like the favorite. Records for deleted recipes just
+orphan on profiles (tiny). Trade-off of living on profiles: they're readable by
+any signed-in user, not only the kitchen — fine for invite-only accounts.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated

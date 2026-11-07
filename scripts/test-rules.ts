@@ -20,6 +20,7 @@ import {
   collection,
   connectFirestoreEmulator,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -330,6 +331,38 @@ async function main(): Promise<void> {
   await expectDeny('an outsider cannot remove a member', async () => {
     const Z = await asUser('z-mgmt@kitchen.local')
     await updateDoc(doc(Z.db, 'households', hhA), { memberUids: arrayRemove(A.uid) })
+  })
+
+  // "Made it" + 1–10 scores live on each person's own profile
+  // (users/{uid}.cooked.<slug>, src/data/cooked.ts) — no rule of their own:
+  // anyone writes their own profile, any signed-in user reads one. These lock
+  // that in, and check the merge writes touch only the one recipe's entry.
+  console.log('Made it + scores (on your own profile)')
+  await expectAllow('a guest marks a recipe made on their own profile', () =>
+    setDoc(doc(C.db, 'users', C.uid), { cooked: { r2: { madeAt: 1000 } } }, { merge: true }),
+  )
+  await expectAllow('…and scores it (merge keeps the date)', () =>
+    setDoc(doc(C.db, 'users', C.uid), { cooked: { r2: { rating: 8 } } }, { merge: true }),
+  )
+  await expectAllow('…and marks another (merge keeps the first)', () =>
+    setDoc(doc(C.db, 'users', C.uid), { cooked: { r3: { madeAt: 2000, rating: 6 } } }, { merge: true }),
+  )
+  await expectAllow('a kitchen member reads what the guest gave it', async () => {
+    const data = (await getDoc(doc(A.db, 'users', C.uid))).data()
+    const want = JSON.stringify({ r2: { madeAt: 1000, rating: 8 }, r3: { madeAt: 2000, rating: 6 } })
+    // Field by field: Firestore doesn't keep a map's key order.
+    const entry = (slug: string) => ({ madeAt: data?.cooked?.[slug]?.madeAt, rating: data?.cooked?.[slug]?.rating })
+    const got = JSON.stringify({ r2: entry('r2'), r3: entry('r3') })
+    if (got !== want) throw new Error(`records were ${got}`)
+    if (data?.email !== 'c@kitchen.local') throw new Error('the merge lost a profile field')
+  })
+  await expectDeny("nobody can score a recipe on someone else's profile", () =>
+    setDoc(doc(A.db, 'users', C.uid), { cooked: { r2: { rating: 1 } } }, { merge: true }),
+  )
+  await expectAllow('"I haven\u2019t made it" removes just that recipe', async () => {
+    await setDoc(doc(C.db, 'users', C.uid), { cooked: { r2: deleteField() } }, { merge: true })
+    const cooked = (await getDoc(doc(C.db, 'users', C.uid))).data()?.cooked
+    if (cooked?.r2 !== undefined || cooked?.r3?.rating !== 6) throw new Error(`records were ${JSON.stringify(cooked)}`)
   })
 
   await signOut(A.auth)

@@ -9,6 +9,7 @@ import ScaleControl from '../components/ScaleControl'
 import StepList from '../components/StepList'
 import { useAuth } from '../auth/AuthProvider'
 import HeartIcon from '../components/HeartIcon'
+import MadeIt from '../components/MadeIt'
 import { approveRecipe, deleteRecipe, setRecipeFavorite, useRecipe } from '../data/recipes'
 import { showAppNote } from '../data/importQueue'
 import { photoSrc, usePhotoUrls } from '../data/photos'
@@ -213,6 +214,10 @@ export default function RecipePage() {
               )}
             </dl>
           )}
+
+          {/* Your ✓ and 1–10 score, and everyone else's here. Like the
+              favorite, it waits until an import is approved. */}
+          {!inReview && <MadeIt recipe={recipe} />}
         </header>
 
         {recipe.description && (

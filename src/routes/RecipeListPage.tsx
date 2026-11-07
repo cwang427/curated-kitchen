@@ -9,6 +9,9 @@ import { endCookSession, useCookSession } from '../data/cooksession'
 import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import HeartIcon from '../components/HeartIcon'
+import CheckIcon from '../components/CheckIcon'
+import { useMyCooked } from '../data/cooked'
+import { RATING_MAX, type CookedEntry } from '../lib/ratings'
 import type { Recipe } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
 import { kitchenSections } from '../lib/sections'
@@ -92,17 +95,23 @@ function tileIcon(tags: string[]): string {
  */
 function RecipeTile({
   recipe,
+  cooked,
   canFavorite,
   onToggleFavorite,
 }: {
   recipe: Recipe
+  /** Your own ✓ and score for it, if you've made it. */
+  cooked: CookedEntry | null
   /** Members can toggle; guests only see a filled heart when it's a favorite. */
   canFavorite: boolean
   onToggleFavorite: () => void
 }) {
   // Total time, start to finish — what "how long will this take?" means at a
-  // glance, and the same figure the time filter uses.
+  // glance, and the same figure the time filter uses. Then your score, which
+  // is just as much what you pick tonight's dinner by.
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
+  const score = cooked?.rating != null ? `${cooked.rating}/${RATING_MAX}` : null
+  const meta = [time, score].filter(Boolean).join(' · ')
 
   return (
     <Link
@@ -125,8 +134,19 @@ function RecipeTile({
       )}
       <div className="flex-1 px-3 pb-3 pt-2">
         <h3 className="line-clamp-2 font-serif text-base leading-snug tracking-tight">{recipe.title}</h3>
-        {time && <p className="mt-1 text-xs text-ink-faint">{time}</p>}
+        {meta && <p className="mt-1 text-xs tabular-nums text-ink-faint">{meta}</p>}
       </div>
+      {/* "You've made this" on the photo's other corner from the heart, on
+          the same kind of disc so it reads against any picture. */}
+      {cooked && (
+        <span
+          role="img"
+          aria-label="You’ve made this"
+          className="absolute left-2.5 top-2.5 grid size-8 place-items-center rounded-full bg-card text-check shadow-sm"
+        >
+          <CheckIcon className="size-5" />
+        </span>
+      )}
       {/* The heart sits on the photo's corner, on its own disc so it reads
           against any picture. */}
       {canFavorite ? (
@@ -175,6 +195,8 @@ export default function RecipeListPage() {
   const { session } = useCookSession(isMember ? household?.id ?? null : null)
   // Solo cooks in progress on this device (the cook board).
   const board = useCookBoard()
+  // Your own ✓s and scores, for the tiles.
+  const cooked = useMyCooked()
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
@@ -336,6 +358,7 @@ export default function RecipeListPage() {
                   <RecipeTile
                     key={recipe.id}
                     recipe={recipe}
+                    cooked={cooked[recipe.slug] ?? null}
                     canFavorite={isMember}
                     onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
                   />

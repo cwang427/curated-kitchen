@@ -12,6 +12,7 @@ import {
   useCookSession,
 } from '../data/cooksession'
 import { getDish, removeDish, upsertDish, useCookBoard } from '../data/cookBoard'
+import { askToRate, markMade } from '../data/cooked'
 import { photoSrc, usePhotoUrls } from '../data/photos'
 import { timerRangHere } from '../data/notifications'
 import { NotifyNudge } from '../components/ImportQueue'
@@ -549,6 +550,19 @@ export default function CookPage() {
     goUp()
   }
 
+  // Finish ✓ on the last step means you made it: record that (yours — a
+  // partner cooking together marks theirs from the recipe page) and have the
+  // recipe page ask how it was. Ending early (End cooking, End) doesn't.
+  const finishMade = () => {
+    if (user) {
+      markMade(user.uid, recipe.slug).catch(() => {
+        // The recipe page's ✓ shows whether it took; the sheet can retry.
+      })
+      askToRate(recipe.slug)
+    }
+    finish()
+  }
+
   const isFirst = index === 0
   const isLast = index === steps.length - 1
   const activeTimerRunning = displayTimers.some((t) => t.endsAt !== null && !t.done)
@@ -809,7 +823,7 @@ export default function CookPage() {
           {isLast ? (
             <button
               type="button"
-              onClick={finish}
+              onClick={finishMade}
               className="grid h-20 flex-[1.4] place-items-center rounded-2xl bg-check text-xl font-bold text-white transition active:scale-[0.98]"
             >
               {activeTimerRunning ? 'Finish (timers still running)' : 'Finish ✓'}

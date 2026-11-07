@@ -27,6 +27,7 @@ export default defineConfig({
       { find: /^.*\/data\/aiImport$/, replacement: stub("aiImport.ts") },
       { find: /^.*\/data\/urlImport$/, replacement: stub("urlImport.ts") },
       { find: /^.*\/data\/importQueue$/, replacement: stub("importQueue.ts") },
+      { find: /^.*\/data\/cooked$/, replacement: stub("cooked.ts") },
       { find: /^.*\/lib\/aiConfig$/, replacement: stub("aiConfig.ts") },
     ],
   },

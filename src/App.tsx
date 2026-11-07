@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider'
 import SignIn from './auth/SignIn'
@@ -12,6 +13,7 @@ import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 import { HistoryChain } from './components/nav'
 import { ImportRunner } from './components/ImportQueue'
+import { watchMyCooked } from './data/cooked'
 
 function Loading() {
   return (
@@ -27,6 +29,9 @@ export default function App() {
   // handled ahead of the normal routes — before we require a loaded household.
   const [params] = useSearchParams()
   const joinCode = params.get('join')
+  // Your "made it" ✓s and scores, live for every screen (one listener).
+  const uid = user?.uid ?? null
+  useEffect(() => watchMyCooked(uid), [uid])
 
   if (loading) return <Loading />
   if (!user) return <SignIn />

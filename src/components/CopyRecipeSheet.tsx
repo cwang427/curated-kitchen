@@ -3,6 +3,7 @@ import { Link } from './nav'
 import { useAuth } from '../auth/AuthProvider'
 import { copyRecipeToHousehold, fetchHouseholdRecipes, recipeLineage } from '../data/recipes'
 import { fetchHouseholds } from '../data/household'
+import { carryCooked, useMyCooked } from '../data/cooked'
 import { describeFirestoreError } from '../lib/errors'
 import type { Household, Recipe } from '../lib/types'
 
@@ -19,6 +20,7 @@ export default function CopyRecipeSheet({
   onClose: () => void
 }) {
   const { user, profile } = useAuth()
+  const cooked = useMyCooked()
   const [kitchens, setKitchens] = useState<Household[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,7 +86,11 @@ export default function CopyRecipeSheet({
     setBusy(true)
     setError(null)
     try {
-      await copyRecipeToHousehold(recipe, k.id, user.uid)
+      const copySlug = await copyRecipeToHousehold(recipe, k.id, user.uid)
+      // You've still made it: your ✓ and score come along to the copy
+      // (best effort — the copy itself is what matters).
+      const made = cooked[recipe.slug]
+      if (made) carryCooked(user.uid, copySlug, made).catch(() => {})
       setCopiedTo(k.name)
     } catch (cause) {
       setError(describeFirestoreError(cause, 'copy the recipe'))
