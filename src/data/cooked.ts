@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { deleteField, doc, onSnapshot, setDoc, type DocumentData } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import { parseCooked, type CookedEntry, type CookedMap, type OtherCook } from '../lib/ratings'
+import { parseCooked, type CookedEntry, type CookedMap, type KitchenPerson } from '../lib/ratings'
 
 /*
  * "I've made this" + a 1–10 score, per person, kept on their own profile doc
@@ -59,34 +59,50 @@ function nameOf(data: DocumentData | undefined): string {
   return 'Someone'
 }
 
-/**
- * Everyone else in the kitchen who has made this recipe, live (a partner
- * rating it on their phone shows up here at once). A kitchen is a handful of
- * people, so one small listener each is fine.
- */
-export function useOthersCooked(uids: string[], slug: string | null): OtherCook[] {
+// Everyone else in the active kitchen (members and guests) — their records
+// feed the kitchen's score on each tile and the names on a recipe page. Also
+// one app-wide set of listeners, live (a partner scoring something on their
+// phone shows up at once); a kitchen is a handful of people.
+type KitchenSnapshot = { key: string; people: Record<string, KitchenPerson> }
+let kitchen: KitchenSnapshot = { key: '', people: {} }
+const kitchenListeners = new Set<() => void>()
+function publishKitchen(next: KitchenSnapshot): void {
+  kitchen = next
+  for (const listener of kitchenListeners) listener()
+}
+
+/** Keep these people's records live. Returns the unsubscribe. */
+export function watchKitchenCooked(uids: string[]): () => void {
   const key = uids.join(',')
-  const [byUid, setByUid] = useState<Record<string, OtherCook | null>>({})
+  if (kitchen.key !== key) publishKitchen({ key, people: {} })
+  const unsubscribes = uids.map((uid) =>
+    onSnapshot(
+      profileDoc(uid),
+      (snapshot) => {
+        if (kitchen.key !== key) return // switched kitchens meanwhile
+        const data = snapshot.data()
+        publishKitchen({
+          key,
+          people: { ...kitchen.people, [uid]: { uid, name: nameOf(data), cooked: parseCooked(data?.cooked) } },
+        })
+      },
+      // Someone we can't read just doesn't count.
+      () => {},
+    ),
+  )
+  return () => unsubscribes.forEach((unsubscribe) => unsubscribe())
+}
 
+/** Everyone else in the active kitchen, with their records. */
+export function useKitchenCooked(): KitchenPerson[] {
+  const [people, setPeople] = useState(() => Object.values(kitchen.people))
   useEffect(() => {
-    setByUid({})
-    if (!slug || !key) return
-    const unsubscribes = key.split(',').map((uid) =>
-      onSnapshot(
-        profileDoc(uid),
-        (snapshot) => {
-          const data = snapshot.data()
-          const entry = parseCooked(data?.cooked)[slug]
-          setByUid((prev) => ({ ...prev, [uid]: entry ? { uid, name: nameOf(data), entry } : null }))
-        },
-        // Someone we can't read just doesn't show.
-        () => {},
-      ),
-    )
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe())
-  }, [key, slug])
-
-  return Object.values(byUid).filter((o): o is OtherCook => o !== null)
+    const listener = () => setPeople(Object.values(kitchen.people))
+    kitchenListeners.add(listener)
+    listener()
+    return () => void kitchenListeners.delete(listener)
+  }, [])
+  return people
 }
 
 /** Mark a recipe as made today (keeps an existing score). */

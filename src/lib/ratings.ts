@@ -86,3 +86,34 @@ export function describeOthers(others: OtherCook[]): string {
     .map((o) => (o.entry.rating !== null ? `${o.name} ${o.entry.rating}/${RATING_MAX}` : `${o.name} made it`))
     .join(' · ')
 }
+
+/** Someone else in the kitchen, with all their records. */
+export interface KitchenPerson {
+  uid: string
+  name: string
+  cooked: CookedMap
+}
+
+/** The people in `people` who have made this recipe — the recipe page's line. */
+export function othersWhoMade(slug: string, people: KitchenPerson[]): OtherCook[] {
+  return people.flatMap((p) => (p.cooked[slug] ? [{ uid: p.uid, name: p.name, entry: p.cooked[slug] }] : []))
+}
+
+/**
+ * The kitchen's score for a recipe: the average of everyone in it who has
+ * scored it, you included. Null unless someone besides you has scored it —
+ * otherwise it would just repeat your own score under another name.
+ */
+export function kitchenScore(slug: string, mine: CookedEntry | null, people: KitchenPerson[]): number | null {
+  const scores = people.map((p) => p.cooked[slug]?.rating).filter(isRating)
+  if (scores.length === 0) return null
+  const own = mine?.rating
+  if (isRating(own)) scores.push(own)
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length
+}
+
+/** 7.666… → "7.7", 8 → "8": one decimal, and none when it's whole. */
+export function formatScore(score: number): string {
+  const rounded = Math.round(score * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}

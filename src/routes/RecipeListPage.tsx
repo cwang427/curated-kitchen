@@ -10,8 +10,8 @@ import { removeDish, useCookBoard } from '../data/cookBoard'
 import { effectiveTotalMinutes, formatMinutes } from '../lib/quantity'
 import HeartIcon from '../components/HeartIcon'
 import CheckIcon from '../components/CheckIcon'
-import { useMyCooked } from '../data/cooked'
-import { RATING_MAX, type CookedEntry } from '../lib/ratings'
+import { useKitchenCooked, useMyCooked } from '../data/cooked'
+import { formatScore, kitchenScore, type CookedEntry } from '../lib/ratings'
 import type { Recipe } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
 import { kitchenSections } from '../lib/sections'
@@ -96,22 +96,30 @@ function tileIcon(tags: string[]): string {
 function RecipeTile({
   recipe,
   cooked,
+  kitchen,
   canFavorite,
   onToggleFavorite,
 }: {
   recipe: Recipe
   /** Your own ✓ and score for it, if you've made it. */
   cooked: CookedEntry | null
+  /** The kitchen's average score, when someone besides you has scored it. */
+  kitchen: number | null
   /** Members can toggle; guests only see a filled heart when it's a favorite. */
   canFavorite: boolean
   onToggleFavorite: () => void
 }) {
   // Total time, start to finish — what "how long will this take?" means at a
-  // glance, and the same figure the time filter uses. Then your score, which
-  // is just as much what you pick tonight's dinner by.
+  // glance, and the same figure the time filter uses.
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
-  const score = cooked?.rating != null ? `${cooked.rating}/${RATING_MAX}` : null
-  const meta = [time, score].filter(Boolean).join(' · ')
+  // Scores are just as much what you pick tonight's dinner by. Each says
+  // whose it is in a word — in a shared kitchen a bare "8" could be anyone's,
+  // and a crowd icon by a number reads as a head count.
+  // Made but not scored is "You ✓", so the ✓ on the photo is plainly yours too.
+  const scores = [
+    cooked ? `You ${cooked.rating ?? '✓'}` : null,
+    kitchen !== null ? `Kitchen ${formatScore(kitchen)}` : null,
+  ].filter(Boolean)
 
   return (
     <Link
@@ -134,7 +142,10 @@ function RecipeTile({
       )}
       <div className="flex-1 px-3 pb-3 pt-2">
         <h3 className="line-clamp-2 font-serif text-base leading-snug tracking-tight">{recipe.title}</h3>
-        {meta && <p className="mt-1 text-xs tabular-nums text-ink-faint">{meta}</p>}
+        {time && <p className="mt-1 text-xs text-ink-faint">{time}</p>}
+        {scores.length > 0 && (
+          <p className="mt-0.5 text-xs tabular-nums text-ink-soft">{scores.join(' · ')}</p>
+        )}
       </div>
       {/* "You've made this" on the photo's other corner from the heart, on
           the same kind of disc so it reads against any picture. */}
@@ -195,8 +206,9 @@ export default function RecipeListPage() {
   const { session } = useCookSession(isMember ? household?.id ?? null : null)
   // Solo cooks in progress on this device (the cook board).
   const board = useCookBoard()
-  // Your own ✓s and scores, for the tiles.
+  // Your own ✓s and scores, and everyone else's here (the kitchen's average).
   const cooked = useMyCooked()
+  const kitchenCooked = useKitchenCooked()
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
@@ -359,6 +371,7 @@ export default function RecipeListPage() {
                     key={recipe.id}
                     recipe={recipe}
                     cooked={cooked[recipe.slug] ?? null}
+                    kitchen={kitchenScore(recipe.slug, cooked[recipe.slug] ?? null, kitchenCooked)}
                     canFavorite={isMember}
                     onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
                   />

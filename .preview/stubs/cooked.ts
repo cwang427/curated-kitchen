@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { CookedEntry, CookedMap, OtherCook } from '../../src/lib/ratings'
+import type { CookedEntry, CookedMap, KitchenPerson } from '../../src/lib/ratings'
 
 // "Made it" + scores against fixtures, in memory, so the sheet works when
 // tapped. Add ?fresh to start with nothing made.
@@ -14,14 +14,27 @@ let mine: CookedMap = fresh
       'extra-4': { madeAt: Date.now() - 200 * DAY, rating: 10 },
     }
 
-// The preview kitchen's other people (see the AuthProvider stub).
-const OTHERS: Record<string, { name: string; cooked: CookedMap }> = {
+// The preview kitchen's other people (see the AuthProvider stub). Covers each
+// tile case under ?many: only you scored it (extra-4), only others (extra-0),
+// both (extra-2, cacio), and made-not-scored with others' scores (roast).
+const OTHERS: Record<string, KitchenPerson> = {
   partner_uid: {
+    uid: 'partner_uid',
     name: 'Jordan',
-    cooked: { 'cacio-e-pepe': { madeAt: 1, rating: 7 }, 'roast-chicken': { madeAt: 1, rating: 9 } },
+    cooked: {
+      'cacio-e-pepe': { madeAt: 1, rating: 7 },
+      'roast-chicken': { madeAt: 1, rating: 9 },
+      'extra-0': { madeAt: 1, rating: 9 },
+      'extra-2': { madeAt: 1, rating: 7 },
+    },
   },
-  friend_uid: { name: 'Sam', cooked: { 'cacio-e-pepe': { madeAt: 1, rating: null } } },
+  friend_uid: {
+    uid: 'friend_uid',
+    name: 'Sam',
+    cooked: { 'cacio-e-pepe': { madeAt: 1, rating: null }, 'extra-0': { madeAt: 1, rating: 8 } },
+  },
 }
+let kitchenUids: string[] = []
 
 const listeners = new Set<() => void>()
 function publish(next: CookedMap): void {
@@ -30,6 +43,12 @@ function publish(next: CookedMap): void {
 }
 
 export function watchMyCooked(): () => void {
+  return () => {}
+}
+
+export function watchKitchenCooked(uids: string[]): () => void {
+  kitchenUids = uids
+  publish(mine)
   return () => {}
 }
 
@@ -43,12 +62,16 @@ export function useMyCooked(): CookedMap {
   return cooked
 }
 
-export function useOthersCooked(uids: string[], slug: string | null): OtherCook[] {
-  if (!slug) return []
-  return uids.flatMap((uid) => {
-    const entry: CookedEntry | undefined = OTHERS[uid]?.cooked[slug]
-    return entry ? [{ uid, name: OTHERS[uid].name, entry }] : []
-  })
+export function useKitchenCooked(): KitchenPerson[] {
+  const people = () => kitchenUids.flatMap((uid) => (OTHERS[uid] ? [OTHERS[uid]] : []))
+  const [list, setList] = useState(people)
+  useEffect(() => {
+    const listener = () => setList(people())
+    listeners.add(listener)
+    listener()
+    return () => void listeners.delete(listener)
+  }, [])
+  return list
 }
 
 export async function markMade(_uid: string, slug: string): Promise<void> {

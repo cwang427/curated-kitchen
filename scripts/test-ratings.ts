@@ -5,7 +5,7 @@
  *
  *   npm run test:ratings
  */
-import { describeOthers, formatMadeOn, isRating, parseCooked } from '../src/lib/ratings'
+import { describeOthers, formatMadeOn, formatScore, isRating, kitchenScore, othersWhoMade, parseCooked, type KitchenPerson } from '../src/lib/ratings'
 
 let passed = 0
 let failed = 0
@@ -60,6 +60,27 @@ eq(
   ]),
   'Alex 8/10 · Jordan 8/10',
 )
+
+console.log('kitchenScore')
+const people: KitchenPerson[] = [
+  { uid: 'p', name: 'Jordan', cooked: { soup: { madeAt: 1, rating: 7 }, stew: { madeAt: 1, rating: null } } },
+  { uid: 's', name: 'Sam', cooked: { soup: { madeAt: 1, rating: 8 } } },
+]
+eq('nobody else scored it → none (not your own score again)', kitchenScore('stew', { madeAt: 1, rating: 9 }, people), null)
+eq('not made by anyone → none', kitchenScore('pie', null, people), null)
+eq("others' average when you haven't scored it", kitchenScore('soup', null, people), 7.5)
+eq("others' average when you only made it", kitchenScore('soup', { madeAt: 1, rating: null }, people), 7.5)
+eq('your score counts in once others have scored', kitchenScore('soup', { madeAt: 1, rating: 9 }, people), 8)
+
+console.log('othersWhoMade')
+eq('only the people who made it', othersWhoMade('stew', people).map((o) => o.name), ['Jordan'])
+eq('nobody', othersWhoMade('pie', people), [])
+
+console.log('formatScore')
+eq('whole', formatScore(8), '8')
+eq('half', formatScore(7.5), '7.5')
+eq('thirds round to one place', formatScore(23 / 3), '7.7')
+eq('rounds up to whole', formatScore(7.96), '8')
 
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed) process.exit(1)

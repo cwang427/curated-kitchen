@@ -633,7 +633,7 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
   kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
   score records (reading a profile's `cooked` safely, "made Nov 7", the
-  others line — `src/lib/ratings.ts`). Run after touching
+  others line, the kitchen average — `src/lib/ratings.ts`). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`,
@@ -922,15 +922,25 @@ visit**, with **no `firestore.rules` change** (anyone writes their own profile,
 any signed-in user reads one; `test:rules` locks in both, and that each merge
 write touches only that recipe's entry). Writes are always `setDoc(…, {merge:
 true})` into `cooked.<slug>` (never a whole-profile write — keep it that way, or
-a profile update would wipe everyone's scores). Your own records are one
-app-wide listener (`watchMyCooked` in `App`, `useMyCooked`). The kitchen tile
-shows a ✓ badge on the photo's top-left (the heart stays top-right) and **your**
-score after the time ("25 min · 8/10"). The recipe page shows a pill under the
-times ("Made Nov 4 · 8/10" / "Made it? Rate it") that opens **How was it?**
-(`RateSheet`: ten buttons in two rows of five, a tap saves, tapping the lit one
-clears it; "Mark as made, no score"; "I haven't made it — remove the ✓"), and
-under it what everyone else in that kitchen gave it ("Jordan 7/10 · Sam made
-it", live via `useOthersCooked`). Cook mode's **Finish ✓** on the last step
+a profile update would wipe everyone's scores). Records are app-wide listeners
+mounted in `App`: yours (`watchMyCooked` / `useMyCooked`) and everyone else's
+in the active kitchen, members and guests (`watchKitchenCooked` /
+`useKitchenCooked`, one per person). **Every score says whose it is, in a
+word** (the owner asked: in a shared kitchen a bare "8/10" could be anyone's):
+the kitchen tile shows a ✓ badge on the photo's top-left (the heart stays
+top-right) and, under the time, **"You 8 · Kitchen 7.5"** — "You ✓" when made
+but not scored, so the badge reads as yours too. **Kitchen** is
+`kitchenScore`: the average of everyone in the kitchen who scored it, you
+included, shown only once someone *besides* you has (else it would just echo
+yours) — so a recipe you've never made still shows what the kitchen thinks.
+Words, not 👤/👥 icons: an icon of people by a number reads as a head count
+("8 people"); both were screenshotted side by side and words won. The recipe
+page shows a pill under the times ("You made it Nov 4 · 8/10" / "Made it? Rate
+it") that opens **How was it?** (`RateSheet`: ten buttons in two rows of five,
+a tap saves, tapping the lit one clears it; "Mark as made, no score"; "I
+haven't made it — remove the ✓"), and under it "**Kitchen average 7.5/10** ·
+Jordan 7/10 · Sam made it" (`othersWhoMade` + `describeOthers`). Cook mode's
+**Finish ✓** on the last step
 marks it made and asks the recipe page (where it goes back to) to open the
 sheet (`askToRate` / `takeRatePrompt`) — cook mode itself still leaves at once,
 because staying open after ending a cook-together session would put the dish

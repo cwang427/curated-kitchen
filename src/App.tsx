@@ -13,7 +13,7 @@ import SettingsPage from './routes/SettingsPage'
 import JoinPage from './routes/JoinPage'
 import { HistoryChain } from './components/nav'
 import { ImportRunner } from './components/ImportQueue'
-import { watchMyCooked } from './data/cooked'
+import { watchKitchenCooked, watchMyCooked } from './data/cooked'
 
 function Loading() {
   return (
@@ -29,9 +29,14 @@ export default function App() {
   // handled ahead of the normal routes — before we require a loaded household.
   const [params] = useSearchParams()
   const joinCode = params.get('join')
-  // Your "made it" ✓s and scores, live for every screen (one listener).
+  // "Made it" ✓s and scores, live for every screen: yours, and everyone
+  // else's in the active kitchen (for its scores).
   const uid = user?.uid ?? null
   useEffect(() => watchMyCooked(uid), [uid])
+  const othersKey = household
+    ? [...household.memberUids, ...household.friendUids].filter((other) => other !== uid).join(',')
+    : ''
+  useEffect(() => watchKitchenCooked(othersKey ? othersKey.split(',') : []), [othersKey])
 
   if (loading) return <Loading />
   if (!user) return <SignIn />

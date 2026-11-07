@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../auth/AuthProvider'
-import { markMade, setMyRating, takeRatePrompt, unmarkMade, useMyCooked, useOthersCooked } from '../data/cooked'
+import { markMade, setMyRating, takeRatePrompt, unmarkMade, useKitchenCooked, useMyCooked } from '../data/cooked'
 import { describeFirestoreError } from '../lib/errors'
-import { RATING_MAX, describeOthers, formatMadeOn } from '../lib/ratings'
+import { RATING_MAX, describeOthers, formatMadeOn, formatScore, kitchenScore, othersWhoMade } from '../lib/ratings'
 import type { Recipe } from '../lib/types'
 import CheckIcon from './CheckIcon'
 
@@ -145,21 +145,22 @@ export function RateSheet({ slug, title, onClose }: { slug: string; title: strin
 }
 
 /**
- * Under a recipe's times: your ✓ and score ("Made Nov 7 · 8/10", or "Made it?
- * Rate it"), and what everyone else in this kitchen gave it. Each person has
- * their own — a couple can disagree, and a guest can rate what they cook from
- * a kitchen they visit.
+ * Under a recipe's times: your ✓ and score ("You made it Nov 4 · 8/10", or
+ * "Made it? Rate it") — said as yours, since in a shared kitchen a bare score
+ * could be anyone's — then the kitchen's average and who else made it. Each
+ * person has their own: a couple can disagree, and a guest can rate what they
+ * cook from a kitchen they visit.
  */
 export default function MadeIt({ recipe }: { recipe: Recipe }) {
   const { user, household } = useAuth()
   const entry = useMyCooked()[recipe.slug] ?? null
+  const kitchen = useKitchenCooked()
   const [rating, setRating] = useState(false)
-  // Everyone in the kitchen this recipe belongs to (members and guests), but you.
-  const people =
-    household && recipe.householdId === household.id
-      ? [...household.memberUids, ...household.friendUids].filter((uid) => uid !== user?.uid)
-      : []
-  const others = useOthersCooked(people, recipe.slug)
+  // The kitchen's people are the active kitchen's; a recipe opened from
+  // another kitchen (by link) shows just yours.
+  const here = !!household && recipe.householdId === household.id
+  const others = here ? othersWhoMade(recipe.slug, kitchen) : []
+  const average = here ? kitchenScore(recipe.slug, entry, kitchen) : null
 
   // Cook mode's Finish ✓ lands here asking how it was. In an effect, not a
   // state initializer, so React's dev-mode double render can't swallow it.
@@ -181,7 +182,7 @@ export default function MadeIt({ recipe }: { recipe: Recipe }) {
         <CheckIcon className="size-4" />
         {entry ? (
           <span>
-            Made{entry.madeAt ? ` ${formatMadeOn(entry.madeAt)}` : ' it'}
+            You made it{entry.madeAt ? ` ${formatMadeOn(entry.madeAt)}` : ''}
             {' · '}
             {entry.rating !== null ? (
               <span className="tabular-nums">{entry.rating}/{RATING_MAX}</span>
@@ -193,7 +194,17 @@ export default function MadeIt({ recipe }: { recipe: Recipe }) {
           <span>Made it? Rate it</span>
         )}
       </button>
-      {others.length > 0 && <p className="mt-1.5 text-sm text-ink-faint">{describeOthers(others)}</p>}
+      {others.length > 0 && (
+        <p className="mt-1.5 text-sm text-ink-faint">
+          {average !== null && (
+            <>
+              <span className="font-medium text-ink-soft">Kitchen average {formatScore(average)}/{RATING_MAX}</span>
+              {' · '}
+            </>
+          )}
+          {describeOthers(others)}
+        </p>
+      )}
       {rating && <RateSheet slug={recipe.slug} title={recipe.title} onClose={() => setRating(false)} />}
     </div>
   )
