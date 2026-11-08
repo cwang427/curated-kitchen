@@ -437,3 +437,14 @@ export function splitStepText(text: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
 }
+
+/**
+ * The recipe says this ingredient is split across steps — "8 tbsp butter,
+ * divided". A step's chips show an ingredient's whole amount while the step's
+ * own text says the part it uses ("{{4 tbsp}} of the butter"), so the chip
+ * says "divided" too. Only when the recipe says so: an ingredient merely
+ * mentioned again in a later step ("toss with the cooked farro") isn't divided.
+ */
+export function isDivided(ingredient: { prep: string | null; note: string | null }): boolean {
+  return /\bdivided\b/i.test(`${ingredient.prep ?? ''} ${ingredient.note ?? ''}`)
+}

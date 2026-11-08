@@ -106,15 +106,28 @@ function temperature(v: unknown): Obj | undefined {
   return { value: v.value, unit, mode: MODES.includes(v.mode as string) ? v.mode : undefined }
 }
 
-function step(v: unknown, canonicals: Map<string, number>): Obj | null {
+function step(v: unknown, canonicals: Map<string, number>, ingredientIds: string[]): Obj | null {
   if (!isObj(v)) return null
   const brief = strList(v.brief).map(repairTokens).filter((l) => l.trim())
   // A step that only came back as bullets still keeps its instruction, since
   // `text` must be the complete prose.
   const text = str(v.text) ?? (brief.length ? brief.map((l) => (/[.!?]$/.test(l) ? l : `${l}.`)).join(' ') : undefined)
   if (!text) return null
-  // Keep only links that name exactly one ingredient; parseRecipe rejects the rest.
-  const uses = strList(v.uses).filter((u) => canonicals.get(u) === 1)
+  // Which ingredients this step uses — what cook mode's "what you need" list
+  // and the recipe page's chips are built from. The model names them by
+  // position in the ingredient list (0.56): unambiguous even when two share a
+  // name, like olive oil for the dressing and for the pan. An older Worker
+  // sent names instead; keep only those that match exactly one ingredient
+  // (parseRecipe rejects the rest).
+  const byPosition = Array.isArray(v.ingredients)
+    ? v.ingredients
+        .filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0)
+        .map((n) => ingredientIds[n])
+        // Out of range, or a line that was dropped as unusable.
+        .filter((id): id is string => typeof id === 'string')
+    : []
+  const byName = strList(v.uses).filter((u) => canonicals.get(u) === 1)
+  const uses = [...new Set([...byPosition, ...byName])]
   return {
     text: repairTokens(text),
     brief: brief.length ? brief : undefined,
@@ -137,16 +150,27 @@ export class AiRecipeError extends Error {}
 export function sanitizeAiRecipe(raw: unknown): Obj {
   if (!isObj(raw)) throw new AiRecipeError('The AI didn’t return a recipe.')
 
-  const ingredients = (Array.isArray(raw.ingredients) ? raw.ingredients : [])
-    .map(ingredient)
-    .filter((i): i is Obj => i !== null)
+  // Positions are counted in the list as the model sent it, so map each one
+  // before dropping unusable lines (a skipped line mustn't shift the rest).
+  const rawIngredients = Array.isArray(raw.ingredients) ? raw.ingredients : []
+  const kept = rawIngredients.map(ingredient)
   const canonicals = new Map<string, number>()
-  for (const i of ingredients) {
+  const usedIds = new Set<string>()
+  const idAt: string[] = []
+  kept.forEach((i, n) => {
+    if (!i) return
     const c = (i.canonical as string | undefined) ?? slugifyIngredient(i.item as string)
     canonicals.set(c, (canonicals.get(c) ?? 0) + 1)
-  }
+    // An explicit id, so a step can point at one of two same-named ingredients.
+    // The same scheme parseRecipe uses on its own: the name, numbered if taken.
+    const id = usedIds.has(c) ? `${c}_${n}` : c
+    usedIds.add(id)
+    i.id = id
+    idAt[n] = id
+  })
+  const ingredients = kept.filter((i): i is Obj => i !== null)
   const steps = (Array.isArray(raw.steps) ? raw.steps : [])
-    .map((s) => step(s, canonicals))
+    .map((s) => step(s, canonicals, idAt))
     .filter((s): s is Obj => s !== null)
 
   if (!ingredients.length && !steps.length) {

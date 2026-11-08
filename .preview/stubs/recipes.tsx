@@ -1,4 +1,5 @@
 import { parseRecipe } from '../../src/lib/recipeSchema'
+import { sanitizeAiRecipe } from '../../src/lib/aiRecipe'
 import type { Recipe } from '../../src/lib/types'
 import cacio from '../../recipes/cacio-e-pepe.json'
 import shortRibs from '../../recipes/braised-chinese-short-ribs.json'
@@ -82,7 +83,41 @@ const MANY: Recipe[] = typeof location !== 'undefined' && location.search.includ
     }))
   : []
 
-const ALL = [cacioRecipe, shortRibsRecipe, roast, ...MANY]
+// What an AI import looks like from 0.56: components under their own
+// headings, every step's ingredients linked, amounts written into each step,
+// and a divided ingredient. Run through the same tidy-up as a real import.
+const grainBowl: Recipe = {
+  ...hydrate({
+    ...sanitizeAiRecipe({
+      title: 'Farro Bowl with Lemon Vinaigrette',
+      yield: { amount: 4, unit: 'servings' },
+      times: { prepMin: 15, cookMin: 30, totalMin: 45 },
+      ingredients: [
+        { quantity: 1, unit: 'cup', item: 'farro', category: 'pantry' },
+        { quantity: 4, unit: 'tbsp', item: 'butter', prep: 'divided', category: 'dairy' },
+        { quantity: 1, unit: 'head', item: 'broccoli', prep: 'cut into florets', category: 'produce' },
+        { quantity: 1, unit: 'tbsp', item: 'olive oil', category: 'pantry' },
+        { item: 'kosher salt', note: 'to taste', scalable: false, category: 'spices' },
+        { quantity: 3, unit: 'tbsp', item: 'olive oil', category: 'pantry', group: 'For the vinaigrette' },
+        { quantity: 2, unit: 'tbsp', item: 'lemon juice', category: 'produce', group: 'For the vinaigrette' },
+        { quantity: 1, unit: 'tsp', item: 'Dijon mustard', category: 'condiments', group: 'For the vinaigrette' },
+        { quantity: 2, unit: 'oz', item: 'feta', prep: 'crumbled', category: 'dairy', group: 'For the garnish' },
+        { quantity: 2, unit: 'tbsp', item: 'parsley', prep: 'chopped', category: 'produce', group: 'For the garnish' },
+      ],
+      steps: [
+        { text: 'Simmer {{1 cup}} farro in well-salted water until tender, about 25 minutes. Drain and toss with {{2 tbsp}} of the butter.', ingredients: [0, 1, 4] },
+        { text: 'Toss {{1 head}} broccoli with {{1 tbsp}} olive oil and roast at 425°F until charred, about 20 minutes.', ingredients: [2, 3] },
+        { text: 'Whisk {{3 tbsp}} olive oil, {{2 tbsp}} lemon juice and {{1 tsp}} Dijon mustard with a pinch of salt.', ingredients: [5, 6, 7, 4] },
+        { text: 'Brown the remaining {{2 tbsp}} butter, toss with the farro and broccoli, dress, and top with {{2 oz}} feta and {{2 tbsp}} parsley.', ingredients: [1, 8, 9] },
+      ],
+      groups: ['For the vinaigrette', 'For the garnish'],
+    }),
+    slug: 'farro-bowl',
+  }),
+  visibility: 'friends',
+}
+
+const ALL = [cacioRecipe, shortRibsRecipe, roast, grainBowl, ...MANY]
 
 // Imports awaiting review (Add a recipe's list, and /review/:slug).
 const chowder: Recipe = {

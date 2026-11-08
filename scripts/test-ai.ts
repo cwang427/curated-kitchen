@@ -108,5 +108,44 @@ check('no ingredients or steps throws AiRecipeError',
   (() => { try { sanitizeAiRecipe({ title: 'x', ingredients: [], steps: [] }); return false } catch (e) { return e instanceof AiRecipeError } })())
 check('non-object throws', throws(() => sanitizeAiRecipe(null)))
 
+// 0.56: the model names each step's ingredients by POSITION in its list, and
+// can put ingredients under component headings. Two olive oils (the pan's
+// and the vinaigrette's) must stay apart; a dropped line mustn't shift the
+// positions after it; junk positions are ignored.
+console.log('step ingredients by position, and components')
+const grainBowl = {
+  title: 'Grain bowl with lemon vinaigrette',
+  ingredients: [
+    { quantity: 1, unit: 'cup', item: 'farro', category: 'pantry' },
+    { quantity: 1, unit: 'tbsp', item: 'olive oil', category: 'pantry' },
+    { quantity: 1, unit: 'head', item: 'broccoli', category: 'produce' },
+    { item: '', category: 'other' }, // unusable: dropped
+    { quantity: 3, unit: 'tbsp', item: 'olive oil', category: 'pantry', group: 'For the vinaigrette' },
+    { quantity: 2, unit: 'tbsp', item: 'lemon juice', category: 'produce', group: 'For the vinaigrette' },
+    { item: 'salt', category: 'spices', scalable: false },
+  ],
+  steps: [
+    { text: 'Roast {{1 head}} broccoli with {{1 tbsp}} olive oil.', ingredients: [2, 1] },
+    { text: 'Whisk {{3 tbsp}} olive oil with {{2 tbsp}} lemon juice.', ingredients: [4, 5, 3, 99, -1, 1.5, 4] },
+    { text: 'Toss everything with the farro and salt to taste.', ingredients: [6], uses: ['farro'] },
+  ],
+  groups: ['For the vinaigrette'],
+}
+const bowl = sanitizeAiRecipe(grainBowl) as { groups: string[] }
+eq('components declared in order', bowl.groups, ['For the vinaigrette'])
+check('validates with links into both olive oils', !throws(() => parseRecipe({ ...bowl, slug: 'bowl' })))
+const { recipe: bowlRecipe } = parseRecipe({ ...bowl, slug: 'bowl' })
+const uses = (n: number) =>
+  bowlRecipe.steps[n].ingredientIds.map((id) => {
+    const i = bowlRecipe.ingredients.find((x) => x.id === id)!
+    return `${i.quantity ?? ''} ${i.item}${i.group ? ` [${i.group}]` : ''}`.trim()
+  })
+eq('step 1: the pan’s oil, not the dressing’s', uses(0), ['1 broccoli', '1 olive oil'])
+eq('step 2: the dressing’s oil; dropped, out-of-range, negative, fractional and repeated positions ignored', uses(1), ['3 olive oil [For the vinaigrette]', '2 lemon juice [For the vinaigrette]'])
+eq('step 3: by position, plus an older Worker’s name link', uses(2), ['salt', '1 farro'])
+eq('the dressing’s ingredients carry their component', bowlRecipe.ingredients.filter((i) => i.group).map((i) => i.item), ['olive oil', 'lemon juice'])
+eq('a component used but not declared is declared for it', (sanitizeAiRecipe({ ...grainBowl, groups: [] }) as { groups: string[] }).groups, ['For the vinaigrette'])
+check('no positions at all is fine (older Worker)', !throws(() => parseRecipe({ ...sanitizeAiRecipe({ ...grainBowl, steps: [{ text: 'Cook it all.' }] }), slug: 'b2' })))
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

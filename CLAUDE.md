@@ -37,7 +37,14 @@ confusion:
   any commit that changes `firestore.rules`, the owner must re-publish them:
   **Firebase console → Firestore Database → Rules → paste → Publish** (or
   `npm run deploy:rules` from a computer). **Whenever a change touches
-  `firestore.rules`, tell the owner to re-publish, every time.**
+  `firestore.rules`, tell the owner to re-publish, every time.** To confirm a
+  re-publish took: **Actions › Check Firestore rules › Run workflow**
+  (`.github/workflows/check-rules.yml` → `npm run check:rules`,
+  `scripts/check-rules.ts`): it reads the LIVE rules with the backup's
+  service account and compares them with the branch's `firestore.rules`
+  (ignoring line endings / trailing spaces) — green when they match, red with
+  where they differ. It also runs on a push that changes the check itself;
+  Claude can trigger it and read its log via the GitHub tools.
 - **Step photos → live in Firestore now (NO Storage, no billing).** Step photos
   are compressed in-browser to JPEG data URLs and stored as documents in the
   `photos` Firestore collection (`src/data/photos.ts`) — `Step.images` holds the
@@ -509,6 +516,9 @@ Rules of thumb, already enforced — keep them:
   (`6 tsp`→`2 tbsp`) when the conversion is exact.
 - Parenthetical measurements are structured (`alt`) so they scale; amounts in
   step prose scale via `{{ }}` tokens. Times/temperatures stay plain text.
+  Since v0.56 AI imports write **every** ingredient a step uses with its amount
+  as a token (a friend's ask: never look back at the list), the part that step
+  uses for a divided one — so step text is the source's wording plus amounts.
 - Every recipe has `schemaVersion`; bump it and migrate deliberately.
 - A step may carry an optional `brief`: a concise, one-action-per-line version
   shown in **cook mode** (the recipe reader always shows the full `text`). When
@@ -637,7 +647,9 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
   score records (reading a profile's `cooked` safely, the others line, the
   kitchen average, which score a tile shows — `src/lib/ratings.ts`), and
-  feedback's phone label and copy-for-Claude block (`src/lib/feedback.ts`). Run after touching
+  feedback's phone label and copy-for-Claude block (`src/lib/feedback.ts`);
+  `test:ai` also covers step links by position and components, `test:draft`
+  the editor's sections, `test:steps` the "divided" rule. Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`,
@@ -983,6 +995,40 @@ records `deviceLabel` ("iPhone · iOS 18.2 · Home Screen app"; an iPad posing
 as a Mac is told apart by its touchscreen) and the build ("0.55.0 (9c6261e)").
 Not done (ideas): a push notification to the owner (needs the Worker to know
 the owner — a redeploy), and letting friends see their own past messages.
+And **ingredient sections + an amount on every ingredient in every step**
+(v0.56, two friends' feedback). The data always had them — `Ingredient.group`
+/ `Recipe.groups` (the recipe page shows "FOR THE VINAIGRETTE" headings) and
+`Step.ingredientIds` (the step's chips and cook mode's "What you need — tap as
+you go" checklist, both with amounts) — but **AI imports never asked for
+either**, so imported recipes had no sections, no chips and an empty cook-mode
+checklist, and step prose kept the source's "add the garlic". The Worker's
+schema now asks for `ingredients[].group` + top-level `groups` (the source's
+own headings; or, for a recipe with ~8+ ingredients and clearly separate
+parts — sauce, dressing, marinade, filling, topping, garnish — plain
+"For the sauce"-style headings on just those parts; else none), and
+`steps[].ingredients`: **0-based positions** in the ingredient list of what
+the cook measures out or reaches for in that step (not something an earlier
+step made and that's simply combined again). Positions, not names, because
+with sections two ingredients often share one ("olive oil" for the pan and
+for the vinaigrette): `sanitizeAiRecipe` gives each ingredient an explicit id
+(its canonical name, numbered if taken — the scheme parseRecipe uses) and
+maps positions → `uses` ids, counting positions in the list as sent (a
+dropped junk line can't shift the rest); an older Worker's name-based `uses`
+still works (`test:ai`). And the prompt now has the model write every used
+ingredient's amount into `text` and `brief` as a `{{ }}` token, the part this
+step uses for a divided one ("half the butter" → `{{4 tbsp}}`), keeping the
+source's wording otherwise; to-taste ingredients stay as written, a
+non-scaling amount stays plain text, and an unclear portion is left without
+an amount rather than guessed. A step's chip shows the ingredient's whole
+amount, so when **the recipe itself says "divided"** (`isDivided`: prep or
+note) the chip says "8 tbsp butter, divided" (cook mode's checklist already
+shows the prep). Not by counting steps: an ingredient merely mentioned again
+isn't divided, and hand-linked recipes link the same item to several steps.
+**Editor**: each ingredient has a **Section** field (suggests the recipe's
+sections, `<datalist>`); `sectionsInUse` derives `groups` on save — existing
+order first, then new ones as first typed, unused dropped — since parseRecipe
+refuses an undeclared section (`test:draft`). Recipes imported before 0.56 are
+unchanged until edited or re-imported. Worker change → the owner redeploys it.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated

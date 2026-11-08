@@ -33,6 +33,7 @@ export interface DraftIngredient {
   // Passthrough (not edited in the form yet).
   alt: Ingredient['alt']
   itemPlural: string | null
+  /** Its section, e.g. "For the sauce" — the editor's "Section" field. */
   group: string | null
 }
 
@@ -205,6 +206,22 @@ function orUndef(s: string): string | undefined {
  * exist, so deleting an ingredient can't leave a dangling link that fails
  * validation.
  */
+/**
+ * The recipe's sections ("For the sauce", "For the garnish"), as typed on its
+ * ingredients in the editor: the ones it already had, in their order, then
+ * any new ones in the order they first appear. A section nothing uses any
+ * more is dropped — parseRecipe refuses a line whose section isn't listed,
+ * so this list must cover every one in use.
+ */
+export function sectionsInUse(draft: RecipeDraft): string[] {
+  const used = [
+    ...draft.ingredients.map((i) => i.group?.trim()),
+    ...draft.steps.map((s) => s.group?.trim()),
+  ].filter((g): g is string => !!g)
+  const inUse = new Set(used)
+  return [...new Set([...draft.groups.filter((g) => inUse.has(g)), ...used])]
+}
+
 export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
   const ids = new Set(draft.ingredients.map((i) => i.id))
   return {
@@ -239,7 +256,7 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
       optional: i.optional,
       scalable: i.scalable,
       category: i.category,
-      group: i.group ?? undefined,
+      group: i.group?.trim() || undefined,
       alt: i.alt ?? undefined,
     })),
     steps: draft.steps.map((s) => {
@@ -256,7 +273,7 @@ export function draftToInput(draft: RecipeDraft): Record<string, unknown> {
         handsOff: s.handsOff ?? undefined,
       }
     }),
-    groups: draft.groups,
+    groups: sectionsInUse(draft),
     // Saved tags are always from the fixed list; an old recipe's other tags
     // (the editor lists them) are dropped here.
     tags: normalizeTags(commaList(draft.tags)),

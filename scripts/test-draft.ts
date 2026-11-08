@@ -4,7 +4,7 @@
  *
  *   npm run test:draft
  */
-import { parseAmount, seedToDraft, draftToInput, blankDraft } from '../src/lib/recipeDraft'
+import { parseAmount, seedToDraft, draftToInput, blankDraft, sectionsInUse } from '../src/lib/recipeDraft'
 import { parseRecipe } from '../src/lib/recipeSchema'
 import cacio from '../recipes/cacio-e-pepe.json'
 
@@ -107,6 +107,26 @@ console.log('\ntags: only the fixed list is saved')
   eq('old tags normalized on save', parseRecipe({ ...draftToInput(d), slug: 'cacio-tags' }).recipe.tags, ['mains', 'italian', 'vegetarian'])
   const picked = seedToDraft({ ...seed, tags: ['pasta', 'italian'] })
   eq('allowed tags round-trip in display order', parseRecipe({ ...draftToInput(picked), slug: 'cacio-tags2' }).recipe.tags, ['italian', 'pasta'])
+}
+
+// Sections (0.56): typed on each ingredient in the editor; the recipe's list
+// of them is worked out on save, or parseRecipe refuses an undeclared one.
+console.log('ingredient sections')
+{
+  const base = seedToDraft(parseRecipe(cacio).recipe)
+  const withSections = (groups: Array<string | null>, declared: string[] = []) => ({
+    ...base,
+    groups: declared,
+    ingredients: base.ingredients.map((ing, n) => ({ ...ing, group: groups[n] ?? null })),
+  })
+  const typed = withSections(['For the sauce ', 'For the sauce', null, ' For the garnish'])
+  eq('sections in the order first typed, spaces trimmed', sectionsInUse(typed), ['For the sauce', 'For the garnish'])
+  const saved = parseRecipe({ ...draftToInput(typed), slug: 'cacio-sections' } as never).recipe
+  eq('saves and validates with its sections', saved.groups, ['For the sauce', 'For the garnish'])
+  eq('each ingredient keeps its (trimmed) section', saved.ingredients.slice(0, 4).map((i) => i.group), ['For the sauce', 'For the sauce', null, 'For the garnish'])
+  eq('a recipe’s existing order wins over typing order', sectionsInUse(withSections(['For the sauce', 'For the pasta'], ['For the pasta', 'For the sauce'])), ['For the pasta', 'For the sauce'])
+  eq('a section nothing uses any more is dropped', sectionsInUse(withSections([null, null], ['For the sauce'])), [])
+  eq('no sections → none', sectionsInUse(base), [])
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

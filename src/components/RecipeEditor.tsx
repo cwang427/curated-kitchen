@@ -10,6 +10,7 @@ import {
   blankIngredient,
   blankStep,
   draftToInput,
+  sectionsInUse,
   seedToDraft,
   blankDraft,
   type DraftIngredient,
@@ -378,6 +379,18 @@ export default function RecipeEditor({
               </select>
             </div>
             <input className={input} value={ing.prep} onChange={(e) => patchIng(i, { prep: e.target.value })} placeholder="Prep, e.g. finely diced (optional)" />
+            {/* Sections list a recipe's parts under their own headings ("For
+                the sauce") — the recipe page groups them. Suggests the
+                sections already used, so a tap keeps the wording identical. */}
+            <input
+              className={input}
+              list="ingredient-sections"
+              value={ing.group ?? ''}
+              onChange={(e) => patchIng(i, { group: e.target.value === '' ? null : e.target.value })}
+              placeholder="Section, e.g. For the sauce (optional)"
+              aria-label="Section"
+              autoCapitalize="sentences"
+            />
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <div className="flex gap-4 text-sm text-ink-soft">
                 <label className="flex items-center gap-1.5"><input type="checkbox" className="size-4 accent-[var(--accent)]" checked={ing.scalable} onChange={(e) => patchIng(i, { scalable: e.target.checked })} /> scales</label>
@@ -392,6 +405,11 @@ export default function RecipeEditor({
             </div>
           </div>
         ))}
+        <datalist id="ingredient-sections">
+          {sectionsInUse(draft).map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
         <button
           type="button"
           onClick={() => set({ ingredients: [...draft.ingredients, blankIngredient()] })}

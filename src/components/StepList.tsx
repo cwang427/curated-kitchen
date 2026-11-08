@@ -1,4 +1,4 @@
-import { formatIngredient, formatStepQuantity, parseStepText } from '../lib/quantity'
+import { formatIngredient, formatStepQuantity, isDivided, parseStepText } from '../lib/quantity'
 import { photoSrc, usePhotoUrls } from '../data/photos'
 import { PhotoStrip } from './PhotoViewer'
 import type { Ingredient, Step } from '../lib/types'
@@ -89,6 +89,8 @@ function StepRow({
                   {[formatted.quantity, formatted.unit, formatted.item]
                     .filter(Boolean)
                     .join(' ')}
+                  {/* The whole amount, while the step's text says its part. */}
+                  {isDivided(ingredient) && formatted.quantity ? ', divided' : ''}
                 </span>
               )
             })}

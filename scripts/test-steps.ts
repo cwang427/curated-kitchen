@@ -4,7 +4,7 @@
  *
  *   npm run test:steps
  */
-import { splitStepText } from '../src/lib/quantity'
+import { isDivided, splitStepText } from '../src/lib/quantity'
 
 let passed = 0
 let failed = 0
@@ -56,6 +56,12 @@ eq('trims and drops empty fragments', splitStepText('Cook until done.   Serve ho
   'Cook until done.',
   'Serve hot.',
 ])
+
+console.log('isDivided')
+eq('"divided" in prep', isDivided({ prep: 'divided', note: null }), true)
+eq('"divided" in a note, any case', isDivided({ prep: 'softened', note: 'Divided, plus more for the pan' }), true)
+eq('not divided', isDivided({ prep: 'finely diced', note: null }), false)
+eq('a word that merely contains it doesn’t count', isDivided({ prep: 'undivided attention', note: null }), false)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)
