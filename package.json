@@ -1,7 +1,7 @@
 {
   "name": "curated-kitchen",
   "private": true,
-  "version": "0.54.0",
+  "version": "0.55.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,6 +25,7 @@
     "test:units": "tsx scripts/test-units.ts",
     "test:tags": "tsx scripts/test-tags.ts",
     "test:ratings": "tsx scripts/test-ratings.ts",
+    "test:feedback": "tsx scripts/test-feedback.ts",
     "test:worker": "tsx scripts/test-worker.ts",
     "test:queue": "tsx scripts/test-queue.ts",
     "test:push": "tsx scripts/test-push.ts",

@@ -38,7 +38,8 @@ export type PushSupport = 'ok' | 'needs-home-screen' | 'unsupported'
 function isIos(): boolean {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 }
-function isStandalone(): boolean {
+/** Running as the installed Home Screen app rather than a browser tab. */
+export function isStandalone(): boolean {
   return window.matchMedia?.('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
 }
 

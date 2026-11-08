@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import AppHeader from '../components/AppHeader'
 import VersionInfo from '../components/VersionInfo'
+import Feedback from '../components/Feedback'
 import { useAuth } from '../auth/AuthProvider'
 import {
   createHousehold,
@@ -731,6 +732,10 @@ export default function SettingsPage() {
             {youAreMember ? '' : ' · you’re a guest here'}
           </p>
         </section>
+
+        {/* Near the top so friends find it: a box to send feedback to the
+            owner — or, for the owner, the inbox. */}
+        <Feedback />
 
         <KitchenSwitcher />
 

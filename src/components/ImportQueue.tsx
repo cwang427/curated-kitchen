@@ -34,21 +34,12 @@ import { useCookSession } from '../data/cooksession'
 import { progressFraction, progressLine, type ImportProgress } from '../lib/importStage'
 import { timerAlerts } from '../lib/timerAlerts'
 import type { Recipe } from '../lib/types'
+import { agoText } from '../lib/when'
 
 function whenText(ms: number): string {
   if (ms <= 30_000) return 'shortly'
   const min = Math.round(ms / 60_000)
   return min < 60 ? `in ${Math.max(1, min)} min` : `in about ${Math.round(min / 60)} h`
-}
-
-function agoText(at: number | null, now: number): string {
-  if (!at) return ''
-  const min = Math.round((now - at) / 60_000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min} min ago`
-  const h = Math.round(min / 60)
-  if (h < 24) return `${h} h ago`
-  return new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 /** One import in progress (or stuck), as the list shows it. */

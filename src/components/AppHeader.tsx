@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import { Link, useAppNav } from './nav'
 import { useReviewRecipes } from '../data/recipes'
+import { useFeedback } from '../data/feedback'
 
 interface Props {
   title?: string
@@ -28,6 +29,9 @@ export default function AppHeader({ title, back, onBack, add, cart }: Props) {
   const canAdd = add && isMember
   // Imports waiting for someone to look them over, counted on the "+".
   const waiting = useReviewRecipes().recipes.length
+  // Feedback waiting for the app's owner, counted on their initial (Settings).
+  const feedback = useFeedback()
+  const openFeedback = feedback.owner ? feedback.items.filter((f) => !f.done).length : 0
   const { goUp } = useAppNav()
   const backClass =
     '-ml-1 grid size-9 shrink-0 place-items-center rounded-full text-ink-soft transition active:bg-line'
@@ -110,8 +114,8 @@ export default function AppHeader({ title, back, onBack, add, cart }: Props) {
         <Link
           to="/settings"
           title="Settings"
-          aria-label="Settings"
-          className="rounded-full border border-line"
+          aria-label={openFeedback ? `Settings — ${openFeedback} feedback waiting` : 'Settings'}
+          className="relative rounded-full border border-line"
         >
           {user?.photoURL ? (
             <img
@@ -123,6 +127,14 @@ export default function AppHeader({ title, back, onBack, add, cart }: Props) {
           ) : (
             <span className="grid size-9 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
               {displayName.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          {openFeedback > 0 && (
+            <span
+              aria-hidden
+              className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-xs font-semibold text-white dark:text-stone-900"
+            >
+              {openFeedback}
             </span>
           )}
         </Link>

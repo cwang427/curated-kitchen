@@ -234,6 +234,38 @@ service cloud.firestore {
         && request.resource.data.cookedBy == request.auth.uid;
     }
 
+    // Feedback from friends to the app's owner (src/data/feedback.ts). Each
+    // message is addressed to the app's main kitchen (the app fills it in),
+    // and only that kitchen's OWNER may read it — so it stays private between
+    // the sender and the owner, like a text. Anyone signed in may send one,
+    // as themselves, already marked not-done, timestamped by the server. The
+    // owner may tick it off (only `done` changes) or delete it; nobody can
+    // edit what someone said.
+    match /feedback/{feedbackId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(
+          ['uid', 'name', 'text', 'householdId', 'version', 'device', 'createdAt', 'done'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.version is string
+        && request.resource.data.version.size() <= 80
+        && request.resource.data.device is string
+        && request.resource.data.device.size() <= 120
+        && request.resource.data.done == false
+        && request.resource.data.createdAt == request.time
+        && householdExists(request.resource.data.householdId);
+
+      allow read, delete: if isOwner(resource.data.householdId);
+
+      allow update: if isOwner(resource.data.householdId)
+        && onlyChanged('done')
+        && request.resource.data.done is bool;
+    }
+
     // Anything not matched above is denied. New collections must add rules
     // here before they will work.
     match /{document=**} {

@@ -26,6 +26,7 @@ import {
   getDocs,
   getFirestore,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -365,8 +366,57 @@ async function main(): Promise<void> {
     if (cooked?.r2 !== undefined || cooked?.r3?.rating !== 6) throw new Error(`records were ${JSON.stringify(cooked)}`)
   })
 
+  // Feedback (src/data/feedback.ts): anyone signed in sends, as themselves;
+  // only the OWNER of the kitchen it's addressed to reads it — not a member,
+  // not the sender. Private between the two, like a text.
+  console.log('Feedback to the owner')
+  const F = await asUser('f-feedback@kitchen.local') // signed in, in none of A's kitchens
+  const M = await asUser('m-feedback@kitchen.local') // a member of hhA, not its owner
+  await setDoc(doc(M.db, 'users', M.uid), { email: 'm-feedback@kitchen.local', pendingInvite: mgmtMemberCode })
+  await updateDoc(doc(M.db, 'households', hhA), { memberUids: arrayUnion(M.uid) })
+  const note = (uid: string, extra: Record<string, unknown> = {}) => ({
+    uid,
+    name: 'Fran',
+    text: 'The star on the tiles confused me at first',
+    householdId: hhA,
+    version: '0.55.0 (abc1234)',
+    device: 'iPhone · iOS 18.2 · Home Screen app',
+    createdAt: serverTimestamp(),
+    done: false,
+    ...extra,
+  })
+  await expectAllow('anyone signed in sends feedback to the owner', () =>
+    setDoc(doc(F.db, 'feedback', 'fb1'), note(F.uid)),
+  )
+  await expectDeny("…but not in someone else's name", () => setDoc(doc(F.db, 'feedback', 'fb2'), note(A.uid)))
+  await expectDeny('…nor already ticked off', () => setDoc(doc(F.db, 'feedback', 'fb3'), note(F.uid, { done: true })))
+  await expectDeny('…nor empty', () => setDoc(doc(F.db, 'feedback', 'fb4'), note(F.uid, { text: '' })))
+  await expectDeny('…nor over 2,000 characters', () =>
+    setDoc(doc(F.db, 'feedback', 'fb5'), note(F.uid, { text: 'x'.repeat(2001) })),
+  )
+  await expectDeny('…nor with extra fields', () => setDoc(doc(F.db, 'feedback', 'fb6'), note(F.uid, { admin: true })))
+  await expectDeny('…nor backdated', () => setDoc(doc(F.db, 'feedback', 'fb7'), note(F.uid, { createdAt: 1000 })))
+  await expectDeny('…nor to a kitchen that does not exist', () =>
+    setDoc(doc(F.db, 'feedback', 'fb8'), note(F.uid, { householdId: 'hh_nowhere' })),
+  )
+  await expectDeny("the sender can't read it back (it's the owner's)", () => getDoc(doc(F.db, 'feedback', 'fb1')))
+  await expectDeny("a member who isn't the owner can't read it", () => getDoc(doc(M.db, 'feedback', 'fb1')))
+  await expectDeny("…nor list the kitchen's feedback", () =>
+    getDocs(query(collection(M.db, 'feedback'), where('householdId', '==', hhA))),
+  )
+  await expectAllow("the owner lists the kitchen's feedback", async () => {
+    const snap = await getDocs(query(collection(A.db, 'feedback'), where('householdId', '==', hhA)))
+    if (snap.size !== 1) throw new Error(`expected 1 message, got ${snap.size}`)
+  })
+  await expectAllow('the owner ticks it off', () => updateDoc(doc(A.db, 'feedback', 'fb1'), { done: true }))
+  await expectDeny("the owner can't change what someone said", () =>
+    updateDoc(doc(A.db, 'feedback', 'fb1'), { text: 'edited' }),
+  )
+  await expectDeny("the sender can't tick it off", () => updateDoc(doc(F.db, 'feedback', 'fb1'), { done: false }))
+  await expectAllow('the owner deletes it', () => deleteDoc(doc(A.db, 'feedback', 'fb1')))
+
   await signOut(A.auth)
-  await Promise.all([A, B, C].map((u) => deleteApp(u.app)))
+  await Promise.all([A, B, C, F, M].map((u) => deleteApp(u.app)))
 
   console.log(`\n${passed} passed, ${failed} failed`)
   // Firestore keeps gRPC streams open, so Node won't exit on its own.

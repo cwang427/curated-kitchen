@@ -78,7 +78,9 @@ confusion:
   weekly `schedule` only from the default branch, so it kicks in once this is on
   main; run it by hand from the Actions tab any time. It reuses the existing
   `FIREBASE_SERVICE_ACCOUNT` secret + `KITCHEN_HOUSEHOLD_ID` variable — no new
-  setup.
+  setup. **`KITCHEN_HOUSEHOLD_ID` also tells the app where friends' feedback
+  goes** (`deploy.yml` passes it to the build as `VITE_FEEDBACK_KITCHEN`; only
+  that kitchen's owner can read it) — change it and the inbox moves with it.
 - **Recipe import Worker → MANUAL (Cloudflare, one-time).** The `worker/`
   Cloudflare Worker powers "Add a recipe" imports and has **two routes**:
   - **`/url` (FREE) — paste a link.** The app can't fetch another site directly
@@ -616,12 +618,13 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
 - `npm run test:rules` — after any `firestore.rules` change. Runs ~70
   allow/deny assertions against the Firestore emulator (needs Java; first run
   downloads the CLI + emulator), including the `photos` collection (members
-  write, members + guests read) and the "made it" + score records on profiles
-  (you write only your own; merges touch only that recipe).
+  write, members + guests read), the "made it" + score records on profiles
+  (you write only your own; merges touch only that recipe), and `feedback`
+  (anyone sends as themselves; only the main kitchen's owner reads).
 - `npm run test:import` / `npm run test:text` / `npm run test:grocery` /
   `npm run test:steps` / `npm run test:draft` /
   `npm run test:cook` / `npm run test:ai` / `npm run test:units` /
-  `npm run test:tags` / `npm run test:ratings` — pure-logic unit tests for the JSON-LD converter, the
+  `npm run test:tags` / `npm run test:ratings` / `npm run test:feedback` — pure-logic unit tests for the JSON-LD converter, the
   free pasted-text importer (real full-page fixtures under
   `scripts/fixtures/text/`), the grocery merge/aisle logic, the cook-mode sentence splitter, the
   recipe editor's draft↔schema round-trip, and the "cooking now" multi-dish
@@ -633,11 +636,12 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
   kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
   score records (reading a profile's `cooked` safely, the others line, the
-  kitchen average, which score a tile shows — `src/lib/ratings.ts`). Run after touching
+  kitchen average, which score a tile shows — `src/lib/ratings.ts`), and
+  feedback's phone label and copy-for-Claude block (`src/lib/feedback.ts`). Run after touching
   `src/lib/importRecipe.ts`, `src/lib/importText.ts`, `src/lib/grocery.ts`,
   `src/lib/quantity.ts`, `src/lib/recipeDraft.ts`,
   `src/lib/cookboard.ts`, `src/lib/aiRecipe.ts`, `src/lib/units.ts`,
-  `src/lib/tags.ts`, or `src/lib/ratings.ts`.
+  `src/lib/tags.ts`, `src/lib/ratings.ts`, or `src/lib/feedback.ts`.
 - `npm run ui` / `npm run ui:build` — renders real pages against fixtures with
   Firebase stubbed (`.preview/stubs/`), for visual checks without credentials.
   Screenshot at phone width (393×852) and confirm no horizontal overflow,
@@ -953,6 +957,32 @@ carries the copier's own ✓ and score to the copy (`carryCooked`). Hidden on an
 import awaiting review, like the favorite. Records for deleted recipes just
 orphan on profiles (tiny). Trade-off of living on profiles: they're readable by
 any signed-in user, not only the kitchen — fine for invite-only accounts.
+And **feedback from friends** (v0.55; friends had been texting the owner):
+Settings opens with **Send feedback** — a box, Send, "Sent to Cassidy —
+thanks!" — and for the app's owner the same spot is the **inbox** ("Feedback
+from friends · 2 open"; each with who, when, phone and app version, and
+**Done ✓**; "Show N done"; **Copy open feedback for Claude**, a plain-text
+block, oldest first, to paste into a chat), with the open count on the
+owner's initial in the header. Stored privately in the `feedback`
+collection (`src/data/feedback.ts`, pure bits in `src/lib/feedback.ts`,
+`src/components/Feedback.tsx`) — the owner chose a private inbox over GitHub
+Issues because **the repo is public** and issues would be readable by anyone.
+**"The app's owner" is the owner of its main kitchen**: the deploy passes the
+repo's existing `KITCHEN_HOUSEHOLD_ID` variable (the one the weekly backup
+uses) into the build as `VITE_FEEDBACK_KITCHEN`; every message is addressed
+to that kitchen, and the rules let only its **owner** read, tick off or delete
+one (not a member, not the sender) — so nobody looks up an account id. Anyone
+signed in can send, as themselves, ≤2,000 characters, marked not-done,
+server-timestamped; nobody can edit what someone said (`test:rules`). The app
+learns it's the owner by reading that kitchen's `ownerUid` (guests and members
+can; others simply aren't). No signal: Firestore keeps the message on the
+phone and sends it later, so after 4 s the form says "Saved on your phone —
+it'll send by itself"; a failed send keeps the text and suggests texting
+instead. A build without the variable (local dev) hides the box. Each message
+records `deviceLabel` ("iPhone · iOS 18.2 · Home Screen app"; an iPad posing
+as a Mac is told apart by its touchscreen) and the build ("0.55.0 (9c6261e)").
+Not done (ideas): a push notification to the owner (needs the Worker to know
+the owner — a redeploy), and letting friends see their own past messages.
 Photos/screenshots are now handled by the free Gemini vision route (above), so
 the earlier on-device OCR idea (Tesseract.js / iOS Live Text) is shelved unless a
 fully-offline photo path is ever wanted. A PWA share-target ("Share → Curated

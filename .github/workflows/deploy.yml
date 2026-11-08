@@ -56,6 +56,11 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # The app's main kitchen (the one the weekly backup saves): friends'
+          # feedback is addressed to it, and only its owner can read it. Not a
+          # secret — the rules are the lock. Empty → the feedback box hides.
+          VITE_FEEDBACK_KITCHEN: ${{ vars.KITCHEN_HOUSEHOLD_ID }}
 
       - uses: actions/configure-pages@v5
 

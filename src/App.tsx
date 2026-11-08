@@ -14,6 +14,7 @@ import JoinPage from './routes/JoinPage'
 import { HistoryChain } from './components/nav'
 import { ImportRunner } from './components/ImportQueue'
 import { watchKitchenCooked, watchMyCooked } from './data/cooked'
+import { watchFeedback } from './data/feedback'
 
 function Loading() {
   return (
@@ -37,6 +38,8 @@ export default function App() {
     ? [...household.memberUids, ...household.friendUids].filter((other) => other !== uid).join(',')
     : ''
   useEffect(() => watchKitchenCooked(othersKey ? othersKey.split(',') : []), [othersKey])
+  // Feedback: who it goes to, and — for the app's owner — the inbox.
+  useEffect(() => watchFeedback(uid), [uid])
 
   if (loading) return <Loading />
   if (!user) return <SignIn />
