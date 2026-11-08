@@ -21,6 +21,7 @@
     "test:draft": "tsx scripts/test-draft.ts",
     "test:cook": "tsx scripts/test-cook.ts",
     "deploy:rules": "npx -y firebase-tools@13 deploy --only firestore:rules",
+    "check:rules": "tsx scripts/check-rules.ts",
     "test:ai": "tsx scripts/test-ai.ts",
     "test:units": "tsx scripts/test-units.ts",
     "test:tags": "tsx scripts/test-tags.ts",

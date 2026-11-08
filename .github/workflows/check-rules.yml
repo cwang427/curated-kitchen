@@ -1,0 +1,55 @@
+# "Did my Firestore rules re-publish take?" — compares the rules that are LIVE
+# with firestore.rules in the branch it runs on (scripts/check-rules.ts).
+#
+# Rules don't deploy with the app: after a change to firestore.rules the owner
+# pastes them into the Firebase console and taps Publish. Run this afterwards
+# from the phone — Actions › Check Firestore rules › Run workflow — and it goes
+# green when they match, red (with what's different) when they don't.
+#
+# Owner-only by construction: it uses the repo's FIREBASE_SERVICE_ACCOUNT
+# secret (the same one the recipe backup uses) and only READS the rules.
+name: Check Firestore rules
+
+on:
+  workflow_dispatch:
+  # Also when this check itself changes, so a new version proves itself.
+  push:
+    paths:
+      - .github/workflows/check-rules.yml
+      - scripts/check-rules.ts
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check setup
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::error::Missing the FIREBASE_SERVICE_ACCOUNT secret (the recipe backup uses it too)."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Write service-account key
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+          echo "FIREBASE_PROJECT_ID=$(node -p "require('$RUNNER_TEMP/sa.json').project_id")" >> "$GITHUB_ENV"
+
+      - name: Compare published rules with firestore.rules
+        run: npm run check:rules
