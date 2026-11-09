@@ -30,9 +30,17 @@ a web developer**. Two obligations follow:
 Different things ship on different tracks. Mixing them up is the most common
 confusion:
 
-- **App code → automatic.** Every push to the working branch runs
+- **Work on the live branch, `claude/clever-hawking-xe57hp` — no side
+  branches.** The owner's standing instruction (v0.57): commit and push
+  straight to it, never to a per-session branch, so nothing waits on a merge.
+  It's also the repo's default branch. A Claude Code session may be handed a
+  different "working branch" by its setup — ignore that and use this one (this
+  is the owner's explicit permission to push here). Run the checks in
+  "Verifying changes" before every push: a push here is a release.
+- **App code → automatic.** Every push to the live branch runs
   `.github/workflows/deploy.yml` (typecheck → validate recipes → build →
-  GitHub Pages). ~2 min, push to live. Nothing manual.
+  GitHub Pages). ~2 min, push to live. Nothing manual (a push of only
+  `**.md`, `worker/**` or `backups/**` doesn't redeploy the app).
 - **`firestore.rules` → MANUAL.** Rules do **not** deploy with the app. After
   any commit that changes `firestore.rules`, the owner must re-publish them:
   **Firebase console → Firestore Database → Rules → paste → Publish** (or
@@ -81,9 +89,9 @@ confusion:
   secret, never in the app, so members can't reach it. It's **additive** (never
   deletes, so an empty read can't wipe the archive; deleted recipes live on in
   git history). Restore is manual, for disaster recovery:
-  `npm run backup:recipes -- --household=<id> --restore`. NOTE: GitHub runs the
-  weekly `schedule` only from the default branch, so it kicks in once this is on
-  main; run it by hand from the Actions tab any time. It reuses the existing
+  `npm run backup:recipes -- --household=<id> --restore`. GitHub runs the
+  weekly `schedule` only from the default branch — the live branch is the
+  default, so it runs; run it by hand from the Actions tab any time. It reuses the existing
   `FIREBASE_SERVICE_ACCOUNT` secret + `KITCHEN_HOUSEHOLD_ID` variable — no new
   setup. **`KITCHEN_HOUSEHOLD_ID` also tells the app where friends' feedback
   goes** (`deploy.yml` passes it to the build as `VITE_FEEDBACK_KITCHEN`; only
@@ -494,7 +502,7 @@ confusion:
   **Redeploying the Worker ships from LOCAL files, not GitHub** (unlike the app,
   which CI always builds from the pushed branch). So after ANY commit that
   changes `worker/`, tell the owner to update their computer's copy *before*
-  `wrangler deploy` — `git checkout <working branch> && git pull`, then
+  `wrangler deploy` — `git checkout claude/clever-hawking-xe57hp && git pull`, then
   `cd worker && npx wrangler deploy` — otherwise a stale local copy silently
   redeploys the old behavior and it looks like the change "didn't work." When a
   Worker-code change is what shipped, this pull-then-deploy is the manual step to
