@@ -123,9 +123,12 @@ const RECIPE_TOOL = {
               description: 'A parallel measurement shown in parentheses, e.g. the "12 oz" in "340 g (12 oz)".',
               properties: { quantity: { type: 'number' }, unit: { type: 'string' } },
             },
-            group: { type: 'string', description: 'The part of the dish this goes into, as a heading: e.g. "For the sauce", "For the potatoes", "To finish". When the recipe is grouped, every ingredient has one.' },
+            group: { type: 'string', description: 'This ingredient\'s section heading — the part of the dish it goes into, e.g. "For the sauce", "For the potatoes", "To finish". "" only when the recipe has no sections at all.' },
           },
-          required: ['item', 'category'],
+          // `group` is required so the model decides it for each ingredient as
+          // it writes it (0.56.2): left optional, behind an up-front "groups"
+          // list, it was always skipped — see geminiSchema.
+          required: ['item', 'category', 'group'],
         },
       },
       steps: {
@@ -157,11 +160,6 @@ const RECIPE_TOOL = {
           required: ['text'],
         },
       },
-      groups: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Every heading used in ingredients[].group, in the order the recipe uses those parts. Empty only for an ungrouped recipe.',
-      },
       tags: {
         type: 'array',
         // Only the app's fixed list (src/lib/tags.ts) — anything else cluttered
@@ -185,6 +183,34 @@ const RECIPE_TOOL = {
   },
 } as const
 
+/**
+ * The recipe schema as Gemini gets it: the same fields, in a natural order.
+ * Gemini writes a structured answer's fields ALPHABETICALLY unless told
+ * otherwise (`propertyOrdering`, a Gemini extension). That put the old
+ * up-front "groups" list before "ingredients" — it committed to "no sections"
+ * before writing a single ingredient — and each ingredient's "group" before
+ * its "item". Real imports (0.56.0 and .1, a recipe with a plain sauce,
+ * potatoes and a garnish, even worked as the prompt's own example) came back
+ * with every section empty. Now the answer reads title → ingredients →
+ * steps, and each ingredient's section is its last field, decided once its
+ * name and amount are written. Every property is listed (the rest keep their
+ * order after the ones named), so nothing is dropped. The Claude route keeps
+ * the plain schema: propertyOrdering isn't JSON Schema.
+ */
+type SchemaNode = { properties?: Record<string, SchemaNode>; items?: SchemaNode; propertyOrdering?: string[] } & Record<string, unknown>
+export function geminiSchema(): SchemaNode {
+  const schema = structuredClone(RECIPE_TOOL.input_schema) as unknown as SchemaNode
+  const order = (node: SchemaNode | undefined, first: string[]) => {
+    if (!node?.properties) return
+    const keys = Object.keys(node.properties)
+    node.propertyOrdering = [...first.filter((k) => keys.includes(k)), ...keys.filter((k) => !first.includes(k))]
+  }
+  order(schema, ['title', 'subtitle', 'description', 'source', 'yield', 'times', 'ingredients', 'steps', 'tags', 'equipment', 'notes', 'not_a_recipe'])
+  order(schema.properties?.ingredients?.items, ['item', 'quantity', 'quantityMax', 'unit', 'prep', 'note', 'alt', 'optional', 'scalable', 'category', 'group'])
+  order(schema.properties?.steps?.items, ['text', 'brief', 'ingredients', 'timers', 'temperature', 'handsOff'])
+  return schema
+}
+
 const SYSTEM = `You convert recipes into Curated Kitchen's structured format. Be faithful to the source — never invent ingredients, amounts, times, or steps that aren't there, and never drop any. Keep the original wording of steps, except that amounts become {{ }} tokens and every ingredient a step uses gets its amount written in (rules below).
 
 Rules:
@@ -195,7 +221,7 @@ Rules:
 - In step text, wrap amounts that should scale with servings in {{ }} (e.g. "Add {{2 tbsp}} of the butter"). Leave times and temperatures as plain text. Put oven temps in the step's temperature field as well.
 - Amounts in every step: whenever a step uses an ingredient that has an amount, write that amount next to the ingredient's name, in both "text" and "brief", as a {{ }} token in the ingredient list's unit — even where the source only says "the garlic" — so the cook never has to look back at the list: "Add {{3 cloves}} garlic", "Whisk in {{2 tbsp}} of the olive oil", "Crack in {{2}} eggs". When an ingredient is split across steps, write the part THIS step uses ("half the butter" → "{{4 tbsp}} of the butter"; "the rest of the butter" → what's left). If the source doesn't make that part clear, keep its wording without an amount rather than guess. Ingredients without an amount (salt to taste, oil for frying) stay as written, and an amount that doesn't scale (water for boiling pasta) is written as plain text, not a token. Change nothing else about the wording.
 - For EVERY step, list in "ingredients" the 0-based positions in the ingredients array of every ingredient the cook measures out or reaches for in that step — including a portion it only calls "the rest" or "the remaining" — but not one an earlier step already prepared that's simply combined again ("toss with the cooked farro").
-- Sections: group the ingredient list by the part of the dish each ingredient goes into, so the cook sees at a glance what goes into the sauce and what goes into the rest. If the source has headings ("For the sauce", "Vinaigrette", "To serve", "Garnish"…), use them, worded as the source words them. If it has none, STILL group whenever the recipe makes a separate part — a sauce, glaze, dressing, marinade, rub, batter, filling or topping mixed on its own — or finishes with garnishes or toppings added at the end: name each group plainly ("For the sauce", "For the potatoes", "To finish") and give EVERY ingredient a group. Example: a recipe that whisks soy sauce, water, sugar and garlic in a bowl and sets it aside, browns potatoes in oil, then finishes with sesame oil and sesame seeds → "For the sauce" (soy sauce, water, sugar, garlic), "For the potatoes" (oil, potatoes), "To finish" (sesame oil, sesame seeds). Grouping is organizing, not inventing: never change, add or drop an ingredient to do it. A group needs at least two ingredients. Leave "group" and "groups" empty only when everything simply goes in together (a one-bowl batter, a soup built in one pot) or the recipe has fewer than about 6 ingredients. Set each ingredient's "group", and list every group in "groups" in the order the recipe uses them. Keep the ingredients in the source's order.
+- Sections: group the ingredient list by the part of the dish each ingredient goes into, so the cook sees at a glance what goes into the sauce and what goes into the rest. If the source has headings ("For the sauce", "Vinaigrette", "To serve", "Garnish"…), use them, worded as the source words them. If it has none, STILL group whenever the recipe makes a separate part — a sauce, glaze, dressing, marinade, rub, batter, filling or topping mixed on its own — or finishes with garnishes or toppings added at the end: name each group plainly ("For the sauce", "For the potatoes", "To finish") and give EVERY ingredient a group. Example: a recipe that whisks soy sauce, water, sugar and garlic in a bowl and sets it aside, browns potatoes in oil, then finishes with sesame oil and sesame seeds → "For the sauce" (soy sauce, water, sugar, garlic), "For the potatoes" (oil, potatoes), "To finish" (sesame oil, sesame seeds). Grouping is organizing, not inventing: never change, add or drop an ingredient to do it. A group needs at least two ingredients. Every ingredient has a "group": its section heading, or "" for every ingredient only when everything simply goes in together (a one-bowl batter, a soup built in one pot) or the recipe has fewer than about 6 ingredients. Use the identical heading text for every ingredient in the same section. Keep the ingredients in the source's order.
 - For EVERY step, also fill "brief": a scannable cook-mode version of that same step, one action per line (an array of short lines). Reuse the same {{ }} tokens for scalable amounts. This is a condensed restatement of the step's own text — keep the full prose in "text"; never let an instruction appear only in "brief".
 - Set "handsOff" true on a step that's a mostly-unattended wait the cook can step away from (simmer, bake, roast, braise, chill, rest, marinate, proof, reduce), and false on one that needs active attention (stir/whisk constantly, watch closely) or is a quick action. Omit if unclear.
 - Fill "equipment" with the notable tools the recipe uses (skillet, food processor, pressure cooker, etc.) when it names or clearly requires them. Don't invent specifics the recipe doesn't imply.
@@ -1653,7 +1679,7 @@ async function handleGemini(input: AiInput, env: Env, origin: string, report: Pr
       responseMimeType: 'application/json',
       maxOutputTokens: 16384,
     }
-    if (useSchema) generationConfig.responseSchema = RECIPE_TOOL.input_schema
+    if (useSchema) generationConfig.responseSchema = geminiSchema()
     return JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts }],
@@ -1871,7 +1897,6 @@ async function handleGemini(input: AiInput, env: Env, origin: string, report: Pr
     notes?: unknown[]
     equipment?: unknown[]
     tags?: unknown[]
-    groups?: unknown[]
     ingredients?: Array<{ group?: unknown }>
     steps?: Array<{ brief?: unknown[]; ingredients?: unknown[] }>
   }
@@ -1909,7 +1934,9 @@ async function handleGemini(input: AiInput, env: Env, origin: string, report: Pr
           ? recipe.steps.filter((s) => len(s.brief) > 0).length
           : 0,
         // Sections and step links (0.56): what the model sent, before the app.
-        groups: len(recipe.groups),
+        groups: Array.isArray(recipe.ingredients)
+          ? new Set(recipe.ingredients.map((i) => (typeof i?.group === 'string' ? i.group.trim() : '')).filter(Boolean)).size
+          : 0,
         groupedIngredients: Array.isArray(recipe.ingredients)
           ? recipe.ingredients.filter((i) => typeof i?.group === 'string' && i.group.trim()).length
           : 0,

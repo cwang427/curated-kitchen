@@ -12,6 +12,7 @@ import {
   handleImageProxy,
   recipeSignal,
   findRecipe,
+  geminiSchema,
   replayWaitMs,
   resetForTests,
   worker,
@@ -513,6 +514,28 @@ r = await link(BLOG)
 check('AI down after we got the page: code ai_busy, a plain message', r.status === 502 && r.body.code === 'ai_busy' && /overloaded/.test(String(r.body.error)), r.body)
 check('…no "import as listed" payload any more', r.body.jsonld === undefined && r.body.photos === undefined)
 check('…and the page was fetched once', calls.filter((c) => c.url === BLOG).length === 1)
+
+// Sections (0.56.2): Gemini writes a structured answer's fields alphabetically
+// unless told otherwise, and the up-front "groups" list + optional "group"
+// came back empty on every real import. The request now orders the answer
+// naturally, with each ingredient's section required and written last.
+{
+  let sent: { generationConfig?: { responseSchema?: unknown } } = {}
+  resetForTests({}, 0.01)
+  install({ direct: () => new Response(PAGES.recipeData), gemini: (_m, body) => ((sent = body as typeof sent), sse(slices(AI_RECIPE, 2))) })
+  await link(BLOG)
+  type Node = { properties?: Record<string, Node>; items?: Node; propertyOrdering?: string[]; required?: string[] }
+  const schema = sent.generationConfig?.responseSchema as Node | undefined
+  const ing = schema?.properties?.ingredients?.items
+  const stp = schema?.properties?.steps?.items
+  const same = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every((k) => b.includes(k))
+  check('the request carries the ordered schema', JSON.stringify(schema) === JSON.stringify(geminiSchema()))
+  check('the answer starts with the title, ingredients before steps', schema?.propertyOrdering?.[0] === 'title' && schema.propertyOrdering.indexOf('ingredients') < schema.propertyOrdering.indexOf('steps'), schema?.propertyOrdering)
+  check('no up-front list of sections to commit to', !schema?.properties?.groups)
+  check('every ingredient must say its section', !!ing?.required?.includes('group'), ing?.required)
+  check('…written once its name is: item first, section last', ing?.propertyOrdering?.[0] === 'item' && ing.propertyOrdering.at(-1) === 'group', ing?.propertyOrdering)
+  check('every field is still listed, at every level', same(schema?.propertyOrdering, Object.keys(schema?.properties ?? {})) && same(ing?.propertyOrdering, Object.keys(ing?.properties ?? {})) && same(stp?.propertyOrdering, Object.keys(stp?.properties ?? {})))
+}
 
 // Slow but steady: the answer takes longer than the old 30 s cut-off (0.3 s
 // here), arriving in pieces — now it's waited for.

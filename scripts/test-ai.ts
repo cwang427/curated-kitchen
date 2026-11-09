@@ -145,6 +145,9 @@ eq('step 2: the dressing’s oil; dropped, out-of-range, negative, fractional an
 eq('step 3: by position, plus an older Worker’s name link', uses(2), ['salt', '1 farro'])
 eq('the dressing’s ingredients carry their component', bowlRecipe.ingredients.filter((i) => i.group).map((i) => i.item), ['olive oil', 'lemon juice'])
 eq('a component used but not declared is declared for it', (sanitizeAiRecipe({ ...grainBowl, groups: [] }) as { groups: string[] }).groups, ['For the vinaigrette'])
+// 0.56.2: every ingredient carries "group" (no up-front list); "" means none.
+eq('sections come from the ingredients, in the order first used', (sanitizeAiRecipe({ ...grainBowl, groups: undefined, ingredients: grainBowl.ingredients.map((i, n) => ({ ...i, group: n < 3 ? 'For the bowl' : i.group ?? '' })) }) as { groups: string[] }).groups, ['For the bowl', 'For the vinaigrette'])
+eq('"" on every ingredient means no sections', (sanitizeAiRecipe({ ...grainBowl, groups: undefined, ingredients: grainBowl.ingredients.map((i) => ({ ...i, group: '' })) }) as { groups: string[] }).groups, [])
 check('no positions at all is fine (older Worker)', !throws(() => parseRecipe({ ...sanitizeAiRecipe({ ...grainBowl, steps: [{ text: 'Cook it all.' }] }), slug: 'b2' })))
 
 console.log(`\n${passed} passed, ${failed} failed`)

@@ -1002,21 +1002,30 @@ And **ingredient sections + an amount on every ingredient in every step**
 you go" checklist, both with amounts) — but **AI imports never asked for
 either**, so imported recipes had no sections, no chips and an empty cook-mode
 checklist, and step prose kept the source's "add the garlic". The Worker's
-schema now asks for `ingredients[].group` + top-level `groups`: the source's
-own headings, or — when it has none but makes a separate part (sauce, glaze,
+schema now asks for a **required** `ingredients[].group` — the source's own
+headings, or, when it has none but makes a separate part (sauce, glaze,
 dressing, marinade, rub, batter, filling, topping) or finishes with
-garnishes — plain headings on **every** ingredient ("For the sauce", "For the
-potatoes", "To finish"), listed in the order the recipe uses them, ≥2
-ingredients a group; ungrouped only for a one-bowl/one-pot recipe or one with
-fewer than ~6 ingredients. (0.56.0 said "clearly separate parts and ~8+
-ingredients, main ingredients ungrouped, else none", and on top of "be
-faithful, never invent" the -lite model played safe: a Serious Eats gamja
-bokkeum — sauce whisked and set aside, potatoes, sesame finish — came back
-with step links and amounts but no sections. 0.56.1 makes it the default,
-calls grouping "organizing, not inventing", and works that exact recipe as
-the example. The Worker's `gemini import ok` log line now also counts
-`groups`, `groupedIngredients`, `ingredients` and `linkedSteps` as the model
-sent them, so a missing section is plainly the model's or not.) And
+garnishes, plain headings on **every** ingredient ("For the sauce", "For the
+potatoes", "To finish"), ≥2 ingredients a group; `""` on every ingredient
+only for a one-bowl/one-pot recipe or one with fewer than ~6 ingredients.
+There's **no top-level `groups` list** any more: the app derives the order
+from the ingredients (first use). **Gemini writes a structured answer's
+fields alphabetically** unless the schema says otherwise, so `geminiSchema()`
+adds Gemini's `propertyOrdering` (title → … → ingredients → steps → …; each
+ingredient `item` first, `group` last; every property listed) — the Claude
+route keeps the plain schema. Why: 0.56.0 hedged ("clearly separate parts,
+~8+ ingredients, else none") and 0.56.1 made sections the default with a
+Serious Eats gamja bokkeum (sauce whisked and set aside, potatoes, sesame
+finish) as the prompt's own worked example — and that very recipe still
+came back with `"groups":0,"groupedIngredients":0` while step links, amounts
+and bullets all arrived. Alphabetically, the optional `groups` list came
+before `ingredients` (the model committed to "none" before writing one
+ingredient) and each `group` before its `item`; required-and-last makes the
+model decide each ingredient's section as it writes it. `test:worker` checks
+the request's schema (ordered, `group` required and last, nothing dropped).
+The Worker's `gemini import ok` log line counts `groups` (distinct sections
+on the ingredients), `groupedIngredients`, `ingredients` and `linkedSteps` as
+the model sent them, so a missing section is plainly the model's or not. And
 `steps[].ingredients`: **0-based positions** in the ingredient list of what
 the cook measures out or reaches for in that step (not something an earlier
 step made and that's simply combined again). Positions, not names, because
