@@ -99,16 +99,36 @@ export function formatScore(score: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
+/** Which score wins when a recipe has both yours and the kitchen's — a
+ * per-phone setting (Settings › Ratings), "mine" unless changed. */
+export type ScorePreference = 'mine' | 'kitchen'
+
+/** "Top rated" means at least this, out of RATING_MAX. */
+export const TOP_RATED_MIN = 7
+
 /**
- * The one score a kitchen tile shows, as "★ 8/10": yours once you've made it,
- * the kitchen's average until then. Made it but not scored → none, so the ✓
- * badge always means "the star is yours" and a star without a ✓ is always
- * the kitchen's.
+ * The one score a recipe goes by — on its kitchen card ("★ 8/10") and for
+ * the Top rated filter, so a card in Top rated always shows the score that
+ * put it there. Both yours and the kitchen's average: the setting decides.
+ * Only one: that one (a recipe you made but didn't score shows the
+ * kitchen's). Neither: none. `yours` colours the star — amber for yours,
+ * grey for the kitchen's.
  */
-export function tileScore(
+export function recipeScore(
   mine: CookedEntry | null,
   kitchen: number | null,
+  prefer: ScorePreference = 'mine',
 ): { score: number; yours: boolean } | null {
-  if (mine) return mine.rating !== null ? { score: mine.rating, yours: true } : null
-  return kitchen !== null ? { score: kitchen, yours: false } : null
+  const own = mine?.rating ?? null
+  if (own !== null && kitchen !== null) {
+    return prefer === 'kitchen' ? { score: kitchen, yours: false } : { score: own, yours: true }
+  }
+  if (own !== null) return { score: own, yours: true }
+  if (kitchen !== null) return { score: kitchen, yours: false }
+  return null
+}
+
+/** At least 7/10 — as the card shows it (an average of 6.96 reads "7/10"). */
+export function isTopRated(score: { score: number } | null): boolean {
+  return score !== null && Math.round(score.score * 10) / 10 >= TOP_RATED_MIN
 }

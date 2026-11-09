@@ -646,7 +646,8 @@ bump (0.x.0) per shipped feature, patch (0.x.y) for fixes.
   ("Main Course" → mains, "roman" → italian, "beef" dropped) and the
   kitchen's course sections (`src/lib/sections.ts`), and the "made it" +
   score records (reading a profile's `cooked` safely, the others line, the
-  kitchen average, which score a tile shows — `src/lib/ratings.ts`), and
+  kitchen average, which score a card / Top rated goes by and the 7/10 line —
+  `src/lib/ratings.ts`), and
   feedback's phone label and copy-for-Claude block (`src/lib/feedback.ts`);
   `test:ai` also covers step links by position and components, `test:draft`
   the editor's sections, `test:steps` the "divided" rule. Run after touching
@@ -942,14 +943,25 @@ a profile update would wipe everyone's scores). Records are app-wide listeners
 mounted in `App`: yours (`watchMyCooked` / `useMyCooked`) and everyone else's
 in the active kitchen, members and guests (`watchKitchenCooked` /
 `useKitchenCooked`, one per person). **The kitchen tile shows one score, "★ 8/10"**
-(`tileScore`), right-aligned on the time line so they line up down the grid:
-**yours once you've made it, the kitchen's average until then**; made but not
-scored shows none, so the ✓ badge on the photo's top-left (the heart stays
-top-right) always means "the star is yours" and a star without one is the
-kitchen's. The star is amber for yours, grey for the kitchen's; "/10" stays so
-it plainly reads as a rating. (Tried and dropped at the owner's call: "You 8 ·
-Kitchen 7.5" read as unintuitive; 👤/👥 icons by a number read as a head
-count.) **Kitchen** is `kitchenScore`: the average of everyone in the kitchen
+(`recipeScore`), right-aligned on the time line so they line up down the grid
+(the ✓ badge for "you've made it" sits on the photo's top-left, the heart
+top-right). **One rule for the cards and the ★ Top rated filter** (v0.57), so a
+card in Top rated always shows the score that put it there: a recipe with both
+your score and the kitchen's average goes by the one **Settings › Ratings**
+chooses ("My score", the default, or "Kitchen average" — per phone,
+`src/data/ratingPrefs.ts`, localStorage `ck.ratings.prefer`); with only one,
+that one (so a recipe you made but never scored shows the kitchen's — before
+0.57 it showed none, when "✓ means the star is yours" was the rule); with
+neither, none. The star's **colour says whose**: amber yours, grey the
+kitchen's; "/10" stays so it plainly reads as a rating. (Tried and dropped at
+the owner's call: "You 8 · Kitchen 7.5" read as unintuitive; 👤/👥 icons by a
+number read as a head count.) **★ Top rated** is the first chip in the
+kitchen's time row (then a divider, then Any time / ≤20 min…): only recipes
+scoring **≥ 7/10** (`TOP_RATED_MIN`, `isTopRated` — compared as the card shows
+it, so a 6.96 average that reads "7/10" counts); unrated recipes are hidden
+while it's on; it combines with search, time and tags, and isn't remembered
+between visits (like the other filters). With nothing to show it explains
+"After you make a recipe, tap 'Made it? Rate it'…". **Kitchen** is `kitchenScore`: the average of everyone in the kitchen
 who scored it, you included, shown only once someone *besides* you has (else
 it would just echo yours). **No dates are shown** — the owner found "made Nov
 4" an irrelevant detail, and odd for something made many times — though

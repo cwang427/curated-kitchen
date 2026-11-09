@@ -12,6 +12,10 @@ let mine: CookedMap = fresh
       'roast-chicken': { madeAt: Date.now() - 40 * DAY, rating: null },
       'extra-2': { madeAt: Date.now() - DAY, rating: 9 },
       'extra-4': { madeAt: Date.now() - 200 * DAY, rating: 10 },
+      // Where Settings › Ratings decides Top rated: yours 5 vs the kitchen's
+      // 7 (green beans), yours 8 vs the kitchen's 6 (Caesar).
+      'extra-6': { madeAt: Date.now() - 9 * DAY, rating: 5 },
+      'extra-10': { madeAt: Date.now() - 9 * DAY, rating: 8 },
     }
 
 // The preview kitchen's other people (see the AuthProvider stub). Covers each
@@ -27,6 +31,8 @@ const OTHERS: Record<string, KitchenPerson> = {
       'extra-0': { madeAt: 1, rating: 9 },
       'extra-2': { madeAt: 1, rating: 7 },
       'extra-9': { madeAt: 1, rating: 7 },
+      'extra-6': { madeAt: 1, rating: 9 },
+      'extra-10': { madeAt: 1, rating: 4 },
     },
   },
   friend_uid: {

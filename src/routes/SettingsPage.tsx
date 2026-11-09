@@ -26,6 +26,8 @@ import {
   useNotifications,
 } from '../data/notifications'
 import { describeFirestoreError } from '../lib/errors'
+import { setScorePreference, useScorePreference } from '../data/ratingPrefs'
+import { RATING_MAX, TOP_RATED_MIN, type ScorePreference } from '../lib/ratings'
 import type { Household, HouseholdRole, UserProfile } from '../lib/types'
 
 function displayNameFor(profile: UserProfile): string {
@@ -634,6 +636,43 @@ function NameEditor() {
   )
 }
 
+/**
+ * When a recipe has your score and the kitchen's average, which one it goes
+ * by — on its kitchen card and for Top rated (one score, so a card in Top
+ * rated always shows what put it there). On this phone.
+ */
+function RatingSettings() {
+  const prefer = useScorePreference()
+  const options: Array<[ScorePreference, string]> = [
+    ['mine', 'My score'],
+    ['kitchen', 'Kitchen average'],
+  ]
+  return (
+    <section className="rounded-2xl border border-line bg-card p-4">
+      <h3 className="font-medium">Ratings</h3>
+      <p className="mt-1 text-sm text-ink-soft">
+        When a recipe has your score and the kitchen’s average, which one counts — on recipe cards and for
+        Top rated ({TOP_RATED_MIN}/{RATING_MAX} and up). A recipe with only one uses that one.
+      </p>
+      <div role="group" aria-label="Score to use" className="mt-3 grid grid-cols-2 gap-1 rounded-full border border-line p-1">
+        {options.map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={prefer === value}
+            onClick={() => setScorePreference(value)}
+            className={`min-h-10 rounded-full px-3 text-sm transition ${
+              prefer === value ? 'bg-accent font-semibold text-white dark:text-stone-900' : 'text-ink-soft'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /** Notifications on this phone: imports ready for review, and timers. */
 function NotificationSettings() {
   const state = useNotifications()
@@ -751,6 +790,8 @@ export default function SettingsPage() {
         )}
 
         <NameEditor />
+
+        <RatingSettings />
 
         <NotificationSettings />
 

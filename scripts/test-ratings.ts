@@ -5,7 +5,7 @@
  *
  *   npm run test:ratings
  */
-import { describeOthers, formatScore, isRating, kitchenScore, othersWhoMade, parseCooked, tileScore, type KitchenPerson } from '../src/lib/ratings'
+import { describeOthers, formatScore, isRating, kitchenScore, othersWhoMade, parseCooked, recipeScore, isTopRated, type KitchenPerson } from '../src/lib/ratings'
 
 let passed = 0
 let failed = 0
@@ -75,11 +75,21 @@ eq('half', formatScore(7.5), '7.5')
 eq('thirds round to one place', formatScore(23 / 3), '7.7')
 eq('rounds up to whole', formatScore(7.96), '8')
 
-console.log('tileScore')
-eq('made + scored → yours, even with a kitchen average', tileScore({ madeAt: 1, rating: 8 }, 6.5), { score: 8, yours: true })
-eq('made, not scored → none (a ✓ means the star is yours)', tileScore({ madeAt: 1, rating: null }, 6.5), null)
-eq("not made → the kitchen's", tileScore(null, 7.5), { score: 7.5, yours: false })
-eq('not made, nobody scored → none', tileScore(null, null), null)
+console.log('recipeScore (cards and Top rated)')
+const mine8 = { madeAt: 1, rating: 8 }
+eq('both: yours by default', recipeScore(mine8, 6.5), { score: 8, yours: true })
+eq('both: the kitchen\'s when that\'s the setting', recipeScore(mine8, 6.5, 'kitchen'), { score: 6.5, yours: false })
+eq('only yours', recipeScore(mine8, null, 'kitchen'), { score: 8, yours: true })
+eq('only the kitchen\'s (not made)', recipeScore(null, 7.5), { score: 7.5, yours: false })
+eq('only the kitchen\'s (made, not scored)', recipeScore({ madeAt: 1, rating: null }, 7.5), { score: 7.5, yours: false })
+eq('neither', recipeScore({ madeAt: 1, rating: null }, null), null)
+
+console.log('isTopRated')
+eq('7 is top rated', isTopRated({ score: 7 }), true)
+eq('6.5 isn\'t', isTopRated({ score: 6.5 }), false)
+eq('an average that reads "7/10" counts (6.96)', isTopRated({ score: 6.96 }), true)
+eq('…one that reads "6.9/10" doesn\'t (6.94)', isTopRated({ score: 6.94 }), false)
+eq('unrated isn\'t', isTopRated(null), false)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed) process.exit(1)

@@ -12,7 +12,8 @@ import HeartIcon from '../components/HeartIcon'
 import CheckIcon from '../components/CheckIcon'
 import StarIcon from '../components/StarIcon'
 import { useKitchenCooked, useMyCooked } from '../data/cooked'
-import { RATING_MAX, formatScore, kitchenScore, tileScore, type CookedEntry } from '../lib/ratings'
+import { RATING_MAX, TOP_RATED_MIN, formatScore, isTopRated, kitchenScore, recipeScore, type CookedEntry } from '../lib/ratings'
+import { useScorePreference } from '../data/ratingPrefs'
 import type { Recipe } from '../lib/types'
 import { normalizeTags } from '../lib/tags'
 import { kitchenSections } from '../lib/sections'
@@ -97,15 +98,15 @@ function tileIcon(tags: string[]): string {
 function RecipeTile({
   recipe,
   cooked,
-  kitchen,
+  score,
   canFavorite,
   onToggleFavorite,
 }: {
   recipe: Recipe
   /** Your own ✓ and score for it, if you've made it. */
   cooked: CookedEntry | null
-  /** The kitchen's average score, when someone besides you has scored it. */
-  kitchen: number | null
+  /** The score it goes by (recipeScore): yours, the kitchen's, or none. */
+  score: { score: number; yours: boolean } | null
   /** Members can toggle; guests only see a filled heart when it's a favorite. */
   canFavorite: boolean
   onToggleFavorite: () => void
@@ -113,11 +114,10 @@ function RecipeTile({
   // Total time, start to finish — what "how long will this take?" means at a
   // glance, and the same figure the time filter uses.
   const time = formatMinutes(effectiveTotalMinutes(recipe.times))
-  // One score, "★ 8/10" — just as much what you pick tonight's dinner by:
-  // yours once you've made it (the ✓ on the photo says so), the kitchen's
-  // average until then. The star's colour backs that up: amber for yours,
-  // grey for the kitchen's.
-  const score = tileScore(cooked, kitchen)
+  // One score, "★ 8/10" — just as much what you pick tonight's dinner by,
+  // and the same one Top rated goes by (recipeScore): yours or the kitchen's
+  // average, per Settings › Ratings when it has both. The star's colour says
+  // whose: amber for yours, grey for the kitchen's.
 
   return (
     <Link
@@ -219,20 +219,33 @@ export default function RecipeListPage() {
   const [term, setTerm] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [maxTime, setMaxTime] = useState<number | null>(null)
+  // "★ Top rated": only recipes whose score is 7/10 or better.
+  const [topRated, setTopRated] = useState(false)
+  const prefer = useScorePreference()
+  // Each recipe's score, once — the cards and the filter must agree.
+  const scores = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof recipeScore>>()
+    for (const r of recipes) {
+      const mine = cooked[r.slug] ?? null
+      out.set(r.slug, recipeScore(mine, kitchenScore(r.slug, mine, kitchenCooked), prefer))
+    }
+    return out
+  }, [recipes, cooked, kitchenCooked, prefer])
 
   const tags = collectTags(recipes)
   const searched = useRecipeSearch(recipes, term, activeTags)
   // A time filter excludes recipes whose total time is unknown — we can't
   // claim they're under the limit.
+  // Top rated leaves out anything without a score.
   const results = useMemo(
     () =>
-      maxTime === null
-        ? searched
-        : searched.filter((r) => {
-            const total = effectiveTotalMinutes(r.times)
-            return total !== null && total <= maxTime
-          }),
-    [searched, maxTime],
+      searched.filter((r) => {
+        if (topRated && !isTopRated(scores.get(r.slug) ?? null)) return false
+        if (maxTime === null) return true
+        const total = effectiveTotalMinutes(r.times)
+        return total !== null && total <= maxTime
+      }),
+    [searched, maxTime, topRated, scores],
   )
 
   // Favorites, then by course (appetizers, mains, sides…), then the rest.
@@ -299,6 +312,21 @@ export default function RecipeListPage() {
         />
 
         <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
+          {/* How good, first; then how long. */}
+          <button
+            type="button"
+            onClick={() => setTopRated((on) => !on)}
+            aria-pressed={topRated}
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-sm transition ${
+              topRated
+                ? 'border-accent bg-accent text-white dark:text-stone-900'
+                : 'border-line bg-card text-ink-soft'
+            }`}
+          >
+            <StarIcon className="size-4" />
+            Top rated
+          </button>
+          <span aria-hidden className="my-1.5 w-px shrink-0 bg-line" />
           {TIME_BUCKETS.map((bucket) => {
             const active = maxTime === bucket.max
             return (
@@ -364,7 +392,16 @@ export default function RecipeListPage() {
         )}
 
         {!loading && recipes.length > 0 && results.length === 0 && (
-          <p className="mt-16 text-center text-ink-soft">Nothing matches that.</p>
+          topRated ? (
+            <div className="mt-16 space-y-2 text-center">
+              <p className="font-serif text-xl">Nothing rated {TOP_RATED_MIN}/{RATING_MAX} or higher{maxTime !== null || term || activeTags.length ? ' here' : ' yet'}</p>
+              <p className="mx-auto max-w-sm text-balance text-sm text-ink-soft">
+                After you make a recipe, tap “Made it? Rate it” on its page — scores of {TOP_RATED_MIN} and up show here.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-16 text-center text-ink-soft">Nothing matches that.</p>
+          )
         )}
 
         {/* Headings give a long kitchen landmarks: favorites, then each
@@ -378,7 +415,7 @@ export default function RecipeListPage() {
                     key={recipe.id}
                     recipe={recipe}
                     cooked={cooked[recipe.slug] ?? null}
-                    kitchen={kitchenScore(recipe.slug, cooked[recipe.slug] ?? null, kitchenCooked)}
+                    score={scores.get(recipe.slug) ?? null}
                     canFavorite={isMember}
                     onToggleFavorite={() => void setRecipeFavorite(recipe.slug, !recipe.favorite)}
                   />
