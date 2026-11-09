@@ -1002,10 +1002,21 @@ And **ingredient sections + an amount on every ingredient in every step**
 you go" checklist, both with amounts) — but **AI imports never asked for
 either**, so imported recipes had no sections, no chips and an empty cook-mode
 checklist, and step prose kept the source's "add the garlic". The Worker's
-schema now asks for `ingredients[].group` + top-level `groups` (the source's
-own headings; or, for a recipe with ~8+ ingredients and clearly separate
-parts — sauce, dressing, marinade, filling, topping, garnish — plain
-"For the sauce"-style headings on just those parts; else none), and
+schema now asks for `ingredients[].group` + top-level `groups`: the source's
+own headings, or — when it has none but makes a separate part (sauce, glaze,
+dressing, marinade, rub, batter, filling, topping) or finishes with
+garnishes — plain headings on **every** ingredient ("For the sauce", "For the
+potatoes", "To finish"), listed in the order the recipe uses them, ≥2
+ingredients a group; ungrouped only for a one-bowl/one-pot recipe or one with
+fewer than ~6 ingredients. (0.56.0 said "clearly separate parts and ~8+
+ingredients, main ingredients ungrouped, else none", and on top of "be
+faithful, never invent" the -lite model played safe: a Serious Eats gamja
+bokkeum — sauce whisked and set aside, potatoes, sesame finish — came back
+with step links and amounts but no sections. 0.56.1 makes it the default,
+calls grouping "organizing, not inventing", and works that exact recipe as
+the example. The Worker's `gemini import ok` log line now also counts
+`groups`, `groupedIngredients`, `ingredients` and `linkedSteps` as the model
+sent them, so a missing section is plainly the model's or not.) And
 `steps[].ingredients`: **0-based positions** in the ingredient list of what
 the cook measures out or reaches for in that step (not something an earlier
 step made and that's simply combined again). Positions, not names, because

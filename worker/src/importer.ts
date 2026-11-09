@@ -123,7 +123,7 @@ const RECIPE_TOOL = {
               description: 'A parallel measurement shown in parentheses, e.g. the "12 oz" in "340 g (12 oz)".',
               properties: { quantity: { type: 'number' }, unit: { type: 'string' } },
             },
-            group: { type: 'string', description: 'The component this ingredient is for, as a heading, e.g. "For the sauce". Omit for the main ingredients, or when the recipe has no separate components.' },
+            group: { type: 'string', description: 'The part of the dish this goes into, as a heading: e.g. "For the sauce", "For the potatoes", "To finish". When the recipe is grouped, every ingredient has one.' },
           },
           required: ['item', 'category'],
         },
@@ -160,7 +160,7 @@ const RECIPE_TOOL = {
       groups: {
         type: 'array',
         items: { type: 'string' },
-        description: 'The component headings used in ingredients[].group, in the order the recipe presents them. Empty when there are none.',
+        description: 'Every heading used in ingredients[].group, in the order the recipe uses those parts. Empty only for an ungrouped recipe.',
       },
       tags: {
         type: 'array',
@@ -195,7 +195,7 @@ Rules:
 - In step text, wrap amounts that should scale with servings in {{ }} (e.g. "Add {{2 tbsp}} of the butter"). Leave times and temperatures as plain text. Put oven temps in the step's temperature field as well.
 - Amounts in every step: whenever a step uses an ingredient that has an amount, write that amount next to the ingredient's name, in both "text" and "brief", as a {{ }} token in the ingredient list's unit — even where the source only says "the garlic" — so the cook never has to look back at the list: "Add {{3 cloves}} garlic", "Whisk in {{2 tbsp}} of the olive oil", "Crack in {{2}} eggs". When an ingredient is split across steps, write the part THIS step uses ("half the butter" → "{{4 tbsp}} of the butter"; "the rest of the butter" → what's left). If the source doesn't make that part clear, keep its wording without an amount rather than guess. Ingredients without an amount (salt to taste, oil for frying) stay as written, and an amount that doesn't scale (water for boiling pasta) is written as plain text, not a token. Change nothing else about the wording.
 - For EVERY step, list in "ingredients" the 0-based positions in the ingredients array of every ingredient the cook measures out or reaches for in that step — including a portion it only calls "the rest" or "the remaining" — but not one an earlier step already prepared that's simply combined again ("toss with the cooked farro").
-- Components: if the source splits its ingredient list under headings ("For the sauce", "Vinaigrette", "To serve", "Garnish"…), set each ingredient's "group" to its heading, worded as the source words it, and list the headings in "groups" in the source's order. If it doesn't, but the recipe clearly makes separate parts — a sauce, dressing, marinade, filling, topping or garnish — and has about 8 or more ingredients, group just those parts the same way with plain headings ("For the sauce", "For the garnish") and leave the main ingredients without a group. Otherwise leave every "group" and "groups" empty. Keep the ingredients in the source's order.
+- Sections: group the ingredient list by the part of the dish each ingredient goes into, so the cook sees at a glance what goes into the sauce and what goes into the rest. If the source has headings ("For the sauce", "Vinaigrette", "To serve", "Garnish"…), use them, worded as the source words them. If it has none, STILL group whenever the recipe makes a separate part — a sauce, glaze, dressing, marinade, rub, batter, filling or topping mixed on its own — or finishes with garnishes or toppings added at the end: name each group plainly ("For the sauce", "For the potatoes", "To finish") and give EVERY ingredient a group. Example: a recipe that whisks soy sauce, water, sugar and garlic in a bowl and sets it aside, browns potatoes in oil, then finishes with sesame oil and sesame seeds → "For the sauce" (soy sauce, water, sugar, garlic), "For the potatoes" (oil, potatoes), "To finish" (sesame oil, sesame seeds). Grouping is organizing, not inventing: never change, add or drop an ingredient to do it. A group needs at least two ingredients. Leave "group" and "groups" empty only when everything simply goes in together (a one-bowl batter, a soup built in one pot) or the recipe has fewer than about 6 ingredients. Set each ingredient's "group", and list every group in "groups" in the order the recipe uses them. Keep the ingredients in the source's order.
 - For EVERY step, also fill "brief": a scannable cook-mode version of that same step, one action per line (an array of short lines). Reuse the same {{ }} tokens for scalable amounts. This is a condensed restatement of the step's own text — keep the full prose in "text"; never let an instruction appear only in "brief".
 - Set "handsOff" true on a step that's a mostly-unattended wait the cook can step away from (simmer, bake, roast, braise, chill, rest, marinate, proof, reduce), and false on one that needs active attention (stir/whisk constantly, watch closely) or is a quick action. Omit if unclear.
 - Fill "equipment" with the notable tools the recipe uses (skillet, food processor, pressure cooker, etc.) when it names or clearly requires them. Don't invent specifics the recipe doesn't imply.
@@ -1871,7 +1871,9 @@ async function handleGemini(input: AiInput, env: Env, origin: string, report: Pr
     notes?: unknown[]
     equipment?: unknown[]
     tags?: unknown[]
-    steps?: Array<{ brief?: unknown[] }>
+    groups?: unknown[]
+    ingredients?: Array<{ group?: unknown }>
+    steps?: Array<{ brief?: unknown[]; ingredients?: unknown[] }>
   }
   try {
     recipe = JSON.parse(text)
@@ -1905,6 +1907,15 @@ async function handleGemini(input: AiInput, env: Env, origin: string, report: Pr
         tags: len(recipe.tags),
         briefSteps: Array.isArray(recipe.steps)
           ? recipe.steps.filter((s) => len(s.brief) > 0).length
+          : 0,
+        // Sections and step links (0.56): what the model sent, before the app.
+        groups: len(recipe.groups),
+        groupedIngredients: Array.isArray(recipe.ingredients)
+          ? recipe.ingredients.filter((i) => typeof i?.group === 'string' && i.group.trim()).length
+          : 0,
+        ingredients: len(recipe.ingredients),
+        linkedSteps: Array.isArray(recipe.steps)
+          ? recipe.steps.filter((s) => len(s.ingredients) > 0).length
           : 0,
       }),
   )
