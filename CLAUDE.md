@@ -1009,7 +1009,10 @@ garnishes, plain headings on **every** ingredient ("For the sauce", "For the
 potatoes", "To finish"), ≥2 ingredients a group; `""` on every ingredient
 only for a one-bowl/one-pot recipe or one with fewer than ~6 ingredients.
 There's **no top-level `groups` list** any more: the app derives the order
-from the ingredients (first use). **Gemini writes a structured answer's
+from the ingredients (first use). And since a section is now required, an
+import where **one section covers every ingredient** ("For the soup" on all
+of them) has it dropped in `sanitizeAiRecipe` — a simple recipe stays one
+plain list with no heading (import only; a section set in the editor stays). **Gemini writes a structured answer's
 fields alphabetically** unless the schema says otherwise, so `geminiSchema()`
 adds Gemini's `propertyOrdering` (title → … → ingredients → steps → …; each
 ingredient `item` first, `group` last; every property listed) — the Claude

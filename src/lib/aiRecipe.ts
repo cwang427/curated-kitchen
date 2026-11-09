@@ -192,13 +192,20 @@ export function sanitizeAiRecipe(raw: unknown): Obj {
   const t = isObj(raw.times) ? raw.times : {}
   const src = isObj(raw.source) ? raw.source : {}
 
+  // One section holding every ingredient isn't a section: a simple recipe
+  // would show a lone "FOR THE SOUP" over its whole list. Now that the model
+  // must name a section for each ingredient (0.56.2), drop that case so a
+  // one-list recipe stays one plain list. (At import only — a section set by
+  // hand in the editor is kept.)
+  const ingredientGroups = new Set(ingredients.map((i) => i.group as string | undefined))
+  if (ingredientGroups.size === 1 && [...ingredientGroups][0]) {
+    const only = [...ingredientGroups][0]
+    for (const line of [...ingredients, ...steps]) if (line.group === only) delete line.group
+  }
+
   // Every group a line uses must be declared, or parseRecipe refuses it.
-  const groups = [
-    ...new Set([
-      ...strList(raw.groups),
-      ...[...ingredients, ...steps].map((x) => x.group as string | undefined).filter((g): g is string => !!g),
-    ]),
-  ]
+  const used = [...ingredients, ...steps].map((x) => x.group as string | undefined).filter((g): g is string => !!g)
+  const groups = [...new Set([...strList(raw.groups).filter((g) => used.includes(g)), ...used])]
 
   return {
     title: str(raw.title) ?? 'Untitled recipe',

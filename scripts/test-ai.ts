@@ -95,7 +95,11 @@ eq('a range token survives', repairTokens('{{2-3 cloves}}'), '{{2-3 cloves}}')
 {
   const grouped = sanitizeAiRecipe({
     ...pickledOnions,
-    ingredients: [{ quantity: 1, item: 'onion', category: 'produce', group: 'Brine' }],
+    // Two lines, so "Brine" isn't the lone section over everything (dropped).
+    ingredients: [
+      { quantity: 1, item: 'onion', category: 'produce', group: 'Brine' },
+      { quantity: 1, unit: 'cup', item: 'vinegar', category: 'pantry' },
+    ],
   })
   eq('an undeclared group gets declared', grouped.groups, ['Brine'])
   check('…and then validates', !throws(() => parseRecipe({ ...grouped, slug: 'g' })))
@@ -148,6 +152,18 @@ eq('a component used but not declared is declared for it', (sanitizeAiRecipe({ .
 // 0.56.2: every ingredient carries "group" (no up-front list); "" means none.
 eq('sections come from the ingredients, in the order first used', (sanitizeAiRecipe({ ...grainBowl, groups: undefined, ingredients: grainBowl.ingredients.map((i, n) => ({ ...i, group: n < 3 ? 'For the bowl' : i.group ?? '' })) }) as { groups: string[] }).groups, ['For the bowl', 'For the vinaigrette'])
 eq('"" on every ingredient means no sections', (sanitizeAiRecipe({ ...grainBowl, groups: undefined, ingredients: grainBowl.ingredients.map((i) => ({ ...i, group: '' })) }) as { groups: string[] }).groups, [])
+// A simple recipe must stay one plain list: one section over everything is none.
+{
+  const simple = { title: 'Soup', ingredients: grainBowl.ingredients.filter((i) => i.item).map((i) => ({ ...i, group: 'For the soup' })), steps: [{ text: 'Simmer it all.' }] }
+  const out = sanitizeAiRecipe(simple) as { groups: string[]; ingredients: Array<{ group?: string }> }
+  eq('one section over every ingredient → no heading', out.groups, [])
+  check('…and no ingredient keeps it', out.ingredients.every((i) => i.group === undefined))
+  check('…and it validates', !throws(() => parseRecipe({ ...out, slug: 's' })))
+  const twoParts = sanitizeAiRecipe({ ...simple, ingredients: simple.ingredients.map((i, n) => ({ ...i, group: n < 2 ? 'For the soup' : 'To serve' })) }) as { groups: string[] }
+  eq('two sections are kept', twoParts.groups, ['For the soup', 'To serve'])
+  const mainPlusGarnish = sanitizeAiRecipe({ ...simple, ingredients: simple.ingredients.map((i, n) => ({ ...i, group: n < 4 ? '' : 'To finish' })) }) as { groups: string[] }
+  eq('a section next to unsectioned ingredients is kept', mainPlusGarnish.groups, ['To finish'])
+}
 check('no positions at all is fine (older Worker)', !throws(() => parseRecipe({ ...sanitizeAiRecipe({ ...grainBowl, steps: [{ text: 'Cook it all.' }] }), slug: 'b2' })))
 
 console.log(`\n${passed} passed, ${failed} failed`)
